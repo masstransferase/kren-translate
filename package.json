@@ -1027,7 +1027,7 @@
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.6.1",
-    "esbuild": "^0.25.5",
+    "esbuild": "^0.28.1",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }
