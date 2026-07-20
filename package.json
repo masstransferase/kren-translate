@@ -1014,7 +1014,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.2.5",
+    "fast-xml-parser": "^5.10.1",
     "harper.js": "^2.4.0"
   },
   "overrides": {
