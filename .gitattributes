@@ -1,0 +1,3 @@
+# Keep private planning files out of sanitized public exports.
+DESIGN.md export-ignore
+docs/RELEASE_CHECKLIST.md export-ignore

@@ -1,0 +1,17 @@
+.github/
+.vscode/
+.gitignore
+src/
+test/
+dist/test/
+.vscode-test.mjs
+vitest.config.ts
+node_modules/
+coverage/
+DESIGN.md
+docs/RELEASE_CHECKLIST.md
+UI.md
+UI.html
+esbuild.mjs
+tsconfig.json
+*.vsix

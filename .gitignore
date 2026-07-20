@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.vsix
+.vscode-test/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+*credentials*.json
+*.pem
+*.key

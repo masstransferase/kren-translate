@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a focused KREN improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Describe the workflow problem without including confidential text.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy, provider, and cost implications
+      description: Note whether the proposal scans more text, stores data, calls a service, or may incur charges.
+    validations:
+      required: true

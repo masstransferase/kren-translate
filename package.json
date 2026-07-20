@@ -1,0 +1,1034 @@
+{
+  "name": "kren-translate",
+  "displayName": "KREN: Dictionary, Translate & Rewrite",
+  "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, English rewriting, and read aloud inside VS Code.",
+  "version": "1.0.0",
+  "private": true,
+  "publisher": "masstransferase",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/masstransferase/kren-translate.git"
+  },
+  "homepage": "https://github.com/masstransferase/kren-translate#readme",
+  "bugs": {
+    "url": "https://github.com/masstransferase/kren-translate/issues"
+  },
+  "pricing": "Free",
+  "icon": "media/kren-icon.png",
+  "galleryBanner": {
+    "color": "#f5f7fb",
+    "theme": "light"
+  },
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "Korean",
+    "English",
+    "translation",
+    "dictionary",
+    "thesaurus",
+    "synonyms",
+    "rewrite",
+    "proofreading",
+    "language",
+    "productivity",
+    "text to speech",
+    "Gemini",
+    "OpenAI",
+    "Claude"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Dictionaries, grammar checking, translation, explanation, rewriting, and Local Windows speech remain available. Edge Online speech is disabled because it launches a configured Python executable.",
+      "restrictedConfigurations": [
+        "kren.readAloud.edgePythonCommand"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "KREN is designed for a local VS Code Desktop extension host."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "kren.translateSelection",
+        "title": "Translate Selection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.dictionarySearchSelection",
+        "title": "English Dictionary Search",
+        "shortTitle": "English Dictionary",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.koreanDictionarySearchSelection",
+        "title": "Korean Dictionary Search",
+        "shortTitle": "Korean Dictionary",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.explainSelection",
+        "title": "Explain Meaning or Nuance",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.synonymsSearchSelection",
+        "title": "Synonyms Search",
+        "shortTitle": "Synonyms",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.grammarCheckSelection",
+        "title": "Grammar Check",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.clearGrammarFindings",
+        "title": "Clear Grammar Findings",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.clearGrammarCustomDictionary",
+        "title": "Clear Custom Grammar Dictionary",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.clearIgnoredGrammarFindings",
+        "title": "Clear Ignored Grammar Findings",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.rewriteEnglishSelection",
+        "title": "Rewrite English: All 3 Variants",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.rewriteNaturalSelection",
+        "title": "Rewrite English: Natural English",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.rewriteConciseSelection",
+        "title": "Rewrite English: Concise",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.rewriteJargonFreeSelection",
+        "title": "Rewrite English: Jargon-Free",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.readAloudSelection",
+        "title": "Read Aloud",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.stopReadAloud",
+        "title": "Stop Read Aloud",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.previewReadAloud",
+        "title": "Preview Read Aloud Voice",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.useClipboard",
+        "title": "Use Clipboard",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.copyLastResult",
+        "title": "Copy Last Result",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.replaceLastResult",
+        "title": "Replace Selection with Last Result",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.showDetails",
+        "title": "Show Last Result Details",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.showResults",
+        "title": "Show KREN Secondary Sidebar",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.hideSecondarySidebar",
+        "title": "Hide Secondary Sidebar",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.clearResults",
+        "title": "Clear Rich Results",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.openPanelSettings",
+        "title": "Open Rich Panel Settings",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.configureProvider",
+        "title": "Configure Translation Provider",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.configureLanguages",
+        "title": "Configure Translation and Explanation Languages",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.configureRewriteGeminiProfile",
+        "title": "Configure Rewrite Gemini Profile",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setGeminiApiKey",
+        "title": "Set Default Gemini API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteGeminiApiKey",
+        "title": "Delete Default Gemini API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setGeminiProApiKey",
+        "title": "Set Alternate Gemini API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteGeminiProApiKey",
+        "title": "Delete Alternate Gemini API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setOpenAIApiKey",
+        "title": "Set OpenAI API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteOpenAIApiKey",
+        "title": "Delete OpenAI API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testOpenAIConnection",
+        "title": "Test OpenAI Connection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setAnthropicApiKey",
+        "title": "Set Anthropic API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteAnthropicApiKey",
+        "title": "Delete Anthropic API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testAnthropicConnection",
+        "title": "Test Anthropic Connection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setGoogleCloudTranslationApiKey",
+        "title": "Set Google Cloud Translation API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteGoogleCloudTranslationApiKey",
+        "title": "Delete Google Cloud Translation API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.showGoogleCloudTranslationUsage",
+        "title": "Show Google Cloud Translation Usage",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setMerriamWebsterCollegiateApiKey",
+        "title": "Set Merriam-Webster Collegiate API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteMerriamWebsterCollegiateApiKey",
+        "title": "Delete Merriam-Webster Collegiate API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setMerriamWebsterThesaurusApiKey",
+        "title": "Set Merriam-Webster Thesaurus API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteMerriamWebsterThesaurusApiKey",
+        "title": "Delete Merriam-Webster Thesaurus API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setKoreanDictionaryApiKey",
+        "title": "Set Korean Dictionary API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteKoreanDictionaryApiKey",
+        "title": "Delete Korean Dictionary API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteAllApiKeys",
+        "title": "Delete All Stored API Keys",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testKoreanDictionary",
+        "title": "Test Korean Dictionary Connection",
+        "category": "KREN"
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "kren-results",
+          "title": "KREN",
+          "icon": "media/kren-book.svg"
+        }
+      ]
+    },
+    "views": {
+      "kren-results": [
+        {
+          "type": "webview",
+          "id": "kren.resultsView",
+          "name": "Results",
+          "contextualTitle": "KREN Results"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "kren.dictionaryMenu",
+        "label": "Dictionary Search"
+      },
+      {
+        "id": "kren.rewriteMenu",
+        "label": "Rewrite English"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "kren.dictionaryMenu",
+          "when": "editorHasSelection",
+          "group": "kren@10"
+        },
+        {
+          "command": "kren.translateSelection",
+          "when": "editorHasSelection",
+          "group": "kren@20"
+        },
+        {
+          "command": "kren.explainSelection",
+          "when": "editorHasSelection",
+          "group": "kren@30"
+        },
+        {
+          "command": "kren.grammarCheckSelection",
+          "when": "editorHasSelection",
+          "group": "kren@40"
+        },
+        {
+          "submenu": "kren.rewriteMenu",
+          "when": "editorHasSelection",
+          "group": "kren@50"
+        },
+        {
+          "command": "kren.readAloudSelection",
+          "when": "editorHasSelection && isWindows",
+          "group": "kren@60"
+        }
+      ],
+      "kren.dictionaryMenu": [
+        {
+          "command": "kren.dictionarySearchSelection",
+          "when": "editorHasSelection",
+          "group": "1_dictionary@10"
+        },
+        {
+          "command": "kren.synonymsSearchSelection",
+          "when": "editorHasSelection",
+          "group": "1_dictionary@20"
+        },
+        {
+          "command": "kren.koreanDictionarySearchSelection",
+          "when": "editorHasSelection",
+          "group": "1_dictionary@30"
+        }
+      ],
+      "kren.rewriteMenu": [
+        {
+          "command": "kren.rewriteEnglishSelection",
+          "when": "editorHasSelection",
+          "group": "1_rewrite@10"
+        },
+        {
+          "command": "kren.rewriteNaturalSelection",
+          "when": "editorHasSelection",
+          "group": "1_rewrite@20"
+        },
+        {
+          "command": "kren.rewriteConciseSelection",
+          "when": "editorHasSelection",
+          "group": "1_rewrite@30"
+        },
+        {
+          "command": "kren.rewriteJargonFreeSelection",
+          "when": "editorHasSelection",
+          "group": "1_rewrite@40"
+        },
+        {
+          "command": "kren.configureRewriteGeminiProfile",
+          "group": "2_configure@10"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "kren.translateSelection",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "kren.stopReadAloud",
+        "key": "escape",
+        "when": "kren.readAloudActive"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "kren_lookupEnglishDictionary",
+        "displayName": "KREN English Dictionary",
+        "toolReferenceName": "krenEnglishDictionary",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(book)",
+        "userDescription": "Look up an English word or short expression with Merriam-Webster.",
+        "modelDescription": "Look up an English word or short multi-word expression in Merriam-Webster Collegiate. For a multi-word expression only, Google Cloud Translation is used when Merriam-Webster returns no entry. Use this for authoritative English dictionary definitions, not general translation.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The exact English word or short expression to look up. No surrounding document context."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "kren_lookupKoreanDictionary",
+        "displayName": "KREN Korean Dictionary",
+        "toolReferenceName": "krenKoreanDictionary",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(book)",
+        "userDescription": "Look up a Korean word with the Korean Basic Dictionary.",
+        "modelDescription": "Look up one Korean headword in the Korean Basic Dictionary and return its English dictionary entry. Use only for Korean single-word dictionary lookup.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The exact Korean word to look up."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "kren_searchSynonyms",
+        "displayName": "KREN Synonyms Search",
+        "toolReferenceName": "krenSynonyms",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-keyword)",
+        "userDescription": "Find synonyms and related word groups with Merriam-Webster Collegiate Thesaurus.",
+        "modelDescription": "Search Merriam-Webster Collegiate Thesaurus for the explicit English word or short expression. Returns synonyms by sense plus available near synonyms, related words, phrases, antonyms, and near antonyms.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The exact English word or short expression whose synonyms should be searched."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "kren_translateText",
+        "displayName": "KREN Translate",
+        "toolReferenceName": "krenTranslate",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(globe)",
+        "userDescription": "Translate explicitly supplied text with the configured KREN provider.",
+        "modelDescription": "Translate only the explicit text argument with KREN's configured Google Cloud Translation or Gemini provider. Input language is detected automatically. Do not add editor, file, workspace, or chat context to the text argument.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "Only the exact text the user wants translated."
+            },
+            "targetLanguage": {
+              "type": "string",
+              "description": "Optional ISO/BCP-47 output language code; otherwise the KREN setting is used."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "kren_explainText",
+        "displayName": "KREN Explain Meaning or Nuance",
+        "toolReferenceName": "krenExplain",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(comment-discussion)",
+        "userDescription": "Explain the meaning, nuance, register, or connotation of explicitly supplied text.",
+        "modelDescription": "Use KREN's configured Gemini, OpenAI API, or Anthropic Claude API provider to explain meaning, nuance, register, connotation, ambiguity, and technical usage for only the explicit text argument. Do not add editor, file, workspace, or chat context.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "Only the exact text whose meaning or nuance should be explained."
+            },
+            "outputLanguage": {
+              "type": "string",
+              "description": "Optional ISO/BCP-47 explanation language code, or bilingual for English and Korean."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "configuration": {
+      "title": "KREN Translate",
+      "properties": {
+        "kren.translationProvider": {
+          "type": "string",
+          "enum": [
+            "googleCloudTranslation",
+            "gemini"
+          ],
+          "enumDescriptions": [
+            "Use standard Google Cloud Translation NMT with your own API key and KREN's hard local monthly limit.",
+            "Use the Gemini Developer API with your own key."
+          ],
+          "default": "googleCloudTranslation",
+          "description": "Provider used by Translate Selection. Dictionary commands use Merriam-Webster for English and KBD for Korean."
+        },
+        "kren.translation.targetLanguage": {
+          "type": "string",
+          "default": "ko",
+          "description": "ISO/BCP-47 output language code used by Translate Selection. The input language is detected automatically. Use KREN: Configure Translation and Explanation Languages for a searchable selector."
+        },
+        "kren.grammar.dialect": {
+          "type": "string",
+          "enum": [
+            "american",
+            "british",
+            "australian",
+            "canadian",
+            "indian"
+          ],
+          "enumDescriptions": [
+            "Check American English spelling and grammar.",
+            "Check British English spelling and grammar.",
+            "Check Australian English spelling and grammar.",
+            "Check Canadian English spelling and grammar.",
+            "Check Indian English spelling and grammar."
+          ],
+          "default": "american",
+          "description": "English dialect used by the offline Harper Grammar Check. Selected text never leaves this computer."
+        },
+        "kren.grammar.autoCheck": {
+          "type": "boolean",
+          "default": false,
+          "description": "After typing pauses, check only the current paragraph with local Harper. Off by default; no text is sent over the network."
+        },
+        "kren.grammar.autoCheckDelayMs": {
+          "type": "number",
+          "enum": [
+            500,
+            900,
+            1500,
+            2500
+          ],
+          "default": 900,
+          "description": "Delay in milliseconds before optional automatic current-paragraph grammar checking."
+        },
+        "kren.explanation.outputLanguage": {
+          "type": "string",
+          "default": "bilingual",
+          "description": "ISO/BCP-47 output language code used by Explain Meaning or Nuance, or bilingual for English and Korean. Use the KREN language configuration command for a searchable selector."
+        },
+        "kren.explanation.provider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "openai",
+            "anthropic"
+          ],
+          "enumDescriptions": [
+            "Use the Gemini Developer API.",
+            "Use the OpenAI API. API charges may apply.",
+            "Use the Anthropic Claude API. API charges may apply."
+          ],
+          "default": "gemini",
+          "description": "Language-model provider used by Explain Meaning or Nuance. KREN never silently falls back to a different provider."
+        },
+        "kren.explanation.geminiProfile": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "pro"
+          ],
+          "enumDescriptions": [
+            "Use the user-supplied default Gemini key and kren.gemini.model.",
+            "Use the optional user-supplied alternate Gemini key and kren.gemini.alternateModel."
+          ],
+          "default": "standard",
+          "description": "Gemini credential and model profile used by Explain Meaning or Nuance."
+        },
+        "kren.rewrite.provider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "openai",
+            "anthropic"
+          ],
+          "enumDescriptions": [
+            "Use the selected default or alternate Gemini profile.",
+            "Use the OpenAI API. API charges may apply.",
+            "Use the Anthropic Claude API. API charges may apply."
+          ],
+          "default": "gemini",
+          "description": "Language-model provider used by Rewrite English. KREN never silently falls back to a different provider."
+        },
+        "kren.openai.model": {
+          "type": "string",
+          "default": "gpt-5.4",
+          "description": "Editable OpenAI model ID used for explanation and rewriting when OpenAI is selected."
+        },
+        "kren.openai.reasoningEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Reasoning effort sent to compatible OpenAI models."
+        },
+        "kren.anthropic.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "description": "Editable Anthropic model ID used for explanation and rewriting when Anthropic is selected."
+        },
+        "kren.anthropic.effort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Effort sent to compatible Anthropic models."
+        },
+        "kren.languageModel.retry.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Retry transient OpenAI and Anthropic failures with the same selected provider."
+        },
+        "kren.languageModel.retry.maxAttempts": {
+          "type": "number",
+          "enum": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "default": 3,
+          "description": "Maximum OpenAI or Anthropic attempts, including the initial request."
+        },
+        "kren.gemini.model": {
+          "type": "string",
+          "default": "gemini-3.5-flash",
+          "description": "Gemini model ID. Availability, access, quotas, pricing, and permitted use depend on the user's Google project and region."
+        },
+        "kren.gemini.thinkingLevel": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Thinking level for the default Gemini profile. Auto selects a compatible level for the configured model."
+        },
+        "kren.gemini.retry.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically retry transient Gemini failures such as 408, 429, 500, 502, 503, and 504."
+        },
+        "kren.gemini.retry.maxAttempts": {
+          "type": "number",
+          "enum": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "default": 4,
+          "description": "Maximum Gemini attempts, including the initial request. Retries use exponential backoff and honor Retry-After."
+        },
+        "kren.rewrite.geminiProfile": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "pro"
+          ],
+          "enumDescriptions": [
+            "Use the user-supplied default Gemini key and kren.gemini.model.",
+            "Use the optional user-supplied alternate Gemini key and kren.gemini.alternateModel."
+          ],
+          "default": "standard",
+          "description": "Gemini credential and model profile used by Rewrite English."
+        },
+        "kren.gemini.alternateModel": {
+          "type": "string",
+          "default": "gemini-3.1-pro-preview",
+          "description": "Model used by the alternate Gemini profile for Explain Meaning or Nuance and Rewrite English. The KREN settings interface provides editable discovered suggestions."
+        },
+        "kren.gemini.alternateFallbackEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "For Rewrite English, use the configured alternate-profile fallback model after exhausted HTTP 429, 503, or 504 retries or an unusable structured response. Fallback use is identified in the result."
+        },
+        "kren.gemini.alternateFallbackModel": {
+          "type": "string",
+          "default": "gemini-2.5-pro",
+          "description": "Rewrite English fallback model for the alternate Gemini profile when its primary model remains rate-limited, temporarily unavailable, or returns unusable structured output."
+        },
+        "kren.gemini.alternateThinkingLevel": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "enumDescriptions": [
+            "Lowest latency and thinking-token cost; recommended for rewriting.",
+            "Balanced additional reasoning, latency, and cost.",
+            "Maximum reasoning depth, latency, and potential cost."
+          ],
+          "default": "low",
+          "description": "Thinking level used by the alternate Gemini profile for explanation and rewriting. Model support varies by the configured model."
+        },
+        "kren.rewrite.preferredVariant": {
+          "type": "string",
+          "enum": [
+            "natural",
+            "concise",
+            "jargonFree"
+          ],
+          "enumDescriptions": [
+            "Show Natural English first.",
+            "Show the Concise rewrite first.",
+            "Show the Jargon-Free rewrite first."
+          ],
+          "default": "natural",
+          "description": "Rewrite variant selected initially in the rich KREN panel. All returned variants remain available as tabs."
+        },
+        "kren.rewrite.quickMenuVariant": {
+          "type": "string",
+          "enum": [
+            "all",
+            "natural",
+            "concise",
+            "jargonFree"
+          ],
+          "enumDescriptions": [
+            "Place the all-three-variants action first in the KREN clipboard Quick Pick.",
+            "Place Natural English first in the KREN clipboard Quick Pick.",
+            "Place Concise first in the KREN clipboard Quick Pick.",
+            "Place Jargon-Free first in the KREN clipboard Quick Pick."
+          ],
+          "default": "all",
+          "description": "Preferred Rewrite English action in the KREN clipboard Quick Pick. All four rewrite choices remain available."
+        },
+        "kren.rewrite.domain": {
+          "type": "string",
+          "enum": [
+            "general",
+            "academic",
+            "technical",
+            "business",
+            "email"
+          ],
+          "enumDescriptions": [
+            "General-purpose English without a specialized domain style.",
+            "Disciplined academic prose with appropriate qualification and terminology.",
+            "Precise technical prose that preserves necessary specialist terminology.",
+            "Clear professional business prose focused on actions and decisions.",
+            "Natural professional email wording without invented greetings or sign-offs."
+          ],
+          "default": "general",
+          "description": "Domain preset applied to Rewrite English requests."
+        },
+        "kren.rewrite.englishVariety": {
+          "type": "string",
+          "enum": [
+            "followGrammar",
+            "american",
+            "british",
+            "australian",
+            "canadian",
+            "indian",
+            "international"
+          ],
+          "enumDescriptions": [
+            "Use the English dialect selected under Grammar Check.",
+            "Use standard American English.",
+            "Use standard British English.",
+            "Use standard Australian English.",
+            "Use standard Canadian English.",
+            "Use standard Indian English.",
+            "Use internationally accessible, region-neutral English."
+          ],
+          "default": "followGrammar",
+          "description": "English spelling, punctuation, vocabulary, idiom, and usage applied to Rewrite English requests."
+        },
+        "kren.rewrite.tone": {
+          "type": "string",
+          "enum": [
+            "preserveVoice",
+            "neutral",
+            "professional",
+            "warm",
+            "assertive",
+            "cautious",
+            "diplomatic",
+            "formal",
+            "direct",
+            "plainLanguage"
+          ],
+          "enumDescriptions": [
+            "Preserve the writer's recognizable voice, formality, cadence, and personality.",
+            "Use a neutral, natural, professional tone.",
+            "Use polished, credible professional wording without becoming stiff.",
+            "Use approachable and respectful wording without inventing familiarity.",
+            "Use confident wording without strengthening claims or certainty.",
+            "Use careful qualifications and avoid unsupported certainty.",
+            "State the message tactfully and constructively.",
+            "Use formal, precise wording without becoming ornate.",
+            "State the point clearly and economically without becoming abrupt.",
+            "Prefer familiar words, direct syntax, and reasonably short sentences."
+          ],
+          "default": "preserveVoice",
+          "description": "Tone preset applied to Rewrite English requests."
+        },
+        "kren.rewrite.rhetoricalMode": {
+          "type": "string",
+          "enum": [
+            "preserveOriginal",
+            "explain",
+            "persuade",
+            "recommend",
+            "constructivelyChallenge"
+          ],
+          "enumDescriptions": [
+            "Preserve the source's original communicative intent.",
+            "Make the supplied point easier to understand without inventing context.",
+            "Organize the supplied claims persuasively without adding evidence or urgency.",
+            "Frame the supplied position as a clear recommendation without inventing reasons or obligations.",
+            "Express the supplied concern or disagreement clearly and respectfully."
+          ],
+          "default": "preserveOriginal",
+          "description": "Rhetorical goal applied to Rewrite English requests."
+        },
+        "kren.rewrite.preserveFormatting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Tell the selected rewrite provider to preserve Markdown, LaTeX, citations, links, placeholders, filenames, and code while rewriting."
+        },
+        "kren.rewrite.includeChangeNotes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask the selected rewrite provider to include one concise explanation of the important edits for each rewrite variant."
+        },
+        "kren.rewrite.tts.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show explicit Read Aloud and Stop controls for rewrite variants using KREN's shared speech source, voice, speed, and volume."
+        },
+        "kren.readAloud.voice": {
+          "type": "string",
+          "default": "",
+          "description": "Installed Windows System.Speech voice used by the editor Read Aloud command. Leave empty to use the Windows default voice."
+        },
+        "kren.readAloud.rate": {
+          "type": "number",
+          "minimum": -10,
+          "maximum": 10,
+          "default": 0,
+          "description": "Windows Read Aloud speech rate. Zero is the normal voice rate."
+        },
+        "kren.readAloud.volume": {
+          "type": "number",
+          "enum": [
+            25,
+            50,
+            75,
+            100
+          ],
+          "default": 100,
+          "description": "Shared Read Aloud playback volume for Local Windows and Edge Online speech."
+        },
+        "kren.readAloud.provider": {
+          "type": "string",
+          "enum": [
+            "windowsLocal",
+            "edgeOnline"
+          ],
+          "enumDescriptions": [
+            "Use an installed offline Windows System.Speech voice. Selected text never leaves the PC.",
+            "Use an experimental Microsoft Edge online neural voice through edge-tts. Only the cleaned selected text is sent to Microsoft."
+          ],
+          "default": "windowsLocal",
+          "description": "Shared speech source for editor selections, rewrite variants, and voice preview."
+        },
+        "kren.readAloud.edgeVoice": {
+          "type": "string",
+          "default": "en-US-ChristopherNeural",
+          "description": "Editable Microsoft Edge online voice ID. The KREN panel visibly offers Christopher Natural and Ava Natural presets."
+        },
+        "kren.readAloud.edgeRatePercent": {
+          "type": "number",
+          "minimum": -50,
+          "maximum": 100,
+          "default": 0,
+          "description": "Microsoft Edge online voice speed adjustment. Zero percent is the natural speed."
+        },
+        "kren.readAloud.edgePythonCommand": {
+          "type": "string",
+          "default": "python",
+          "scope": "machine",
+          "description": "Python interpreter containing the optional edge-tts package. Install it with: python -m pip install edge-tts"
+        },
+        "kren.dictionary.multiWordTranslationFallback": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Google Cloud Translation when Merriam-Webster has no entry for a multi-word English expression."
+        },
+        "kren.pronunciation.windowsNativePlayback": {
+          "type": "boolean",
+          "default": true,
+          "description": "On a local Windows extension host, download validated Merriam-Webster pronunciation audio to a bounded temporary file and play it through a hidden native PowerShell/WPF process. No application window opens. Failures fall back to the KREN webview player."
+        },
+        "kren.display.mode": {
+          "type": "string",
+          "enum": [
+            "hover",
+            "quickPick",
+            "details"
+          ],
+          "default": "hover",
+          "description": "Where an immediate result is displayed."
+        },
+        "kren.translation.maxCharacters": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1,
+          "maximum": 20000,
+          "description": "Maximum number of selected characters sent to a provider."
+        },
+        "kren.request.timeoutMs": {
+          "type": "number",
+          "default": 45000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "description": "Provider request timeout in milliseconds."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "npm run typecheck && npm test",
+    "compile": "npm run typecheck && node esbuild.mjs",
+    "dev": "node esbuild.mjs --watch",
+    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository",
+    "test": "node esbuild.mjs && vitest run",
+    "test:integration": "npm run compile && vscode-test",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.2.5",
+    "harper.js": "^2.4.0"
+  },
+  "overrides": {
+    "diff": "^8.0.3",
+    "serialize-javascript": "^7.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.106.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.6.1",
+    "esbuild": "^0.25.5",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

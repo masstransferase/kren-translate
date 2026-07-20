@@ -1,0 +1,12 @@
+# The owner reviews all public changes. Public contributors have no merge authority.
+* @masstransferase
+
+# Security-sensitive and release-sensitive areas
+/.github/ @masstransferase
+/src/providers/ @masstransferase
+/src/extension.ts @masstransferase
+/src/chatTools.ts @masstransferase
+/PRIVACY.md @masstransferase
+/SECURITY.md @masstransferase
+/package.json @masstransferase
+/package-lock.json @masstransferase
