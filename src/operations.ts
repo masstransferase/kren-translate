@@ -130,8 +130,7 @@ export async function runKrenOperation(
     );
   }
   if (operation === 'explain') {
-    const provider = await createLanguageModelProvider(runtime, 'explanation');
-    return provider.explain(request, signal);
+    return explainWithLanguageModelProvider(runtime, request, signal);
   }
   const provider = await createTranslationProvider(runtime);
   return provider.translate(request, signal);
@@ -233,21 +232,17 @@ async function rewriteEnglish(
   try {
     return await primaryProvider.rewrite(request, signal);
   } catch (error) {
-    const fallbackModel = runtime.getSetting<string>(
-      'gemini.alternateFallbackModel',
-      'gemini-2.5-pro'
-    ).trim();
     const fallbackEnabled = profile === 'pro' &&
       runtime.getSetting<boolean>('gemini.alternateFallbackEnabled', true);
-    if (!fallbackEnabled || !isProFallbackError(error) ||
-        normalizeModelId(fallbackModel) === normalizeModelId(model)) {
+    const fallbackSettings = alternateGeminiFallback(runtime, model);
+    if (!fallbackEnabled || !fallbackSettings || !isProFallbackError(error)) {
       throw error;
     }
     const fallback = await new GeminiProvider(
       key,
-      fallbackModel,
+      fallbackSettings.model,
       'configureGeminiProModel',
-      proThinkingLevel,
+      fallbackSettings.thinkingLevel,
       retries
     ).rewrite(request, signal);
     return {
@@ -264,8 +259,29 @@ function isRewriteOperation(operation: KrenOperation): operation is RewriteOpera
 
 export function isProFallbackError(error: unknown): error is ProviderError {
   return error instanceof ProviderError &&
-    (error.status === 429 || error.status === 503 || error.status === 504 ||
+    (error.status === 404 || error.status === 429 || error.status === 503 || error.status === 504 ||
       error.reason === 'structuredOutput');
+}
+
+function alternateGeminiFallback(
+  runtime: KrenRuntime,
+  primaryModel: string
+): { model: string; thinkingLevel: GeminiThinkingLevel | undefined } | undefined {
+  const model = runtime.getSetting<string>(
+    'gemini.alternateFallbackModel',
+    'gemini-3.5-flash'
+  ).trim();
+  if (!model || normalizeModelId(model) === normalizeModelId(primaryModel)) return undefined;
+  return {
+    model,
+    thinkingLevel: configuredThinkingLevel(
+      model,
+      runtime.getSetting<GeminiThinkingLevel | 'auto'>(
+        'gemini.alternateFallbackThinkingLevel',
+        'low'
+      )
+    )
+  };
 }
 
 function normalizeModelId(model: string): string {
@@ -485,6 +501,41 @@ async function createLanguageModelProvider(
     profile === 'pro' ? alternateThinking : defaultThinking,
     languageModelRetries(runtime, 'gemini.retry')
   );
+}
+
+async function explainWithLanguageModelProvider(
+  runtime: KrenRuntime,
+  request: TranslationRequest,
+  signal: AbortSignal
+): Promise<Extract<KrenResult, { kind: 'translation' }>> {
+  const provider = await createLanguageModelProvider(runtime, 'explanation');
+  try {
+    return await provider.explain(request, signal);
+  } catch (error) {
+    const providerId = runtime.getSetting<LanguageModelProviderId>('explanation.provider', 'gemini');
+    const profile = runtime.getSetting<GeminiProfile>('explanation.geminiProfile', 'standard');
+    const fallbackEnabled = providerId === 'gemini' && profile === 'pro' &&
+      runtime.getSetting<boolean>('gemini.alternateFallbackEnabled', true);
+    const primaryModel = runtime.getSetting<string>(
+      'gemini.alternateModel',
+      'gemini-3.1-pro-preview'
+    );
+    const fallbackSettings = alternateGeminiFallback(runtime, primaryModel);
+    if (!fallbackEnabled || !fallbackSettings || !isProFallbackError(error)) throw error;
+    const key = await runtime.getSecret(KREN_SECRET_KEYS.geminiPro);
+    if (!key) throw error;
+    const fallback = await new GeminiProvider(
+      key,
+      fallbackSettings.model,
+      'configureGeminiProModel',
+      fallbackSettings.thinkingLevel,
+      languageModelRetries(runtime, 'gemini.retry')
+    ).explain(request, signal);
+    return {
+      ...fallback,
+      fallbackFromModel: normalizeModelId(primaryModel)
+    };
+  }
 }
 
 async function createExternalLanguageModelProvider(

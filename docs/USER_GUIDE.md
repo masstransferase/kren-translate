@@ -139,7 +139,7 @@ Editor-originated translation results can be copied or explicitly replace the un
 
 ## Explain Meaning or Nuance
 
-Choose Gemini, OpenAI API, or Anthropic API independently for explanation. With Gemini, choose either the Default or Alternate profile, each with its corresponding stored key, model, and thinking level. KREN can explain meaning, nuance, connotation, register, ambiguity, and technical usage in a selected language or English/Korean bilingual mode.
+Choose Gemini, OpenAI API, or Anthropic API independently for explanation. With Gemini, choose either the Default or Alternate profile, each with its corresponding stored key, model, and thinking level. The Alternate profile can use its configured same-provider fallback model and independent fallback thinking level when the primary model is unavailable or produces unusable structured output. KREN can explain meaning, nuance, connotation, register, ambiguity, and technical usage in a selected language or English/Korean bilingual mode.
 
 KREN never silently falls back across companies. Model discovery and connection tests authenticate only with the selected provider and do not send selected document text.
 
@@ -155,7 +155,7 @@ Configure an English variety, a domain (General, Academic, Technical, Business, 
 
 KREN instructs providers not to invent facts, evidence, promises, certainty, examples, greetings, or document context. AI output can still be wrong; verify claims, numbers, citations, terminology, and intended tone before replacement. Editor results provide Copy and guarded Replace controls for each variant. Clipboard results provide Copy only.
 
-Rewrite and Explain depend on the selected provider's model and network availability. A valid request can occasionally fail during a temporary demand spike or connection interruption; repeating it often succeeds. High thinking or effort settings can add substantial latency, so Auto or Low is usually the better choice for routine editing.
+Rewrite and Explain depend on the selected provider's model and network availability. A valid request can occasionally fail during a temporary demand spike or connection interruption; repeating it often succeeds. The Alternate Gemini profile defaults to the stable `gemini-3.5-flash` fallback, with its own thinking-level control. High thinking or effort settings can add substantial latency, so Auto or Low is usually the better choice for routine editing.
 
 ## Pronunciation and Read Aloud
 

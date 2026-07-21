@@ -128,6 +128,9 @@ export function resultDetails(result: KrenResult): string {
   if (result.kind === 'translation') {
     lines.push('Translation', '-----------', result.translatedText);
     if (result.modelId) lines.push('', `Model: ${result.modelId}`);
+    if (result.fallbackFromModel) {
+      lines.push(`Fallback: ${result.modelId} used after ${result.fallbackFromModel} could not produce a usable result.`);
+    }
     if (result.alternatives?.length) {
       lines.push('', 'Alternatives', '------------', ...result.alternatives.map((item) => `- ${item}`));
     }

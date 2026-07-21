@@ -58,7 +58,6 @@ describe('Gemini privacy boundary', () => {
     expect(thinkingLevelForModel('gemini-3.5-flash')).toBe('minimal');
     expect(thinkingLevelForModel('gemini-3.1-pro-preview')).toBe('low');
     expect(thinkingLevelForModel('gemini-3.5-pro-preview')).toBe('low');
-    expect(thinkingLevelForModel('gemini-2.5-pro')).toBe('low');
     expect(thinkingLevelForModel('custom-legacy-model')).toBeUndefined();
     expect(configuredThinkingLevel('gemini-3.1-pro-preview', 'minimal')).toBe('low');
     expect(configuredThinkingLevel('gemini-3.5-flash', 'auto')).toBe('minimal');

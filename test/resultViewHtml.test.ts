@@ -32,7 +32,8 @@ const settings: KrenPanelSettings = {
   alternateModel: 'gemini-3.1-pro-preview',
   alternateThinkingLevel: 'low',
   alternateFallbackEnabled: true,
-  alternateFallbackModel: 'gemini-2.5-pro',
+  alternateFallbackModel: 'gemini-3.5-flash',
+  alternateFallbackThinkingLevel: 'low',
   preferredRewriteVariant: 'natural',
   quickMenuRewriteVariant: 'all',
   rewriteDomain: 'technical',
@@ -63,7 +64,7 @@ const googleAttributionImageUri = 'vscode-webview://test/media/google-translate-
 
 const proModels = [
   { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro Preview' },
-  { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' }
+  { id: 'gemini-3.5-flash', displayName: 'Gemini 3.5 Flash' }
 ];
 
 describe('KREN rich result view', () => {
@@ -175,7 +176,7 @@ describe('KREN rich result view', () => {
       targetLanguage: 'en',
       kind: 'rewrite',
       providerId: 'gemini',
-      modelId: 'gemini-2.5-pro',
+      modelId: 'gemini-3.5-flash',
       fallbackFromModel: 'gemini-3.1-pro-preview',
       sourceText: 'Leverage synergies.',
       englishVariety: 'british',
@@ -209,6 +210,7 @@ describe('KREN rich result view', () => {
     expect(html).toContain('KREN Settings');
     expect(html).toContain('data-setting="gemini.retry.enabled"');
     expect(html).toContain('data-setting="gemini.alternateFallbackModel"');
+    expect(html).toContain('data-setting="gemini.alternateFallbackThinkingLevel"');
     expect(html).toContain('data-setting="explanation.geminiProfile"');
     expect(html).toContain('data-setting="rewrite.quickMenuVariant"');
     expect(html).toContain('data-setting="rewrite.englishVariety"');
@@ -244,8 +246,8 @@ describe('KREN rich result view', () => {
     expect(html).toContain('25%');
     expect(html).toContain('0% (normal)');
     expect(html).toContain('Fallback used after <strong>gemini-3.1-pro-preview</strong>');
-    expect(html).toContain('<div class="provider"><span>gemini-2.5-pro</span></div>');
-    expect(html).not.toContain('Model: <strong>gemini-2.5-pro</strong>');
+    expect(html).toContain('<div class="provider"><span>gemini-3.5-flash</span></div>');
+    expect(html).not.toContain('Model: <strong>gemini-3.5-flash</strong>');
     expect(html).not.toContain('<span>Gemini<br>');
     expect(html).toContain('All KREN settings');
     expect(html).toContain('data-command="showManual"');

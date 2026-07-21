@@ -69,6 +69,7 @@ const GEMINI_CONSENT = 'kren.gemini.termsConsent.v4';
 const OPENAI_CONSENT = 'kren.openai.paidConsent.v2';
 const ANTHROPIC_CONSENT = 'kren.anthropic.paidConsent.v2';
 const CLOUD_DEFAULT_MIGRATION = 'kren.migration.cloudTranslationDefault.v1';
+const GEMINI_FALLBACK_MODEL_MIGRATION = 'kren.migration.geminiFallbackModel.v1';
 const LEGACY_CLOUD_USAGE_KEY = 'kren.googleCloudTranslation.usage.v1';
 const EDGE_TTS_CONSENT = 'kren.edgeTts.onlineConsent.v1';
 const GRAMMAR_CUSTOM_WORDS = 'kren.grammar.customWords.v1';
@@ -117,6 +118,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void warmHarperGrammar().catch(() => undefined);
   await migrateTranslationProviderToCloud(context);
+  await migrateDeprecatedGeminiFallback(context);
   registerKrenChatTools(context, extensionRuntime(context));
   resultsView = new KrenResultsViewProvider({
     copy: copyLastResult,
@@ -427,7 +429,11 @@ function readPanelSettings(): KrenPanelSettings {
     alternateFallbackEnabled: config.get<boolean>('gemini.alternateFallbackEnabled', true),
     alternateFallbackModel: config.get<string>(
       'gemini.alternateFallbackModel',
-      'gemini-2.5-pro'
+      'gemini-3.5-flash'
+    ),
+    alternateFallbackThinkingLevel: config.get<KrenPanelSettings['alternateFallbackThinkingLevel']>(
+      'gemini.alternateFallbackThinkingLevel',
+      'low'
     ),
     preferredRewriteVariant: config.get<KrenPanelSettings['preferredRewriteVariant']>(
       'rewrite.preferredVariant',
@@ -573,6 +579,12 @@ function validatedPanelSetting(
   }
   if (key === 'gemini.alternateThinkingLevel') {
     return value === 'low' || value === 'medium' || value === 'high' ? value : undefined;
+  }
+  if (key === 'gemini.alternateFallbackThinkingLevel') {
+    return typeof value === 'string' &&
+      ['auto', 'minimal', 'low', 'medium', 'high'].includes(value)
+      ? value
+      : undefined;
   }
   if (key === 'rewrite.preferredVariant') {
     return value === 'natural' || value === 'concise' || value === 'jargonFree'
@@ -785,6 +797,38 @@ async function migrateTranslationProviderToCloud(
     );
   }
   await context.globalState.update(CLOUD_DEFAULT_MIGRATION, true);
+}
+
+async function migrateDeprecatedGeminiFallback(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (context.globalState.get<boolean>(GEMINI_FALLBACK_MODEL_MIGRATION, false)) return;
+  const config = vscode.workspace.getConfiguration('kren');
+  const inspected = config.inspect<string>('gemini.alternateFallbackModel');
+  const deprecatedModel = ['gemini', '2.5', 'pro'].join('-');
+  const replacementModel = 'gemini-3.5-flash';
+  if (inspected?.globalValue === deprecatedModel) {
+    await config.update(
+      'gemini.alternateFallbackModel',
+      replacementModel,
+      vscode.ConfigurationTarget.Global
+    );
+  }
+  if (inspected?.workspaceValue === deprecatedModel) {
+    await config.update(
+      'gemini.alternateFallbackModel',
+      replacementModel,
+      vscode.ConfigurationTarget.Workspace
+    );
+  }
+  if (inspected?.workspaceFolderValue === deprecatedModel) {
+    await config.update(
+      'gemini.alternateFallbackModel',
+      replacementModel,
+      vscode.ConfigurationTarget.WorkspaceFolder
+    );
+  }
+  await context.globalState.update(GEMINI_FALLBACK_MODEL_MIGRATION, true);
 }
 
 async function setGoogleCloudTranslationKey(context: vscode.ExtensionContext): Promise<void> {
@@ -1878,27 +1922,47 @@ async function showLookupError(
 ): Promise<void> {
   const message = errorMessage(error);
   if (!(error instanceof ProviderError)) {
-    await vscode.window.showErrorMessage(`KREN: ${message}`);
+    void vscode.window.showErrorMessage(`KREN: ${message}`);
     return;
   }
   const retryLabel = error.retryable && retry ? 'Retry Now' : undefined;
   const action = error.action;
   const actionButton = action ? actionLabel(action) : undefined;
   if (!retryLabel && !actionButton) {
-    await vscode.window.showErrorMessage(`KREN: ${message}`);
+    void vscode.window.showErrorMessage(`KREN: ${message}`);
     return;
   }
   const buttons = [retryLabel, actionButton].filter((item): item is string => Boolean(item));
-  const selected = isCredentialSetupAction(action)
-    ? await vscode.window.showErrorMessage(
+  if (!isCredentialSetupAction(action)) {
+    void Promise.resolve(vscode.window.showErrorMessage(`KREN: ${message}`, ...buttons))
+      .then((selected) => handleLookupErrorSelection(
+        selected,
+        retryLabel,
+        actionButton,
+        action,
+        retry
+      ))
+      .catch(() => undefined);
+    return;
+  }
+  const selected = await vscode.window.showErrorMessage(
       `KREN: ${message}`,
       {
         modal: true,
         detail: 'No selected text was sent. Dismiss with X or Esc; KREN will ask again on the next attempt.'
       },
       ...buttons
-    )
-    : await vscode.window.showErrorMessage(`KREN: ${message}`, ...buttons);
+    );
+  await handleLookupErrorSelection(selected, retryLabel, actionButton, action, retry);
+}
+
+async function handleLookupErrorSelection(
+  selected: string | undefined,
+  retryLabel: string | undefined,
+  actionButton: string | undefined,
+  action: ProviderError['action'],
+  retry: (() => Promise<void>) | undefined
+): Promise<void> {
   if (selected === retryLabel && retry) {
     await retry();
     return;

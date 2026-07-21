@@ -14,7 +14,7 @@ describe('Gemini model discovery', () => {
       supportedGenerationMethods: ['generateContent']
     })).toEqual({ id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro' });
     expect(normalizeProModel({
-      name: 'models/gemini-2.5-pro-preview-tts',
+      name: 'models/gemini-3.1-pro-preview-tts',
       supportedGenerationMethods: ['generateContent']
     })).toBeUndefined();
     expect(normalizeProModel({
@@ -39,6 +39,6 @@ describe('Gemini model discovery', () => {
     expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('secret-key');
     expect(models.map((model) => model.id)).toContain('gemini-4-pro-preview');
     expect(models[0]?.id).toBe('gemini-3.1-pro-preview');
-    expect(models[1]?.id).toBe('gemini-2.5-pro');
+    expect(models[1]?.id).toBe('gemini-3.5-flash');
   });
 });
