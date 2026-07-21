@@ -2,7 +2,7 @@
   "name": "kren-translate",
   "displayName": "KREN: Dictionary, Translate & Rewrite",
   "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, English rewriting, and read aloud inside VS Code.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "publisher": "masstransferase",
   "license": "MIT",
@@ -753,12 +753,31 @@
         "kren.gemini.alternateFallbackEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "For Rewrite English, use the configured alternate-profile fallback model after exhausted HTTP 429, 503, or 504 retries or an unusable structured response. Fallback use is identified in the result."
+          "description": "For Explain Meaning or Nuance and Rewrite English, use the configured same-provider fallback when the alternate model is unavailable, remains temporarily unavailable, or returns unusable structured output. Fallback use is identified in the result."
         },
         "kren.gemini.alternateFallbackModel": {
           "type": "string",
-          "default": "gemini-2.5-pro",
-          "description": "Rewrite English fallback model for the alternate Gemini profile when its primary model remains rate-limited, temporarily unavailable, or returns unusable structured output."
+          "default": "gemini-3.5-flash",
+          "description": "Fallback model for the alternate Gemini profile in Explain Meaning or Nuance and Rewrite English."
+        },
+        "kren.gemini.alternateFallbackThinkingLevel": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "enumDescriptions": [
+            "Let KREN choose a compatible level for the fallback model.",
+            "Minimize fallback latency where the model supports it.",
+            "Use low thinking for routine explanation and rewriting.",
+            "Use balanced additional reasoning.",
+            "Use maximum reasoning depth, latency, and potential cost."
+          ],
+          "default": "low",
+          "description": "Thinking level used independently by the alternate Gemini fallback model."
         },
         "kren.gemini.alternateThinkingLevel": {
           "type": "string",

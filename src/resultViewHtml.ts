@@ -58,6 +58,7 @@ export interface KrenPanelSettings {
   alternateThinkingLevel: 'low' | 'medium' | 'high';
   alternateFallbackEnabled: boolean;
   alternateFallbackModel: string;
+  alternateFallbackThinkingLevel: 'auto' | 'minimal' | 'low' | 'medium' | 'high';
   preferredRewriteVariant: 'natural' | 'concise' | 'jargonFree';
   quickMenuRewriteVariant: 'all' | 'natural' | 'concise' | 'jargonFree';
   rewriteDomain: 'general' | 'academic' | 'technical' | 'business' | 'email';
@@ -682,8 +683,11 @@ function renderTranslation(result: Extract<KrenResult, { kind: 'translation' }>)
     ? `<h3>Alternatives</h3><ul>${result.alternatives.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
     : '';
   const note = result.note ? `<p class="note">${escapeHtml(result.note)}</p>` : '';
+  const fallbackNote = result.fallbackFromModel
+    ? `<div class="model-note">Fallback used after <strong>${escapeHtml(result.fallbackFromModel)}</strong> could not produce a usable result.</div>`
+    : '';
   return `<div class="direction">${escapeHtml(languageName(result.sourceLanguage))} → ${escapeHtml(languageName(result.targetLanguage))}</div>
-    <p class="translation">${escapeHtml(result.translatedText)}</p>${alternatives}${note}`;
+    ${fallbackNote}<p class="translation">${escapeHtml(result.translatedText)}</p>${alternatives}${note}`;
 }
 
 function renderGrammar(result: GrammarResult): string {
@@ -842,7 +846,7 @@ function renderSettings(
         ['gemini', 'Gemini'], ['openai', 'OpenAI API'], ['anthropic', 'Anthropic Claude API']
       ])}
       ${textSetting('Explanation language', 'Use bilingual or a language code.', 'explanation.outputLanguage', settings.explanationOutputLanguage)}
-      ${providerSettings('explanation.provider', 'explanation.geminiProfile', settings.explanationProfile, settings, proModels, openAIModels, anthropicModels, false)}
+      ${providerSettings('explanation.provider', 'explanation.geminiProfile', settings.explanationProfile, settings, proModels, openAIModels, anthropicModels, true)}
     </section>
     <section class="settings-group">
       <h3>Rewrite English</h3>
@@ -956,9 +960,12 @@ function providerSettings(
   includeAlternateFallback: boolean
 ): string {
   const alternateFallback = includeAlternateFallback
-    ? `${toggleSetting('Automatic fallback', 'For Rewrite English, use the fallback after exhausted 429, 503, or 504 retries or an unusable structured response.', 'gemini.alternateFallbackEnabled', settings.alternateFallbackEnabled)}
-      ${modelSetting('Fallback model', 'The rewrite result identifies both models whenever fallback is used.', 'gemini.alternateFallbackModel', settings.alternateFallbackModel, proModels)}`
-    : '<p class="model-note">Explain uses the selected alternate model without the Rewrite English fallback.</p>';
+    ? `${toggleSetting('Automatic fallback', 'For Explain and Rewrite, use the same-provider fallback when the alternate model is unavailable, remains temporarily unavailable, or returns unusable structured output.', 'gemini.alternateFallbackEnabled', settings.alternateFallbackEnabled)}
+      ${modelSetting('Fallback model', 'The result identifies both models whenever fallback is used.', 'gemini.alternateFallbackModel', settings.alternateFallbackModel, proModels)}
+      ${selectSetting('Fallback model thinking level', 'Applied independently when the fallback model is used.', 'gemini.alternateFallbackThinkingLevel', settings.alternateFallbackThinkingLevel, [
+        ['auto', 'Auto'], ['minimal', 'Minimal'], ['low', 'Low (recommended)'], ['medium', 'Medium'], ['high', 'High']
+      ])}`
+    : '';
   const geminiProfile = `${selectSetting('Gemini profile', 'Default and Alternate use their separately stored keys and model settings.', geminiProfileKey, geminiProfileValue, [
       ['standard', 'Default Gemini profile'], ['pro', 'Alternate Gemini profile']
     ])}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- Replaces the retired alternate-profile fallback preset with stable `gemini-3.5-flash` and migrates the former saved default automatically.
+- Adds an independent fallback thinking level and applies the same-provider fallback to both Rewrite English and Explain Meaning or Nuance.
+- Keeps KREN commands responsive while ordinary provider-error notifications remain visible.
+
 ## 1.0.0
 
 - First public KREN release.

@@ -155,7 +155,8 @@ describe('English dictionary query validation', () => {
           'rewrite.geminiProfile': 'pro',
           'gemini.alternateModel': 'gemini-3.1-pro-preview',
           'gemini.alternateFallbackEnabled': true,
-          'gemini.alternateFallbackModel': 'gemini-2.5-pro',
+          'gemini.alternateFallbackModel': 'gemini-3.5-flash',
+          'gemini.alternateFallbackThinkingLevel': 'medium',
           'gemini.retry.maxAttempts': 2
         };
         return (settings[key] ?? fallback) as T;
@@ -174,10 +175,14 @@ describe('English dictionary query validation', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('gemini-3.1-pro-preview');
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.1-pro-preview');
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('gemini-2.5-pro');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('gemini-3.5-flash');
+    const fallbackRequestBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as {
+      generationConfig: { thinkingConfig: { thinkingLevel: string } };
+    };
+    expect(fallbackRequestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('medium');
     expect(result).toMatchObject({
       kind: 'rewrite',
-      modelId: 'gemini-2.5-pro',
+      modelId: 'gemini-3.5-flash',
       fallbackFromModel: 'gemini-3.1-pro-preview'
     });
   });
@@ -201,7 +206,7 @@ describe('English dictionary query validation', () => {
           'rewrite.geminiProfile': 'pro',
           'gemini.alternateModel': 'gemini-3.1-pro-preview',
           'gemini.alternateFallbackEnabled': true,
-          'gemini.alternateFallbackModel': 'gemini-2.5-pro',
+          'gemini.alternateFallbackModel': 'gemini-3.5-flash',
           'gemini.retry.maxAttempts': 2
         };
         return (settings[key] ?? fallback) as T;
@@ -219,10 +224,10 @@ describe('English dictionary query validation', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('gemini-3.1-pro-preview');
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-2.5-pro');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.5-flash');
     expect(result).toMatchObject({
       kind: 'rewrite',
-      modelId: 'gemini-2.5-pro',
+      modelId: 'gemini-3.5-flash',
       fallbackFromModel: 'gemini-3.1-pro-preview'
     });
   });
@@ -238,7 +243,7 @@ describe('English dictionary query validation', () => {
           'rewrite.geminiProfile': 'pro',
           'gemini.alternateModel': 'gemini-3.1-pro-preview',
           'gemini.alternateFallbackEnabled': true,
-          'gemini.alternateFallbackModel': 'gemini-2.5-pro'
+          'gemini.alternateFallbackModel': 'gemini-3.5-flash'
         };
         return (settings[key] ?? fallback) as T;
       },
@@ -295,6 +300,58 @@ describe('English dictionary query validation', () => {
     expect(requestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
     expect(consentProfile).toBe('pro');
     expect(result).toMatchObject({ providerId: 'gemini', modelId: 'gemini-3.1-pro-preview' });
+  });
+
+  it('uses the independent Gemini fallback for an unavailable alternate explanation model', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: 'This model is no longer available.' }
+      }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          kind: 'translation',
+          translatedText: 'A careful fallback explanation.',
+          alternatives: [],
+          note: ''
+        }) }] } }]
+      }), { status: 200 }));
+    const runtime: KrenRuntime = {
+      getSecret: async (key) => key === KREN_SECRET_KEYS.geminiPro ? 'alternate-key' : undefined,
+      getSetting: <T>(key: string, fallback: T): T => {
+        const settings: Record<string, unknown> = {
+          'explanation.provider': 'gemini',
+          'explanation.geminiProfile': 'pro',
+          'gemini.alternateModel': 'gemini-3.1-pro-preview',
+          'gemini.alternateFallbackEnabled': true,
+          'gemini.alternateFallbackModel': 'gemini-3.5-flash',
+          'gemini.alternateFallbackThinkingLevel': 'minimal',
+          'gemini.retry.maxAttempts': 1
+        };
+        return (settings[key] ?? fallback) as T;
+      },
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+
+    const result = await runKrenOperation(
+      runtime,
+      'explain',
+      { text: 'operationally fragile', outputLanguage: 'en' },
+      new AbortController().signal
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('gemini-3.1-pro-preview');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.5-flash');
+    const fallbackRequestBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+      generationConfig: { thinkingConfig: { thinkingLevel: string } };
+    };
+    expect(fallbackRequestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('minimal');
+    expect(result).toMatchObject({
+      providerId: 'gemini',
+      modelId: 'gemini-3.5-flash',
+      fallbackFromModel: 'gemini-3.1-pro-preview'
+    });
   });
 
   it('routes explanation only to the explicitly selected OpenAI provider', async () => {

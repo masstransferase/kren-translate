@@ -64,6 +64,7 @@ export type KrenPanelSettingKey =
   | 'gemini.alternateThinkingLevel'
   | 'gemini.alternateFallbackEnabled'
   | 'gemini.alternateFallbackModel'
+  | 'gemini.alternateFallbackThinkingLevel'
   | 'rewrite.preferredVariant'
   | 'rewrite.quickMenuVariant'
   | 'rewrite.domain'
@@ -531,6 +532,7 @@ const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   'gemini.alternateThinkingLevel',
   'gemini.alternateFallbackEnabled',
   'gemini.alternateFallbackModel',
+  'gemini.alternateFallbackThinkingLevel',
   'rewrite.preferredVariant',
   'rewrite.quickMenuVariant',
   'rewrite.domain',

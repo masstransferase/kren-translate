@@ -82,6 +82,7 @@ export interface TranslationResult extends BaseResult {
   alternatives?: string[];
   note?: string;
   modelId?: string;
+  fallbackFromModel?: string;
 }
 
 export type RewriteVariantId = 'natural' | 'concise' | 'jargonFree';

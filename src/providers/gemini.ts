@@ -108,7 +108,9 @@ export class GeminiProvider implements TranslationProvider, LanguageModelProvide
         if (response.status === 404) {
           throw new ProviderError(
             `Gemini model ${this.model} is unavailable.${detail}`,
-            this.modelAction
+            this.modelAction,
+            false,
+            response.status
           );
         }
         if (isRetryableGeminiStatus(response.status) && attempt < attempts - 1) {
