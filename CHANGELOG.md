@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Adds automatic source-language detection to Rewrite / Polish Text and keeps the result in the detected language.
+- Adds a manual source-language override and applies English-variety preferences only when the source language is English.
+
 ## 1.0.2
 
 - Adds automatic English-to-Korean and Korean-to-English translation as the default direction.

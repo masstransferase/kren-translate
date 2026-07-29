@@ -79,11 +79,11 @@ describe('Gemini privacy boundary', () => {
     expect(body.contents[0]?.parts[0]?.text).toBe('deliberate');
   });
 
-  it('uses the exact English text as the only user-authored rewrite content', () => {
+  it('uses the exact text as the only user-authored multilingual rewrite content', () => {
     const request: RewriteRequest = {
       text: 'We need to leverage synergies.',
-      sourceLanguage: 'en',
-      targetLanguage: 'en',
+      sourceLanguage: 'auto',
+      targetLanguage: 'auto',
       kind: 'translation',
       operation: 'rewrite',
       englishVariety: 'british',
@@ -98,9 +98,9 @@ describe('Gemini privacy boundary', () => {
       role: 'user',
       parts: [{ text: 'We need to leverage synergies.' }]
     }]);
-    expect(body.systemInstruction.parts[0]?.text).toContain('Natural English');
-    expect(body.systemInstruction.parts[0]?.text).toContain('return English only');
-    expect(body.systemInstruction.parts[0]?.text).toContain('Never translate it into Polish');
+    expect(body.systemInstruction.parts[0]?.text).toContain('detectedLanguage');
+    expect(body.systemInstruction.parts[0]?.text).toContain('same language');
+    expect(body.systemInstruction.parts[0]?.text).toContain('never translate');
     expect(body.systemInstruction.parts[0]?.text).toContain('British English');
     expect(body.systemInstruction.parts[0]?.text).toContain('Jargon-Free');
     expect(body.systemInstruction.parts[0]?.text).toContain('no em dashes or en dashes');
@@ -108,6 +108,26 @@ describe('Gemini privacy boundary', () => {
     expect(body.systemInstruction.parts[0]?.text).toContain('appropriately qualified tone');
     expect(body.systemInstruction.parts[0]?.text).toContain('Rhetorical mode: recommend');
     expect(body.systemInstruction.parts[0]?.text).toContain('Never intensify a claim');
+  });
+
+  it('normalizes a detected non-English language without applying an English label', () => {
+    const request: RewriteRequest = {
+      text: '이 문장을 자연스럽게 고쳐 주세요.',
+      sourceLanguage: 'auto',
+      targetLanguage: 'auto',
+      kind: 'translation',
+      operation: 'rewriteNatural',
+      englishVariety: 'british',
+      domain: 'general',
+      tone: 'neutral'
+    };
+    const result = normalizeGeminiRewriteResult({
+      detectedLanguage: 'ko',
+      variants: [{ id: 'natural', text: '이 문장을 더 자연스럽게 고쳐 주세요.' }]
+    }, request, 'gemini');
+    expect(result.sourceLanguage).toBe('ko');
+    expect(result.targetLanguage).toBe('ko');
+    expect(result.variants[0]?.label).toBe('Natural');
   });
 
   it('builds Pro rewrite requests with low rather than unsupported minimal thinking', () => {

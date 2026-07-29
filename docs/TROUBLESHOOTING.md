@@ -11,7 +11,7 @@
 - **Read Aloud is silent:** open the KREN gear page, confirm the selected source, choose a detected voice, and use Preview. Confirm Windows audio is not muted. Preview, editor Read Aloud, and rewrite Read Aloud share the same speech settings.
 - **Christopher/Ava Edge Online is unavailable:** run `python -m pip install edge-tts` using the same Python command shown in KREN Settings. Try `en-US-ChristopherNeural` or `en-US-AvaNeural`, verify the network connection, and use Preview. Edge Online is experimental because `edge-tts` uses an unofficial Microsoft service interface.
 - **Edge Online starts slowly:** KREN launches its hidden player while synthesis runs, but the complete MP3 must still arrive before playback. Shorter selections, a stable connection, and retrying after a service-demand spike can help.
-- **Wrong rewrite language:** use Rewrite English only for English text. It polishes English and must not interpret words such as “polish” as a target language.
+- **Wrong rewrite language:** Rewrite / Polish Text normally detects and preserves the source language. For very short or mixed-language text, choose the source language explicitly in KREN Settings and retry. The operation never treats the word "polish" as a request to translate into Polish.
 
 Never paste API keys into a document, issue, log, screenshot, or support request.
 

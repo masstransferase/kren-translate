@@ -43,7 +43,7 @@ describe('KREN User Guide', () => {
       'Grammar Check',
       'Translation',
       'Explain Meaning or Nuance',
-      'Rewrite English',
+      'Rewrite / Polish Text',
       'Pronunciation and Read Aloud',
       'Settings reference',
       'Native VS Code language-model tools',

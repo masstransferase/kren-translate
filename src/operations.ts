@@ -97,7 +97,7 @@ export async function runKrenOperation(
   validateDictionaryInput(operation, analysis);
 
   if (isRewriteOperation(operation)) {
-    return rewriteEnglish(runtime, operation, analysis.text, signal);
+    return rewriteText(runtime, operation, analysis.text, signal);
   }
 
   if (operation === 'grammar') {
@@ -150,21 +150,24 @@ function validateDictionaryInput(operation: KrenOperation, analysis: SelectionAn
       (analysis.kind !== 'dictionary' || analysis.sourceLanguage !== 'ko')) {
     throw new Error('Korean Dictionary Search requires one Korean word.');
   }
-  if (isRewriteOperation(operation) &&
-      !/\p{Script=Latin}/u.test(analysis.text)) {
-    throw new Error('Rewrite English requires English text.');
+  if (isRewriteOperation(operation) && !/[\p{L}\p{N}]/u.test(analysis.text)) {
+    throw new Error('Rewrite / Polish Text requires text containing a letter or number.');
   }
   if (operation === 'grammar' && !/\p{Script=Latin}/u.test(analysis.text)) {
     throw new Error('Grammar Check currently requires English text.');
   }
 }
 
-async function rewriteEnglish(
+async function rewriteText(
   runtime: KrenRuntime,
   operation: RewriteOperation,
   text: string,
   signal: AbortSignal
 ): Promise<KrenResult> {
+  const sourceLanguage = runtime.getSetting<string>('rewrite.sourceLanguage', 'auto').trim();
+  if (sourceLanguage !== 'auto' && !isPlausibleLanguageCode(sourceLanguage)) {
+    throw new Error(`Invalid rewrite source language code: ${sourceLanguage}.`);
+  }
   const configuredEnglishVariety = runtime.getSetting<RewriteEnglishVarietySetting>(
     'rewrite.englishVariety',
     'followGrammar'
@@ -174,8 +177,8 @@ async function rewriteEnglish(
     : configuredEnglishVariety;
   const request: RewriteRequest = {
     text,
-    sourceLanguage: 'en',
-    targetLanguage: 'en',
+    sourceLanguage,
+    targetLanguage: 'auto',
     kind: 'translation',
     operation,
     englishVariety,

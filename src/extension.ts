@@ -411,6 +411,7 @@ function readPanelSettings(): KrenPanelSettings {
       'rewrite.provider',
       'gemini'
     ),
+    rewriteSourceLanguage: config.get<string>('rewrite.sourceLanguage', 'auto'),
     rewriteEnglishVariety: config.get<KrenPanelSettings['rewriteEnglishVariety']>(
       'rewrite.englishVariety',
       'followGrammar'
@@ -615,6 +616,12 @@ function validatedPanelSetting(
       'followGrammar', 'american', 'british', 'australian', 'canadian', 'indian',
       'international'
     ].includes(value) ? value : undefined;
+  }
+  if (key === 'rewrite.sourceLanguage') {
+    return typeof value === 'string' &&
+      (value.trim() === 'auto' || isPlausibleLanguageCode(value.trim()))
+      ? value.trim()
+      : undefined;
   }
   if (key === 'rewrite.tone') {
     return typeof value === 'string' && [
@@ -1453,10 +1460,10 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
     'all'
   );
   const rewriteItems: Array<{ label: string; operation: KrenOperation; id: string }> = [
-    { label: '$(edit) Rewrite English: All 3 Variants', operation: 'rewrite', id: 'all' },
-    { label: '$(sparkle) Rewrite English: Natural English', operation: 'rewriteNatural', id: 'natural' },
-    { label: '$(symbol-ruler) Rewrite English: Concise', operation: 'rewriteConcise', id: 'concise' },
-    { label: '$(clear-all) Rewrite English: Jargon-Free', operation: 'rewriteJargonFree', id: 'jargonFree' }
+    { label: '$(edit) Rewrite / Polish Text: All 3 Variants', operation: 'rewrite', id: 'all' },
+    { label: '$(sparkle) Rewrite / Polish Text: Natural', operation: 'rewriteNatural', id: 'natural' },
+    { label: '$(symbol-ruler) Rewrite / Polish Text: Concise', operation: 'rewriteConcise', id: 'concise' },
+    { label: '$(clear-all) Rewrite / Polish Text: Jargon-Free', operation: 'rewriteJargonFree', id: 'jargonFree' }
   ];
   rewriteItems.sort((left, right) =>
     left.id === preferredRewrite ? -1 : right.id === preferredRewrite ? 1 : 0
@@ -1622,7 +1629,7 @@ async function configureRewriteGeminiProfile(
       }
     ],
     {
-      title: 'Choose the Gemini profile used by Rewrite English',
+      title: 'Choose the Gemini profile used by Rewrite / Polish Text',
       placeHolder: 'Access and billing are determined by the Google project associated with each key'
     }
   );
@@ -1671,7 +1678,7 @@ async function configureRewriteGeminiProfile(
     );
   }
   await vscode.window.showInformationMessage(
-    `Rewrite English now uses the ${selected.profile === 'pro' ? 'alternate' : 'default'} Gemini profile.`
+    `Rewrite / Polish Text now uses the ${selected.profile === 'pro' ? 'alternate' : 'default'} Gemini profile.`
   );
 }
 

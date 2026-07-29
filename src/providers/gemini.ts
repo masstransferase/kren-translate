@@ -1,6 +1,8 @@
 import { ProviderError } from '../errors.js';
 import { languageName } from '../languages.js';
 import { parseStructuredJson } from '@kren/core/structured-json';
+import { isEnglishLanguageCode } from '@kren/core/languages';
+import { normalizeLanguageCode } from '@kren/core/validation';
 import {
   isRetryableLanguageModelStatus,
   retryDelayMs as coreRetryDelayMs,
@@ -274,23 +276,29 @@ export function systemInstruction(request: TranslationRequest): string {
 }
 
 export function rewriteSystemInstruction(request: RewriteRequest): string {
+  const languageInstruction = request.sourceLanguage === 'auto'
+    ? 'Detect the dominant natural language of the supplied text. Return its BCP-47 language code in detectedLanguage. Rewrite in that same language and never translate it.'
+    : `The source language is ${languageName(request.sourceLanguage)} (${request.sourceLanguage}). Return "${request.sourceLanguage}" in detectedLanguage and rewrite in that same language. Never translate it.`;
   const preservation = [
-    'Rewrite only the supplied English text and return English only. Never translate it into Polish or any other language; the task is to improve the English wording.',
+    'Rewrite only the exact text supplied by the user.',
+    languageInstruction,
+    'Preserve intentional mixed-language terms, names, quotations, code, and necessary domain terminology.',
     'Preserve its factual meaning, claims, qualifications, numbers, citations, and necessary domain terminology.',
     'Correct grammar and awkward phrasing, but do not add facts, evidence, promises, certainty, examples, or document context.',
     'Never intensify a claim beyond the evidence or qualifications present in the supplied text.',
     'Return JSON only. Every variant must be complete and usable on its own.'
   ];
   preservation.push(rewriteDomainInstruction(request.domain));
-  preservation.push(rewriteEnglishVarietyInstruction(request.englishVariety));
+  preservation.push(`Only when detectedLanguage is English, ${rewriteEnglishVarietyInstruction(request.englishVariety).replace(/^Use/u, 'use')}`);
+  preservation.push('When detectedLanguage is not English, ignore the English-variety setting and use natural conventions for the detected language.');
   preservation.push(rewriteToneInstruction(request.tone));
   preservation.push(rewriteRhetoricalModeInstruction(request.rhetoricalMode ?? 'preserveOriginal'));
   if (request.preserveFormatting !== false) {
     preservation.push('Preserve Markdown, LaTeX commands, citations, links, placeholders, code identifiers, filenames, inline code, and fenced code blocks exactly unless grammar inside ordinary prose requires a change.');
   }
   const jargonFree = [
-    'Write clear, natural, human-like English.',
-    'Remove buzzwords, clichés, corporate jargon, and unnecessary specialist jargon.',
+    'Write clear, natural, human-like prose in the detected language.',
+    'Remove buzzwords, cliches, corporate jargon, and unnecessary specialist jargon.',
     'Keep precise domain terminology only when it is needed for correctness.',
     'Use no em dashes or en dashes. Use commas, parentheses, colons, semicolons, or separate sentences instead.',
     'Use no metaphors unless removing one would change the intended meaning.'
@@ -308,21 +316,21 @@ export function rewriteSystemInstruction(request: RewriteRequest): string {
       concise: ['Write tighter, more direct English while retaining every important point.'],
       jargonFree
     };
-    const label = rewriteVariantLabel(singleVariant);
+    const label = rewriteVariantLabel(singleVariant, request.sourceLanguage);
     return [...preservation, ...variantInstructions[singleVariant],
       changeNoteInstruction,
       'Return exactly this JSON shape:',
-      `{"kind":"rewrite","variants":[{"id":"${singleVariant}","label":"${label}","text":"rewritten text"${changeNoteField}}]}`
+      `{"kind":"rewrite","detectedLanguage":"BCP-47 code","variants":[{"id":"${singleVariant}","label":"${label}","text":"rewritten text"${changeNoteField}}]}`
     ].join('\n');
   }
   return [...preservation,
     'Produce exactly three meaning-preserving variants:',
-    '1. Natural English: fluent native-level English that follows the configured tone and rhetorical mode while preserving the original level of detail.',
-    '2. Concise: tighter and more direct while retaining every important point.',
+    '1. Natural: fluent, native-level writing in the detected language that follows the configured tone and rhetorical mode while preserving the original level of detail.',
+    '2. Concise: tighter and more direct writing in the detected language while retaining every important point.',
     `3. Jargon-Free: ${jargonFree.join(' ')}`,
     changeNoteInstruction,
     'Return exactly this JSON shape and order:',
-    `{"kind":"rewrite","variants":[{"id":"natural","label":"Natural English","text":"rewritten text"${changeNoteField}},{"id":"concise","label":"Concise","text":"rewritten text"${changeNoteField}},{"id":"jargonFree","label":"Jargon-Free","text":"rewritten text"${changeNoteField}}]}`
+    `{"kind":"rewrite","detectedLanguage":"BCP-47 code","variants":[{"id":"natural","label":"Natural","text":"rewritten text"${changeNoteField}},{"id":"concise","label":"Concise","text":"rewritten text"${changeNoteField}},{"id":"jargonFree","label":"Jargon-Free","text":"rewritten text"${changeNoteField}}]}`
   ].join('\n');
 }
 
@@ -403,6 +411,18 @@ export function normalizeGeminiRewriteResult(
       'structuredOutput'
     );
   }
+  const sourceLanguage = request.sourceLanguage === 'auto'
+    ? normalizeLanguageCode(value.detectedLanguage)
+    : normalizeLanguageCode(request.sourceLanguage);
+  if (!sourceLanguage) {
+    throw new ProviderError(
+      `${providerName} did not return a valid detected language. Try again or select the source language in KREN Settings.`,
+      undefined,
+      true,
+      undefined,
+      'structuredOutput'
+    );
+  }
   const requestedVariant = rewriteOperationVariant(request.operation);
   const expectedIds: RewriteVariantId[] = requestedVariant
     ? [requestedVariant]
@@ -413,7 +433,7 @@ export function normalizeGeminiRewriteResult(
     const id = rewriteVariantId(item.id);
     const text = stringValue(item.text);
     if (!id || !text || !expectedIds.includes(id)) continue;
-    const variant: RewriteVariant = { id, label: rewriteVariantLabel(id), text };
+    const variant: RewriteVariant = { id, label: rewriteVariantLabel(id, sourceLanguage), text };
     const changeNote = stringValue(item.changeNote);
     if (changeNote) variant.changeNote = changeNote;
     byId.set(id, variant);
@@ -432,8 +452,8 @@ export function normalizeGeminiRewriteResult(
     kind: 'rewrite',
     providerId,
     sourceText: request.text,
-    sourceLanguage: 'en',
-    targetLanguage: 'en',
+    sourceLanguage,
+    targetLanguage: sourceLanguage,
     createdAt,
     englishVariety: request.englishVariety,
     domain: request.domain,
@@ -469,7 +489,7 @@ function rewriteDomainInstruction(domain: RewriteRequest['domain']): string {
   if (domain === 'email') {
     return 'Make the wording suitable for a natural professional email. Do not invent a greeting, sign-off, recipient, or relationship that is absent from the source.';
   }
-  return 'Use general-purpose English without imposing a specialized domain style.';
+  return 'Use general-purpose prose in the source language without imposing a specialized domain style.';
 }
 
 function rewriteEnglishVarietyInstruction(
@@ -548,8 +568,8 @@ function rewriteVariantId(value: unknown): RewriteVariantId | undefined {
     : undefined;
 }
 
-function rewriteVariantLabel(id: RewriteVariantId): string {
-  if (id === 'natural') return 'Natural English';
+function rewriteVariantLabel(id: RewriteVariantId, sourceLanguage = 'en'): string {
+  if (id === 'natural') return isEnglishLanguageCode(sourceLanguage) ? 'Natural English' : 'Natural';
   if (id === 'concise') return 'Concise';
   return 'Jargon-Free';
 }

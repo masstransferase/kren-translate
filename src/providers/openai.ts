@@ -230,9 +230,10 @@ export function rewriteSchema(request: RewriteRequest): Record<string, unknown> 
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['kind', 'variants'],
+    required: ['kind', 'detectedLanguage', 'variants'],
     properties: {
       kind: { type: 'string', enum: ['rewrite'] },
+      detectedLanguage: { type: 'string' },
       variants: {
         type: 'array',
         minItems: count,

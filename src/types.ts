@@ -60,6 +60,8 @@ export interface DictionaryRequest extends BaseRequest {
 export interface RewriteRequest extends BaseRequest {
   kind: 'translation';
   operation: RewriteOperation;
+  /** BCP-47 source language, or auto to detect it within the rewrite request. */
+  sourceLanguage: LanguageCode;
   englishVariety: RewriteEnglishVariety;
   domain: RewriteDomain;
   tone: RewriteTone;
