@@ -2,7 +2,7 @@
   "name": "kren-translate",
   "displayName": "KREN: Dictionary, Translate & Rewrite",
   "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, English rewriting, and read aloud inside VS Code.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "publisher": "masstransferase",
   "license": "MIT",
@@ -498,7 +498,7 @@
         "canBeReferencedInPrompt": true,
         "icon": "$(globe)",
         "userDescription": "Translate explicitly supplied text with the configured KREN provider.",
-        "modelDescription": "Translate only the explicit text argument with KREN's configured Google Cloud Translation or Gemini provider. Input language is detected automatically. Do not add editor, file, workspace, or chat context to the text argument.",
+        "modelDescription": "Translate only the explicit text argument with KREN's configured Google Cloud Translation or Gemini provider. The default auto-en-ko target sends English to Korean and Korean to English; an explicit target language overrides it. Do not add editor, file, workspace, or chat context to the text argument.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -508,7 +508,7 @@
             },
             "targetLanguage": {
               "type": "string",
-              "description": "Optional ISO/BCP-47 output language code; otherwise the KREN setting is used."
+              "description": "Optional ISO/BCP-47 output language code or auto-en-ko; otherwise the KREN setting is used."
             }
           },
           "required": [
@@ -562,8 +562,8 @@
         },
         "kren.translation.targetLanguage": {
           "type": "string",
-          "default": "ko",
-          "description": "ISO/BCP-47 output language code used by Translate Selection. The input language is detected automatically. Use KREN: Configure Translation and Explanation Languages for a searchable selector."
+          "default": "auto-en-ko",
+          "description": "Translation target. auto-en-ko sends English to Korean and Korean to English. Enter an ISO/BCP-47 output code for a fixed target, or use KREN: Configure Translation and Explanation Languages."
         },
         "kren.grammar.dialect": {
           "type": "string",
@@ -1033,7 +1033,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.2.5",
+    "fast-xml-parser": "^5.10.1",
     "harper.js": "^2.4.0"
   },
   "overrides": {

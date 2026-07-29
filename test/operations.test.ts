@@ -302,6 +302,59 @@ describe('English dictionary query validation', () => {
     expect(result).toMatchObject({ providerId: 'gemini', modelId: 'gemini-3.1-pro-preview' });
   });
 
+  it.each([
+    { text: 'Translate this sentence.', expectedTarget: 'ko' },
+    { text: '이 문장을 번역하세요.', expectedTarget: 'en' }
+  ])('automatically routes $text to $expectedTarget', async ({ text, expectedTarget }) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        data: { translations: [{ translatedText: 'translated', detectedSourceLanguage: 'auto' }] }
+      }), { status: 200 })
+    );
+    const runtime: KrenRuntime = {
+      getSecret: async (key) => key === KREN_SECRET_KEYS.googleCloudTranslation
+        ? 'cloud-key'
+        : undefined,
+      getSetting: <T>(key: string, fallback: T): T => {
+        if (key === 'translation.targetLanguage') return 'auto-en-ko' as T;
+        return fallback;
+      },
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+
+    await runKrenOperation(runtime, 'translate', { text }, new AbortController().signal);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { target: string };
+    expect(request.target).toBe(expectedTarget);
+  });
+
+  it('keeps an explicit translation target over automatic routing', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        data: { translations: [{ translatedText: '翻訳', detectedSourceLanguage: 'en' }] }
+      }), { status: 200 })
+    );
+    const runtime: KrenRuntime = {
+      getSecret: async (key) => key === KREN_SECRET_KEYS.googleCloudTranslation
+        ? 'cloud-key'
+        : undefined,
+      getSetting: <T>(_key: string, fallback: T): T => fallback,
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+
+    await runKrenOperation(
+      runtime,
+      'translate',
+      { text: 'Translate this.', targetLanguage: 'ja' },
+      new AbortController().signal
+    );
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { target: string };
+    expect(request.target).toBe('ja');
+  });
+
   it('uses the independent Gemini fallback for an unavailable alternate explanation model', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({

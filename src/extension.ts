@@ -8,7 +8,12 @@ import {
 import { errorMessage, ProviderError } from './errors.js';
 import { FileCloudTranslationUsage } from './fileCloudTranslationUsage.js';
 import { HoverStore } from './hoverStore.js';
-import { isPlausibleLanguageCode, KREN_LANGUAGES, languageName } from './languages.js';
+import {
+  AUTO_ENGLISH_KOREAN_TARGET,
+  isPlausibleLanguageCode,
+  KREN_LANGUAGES,
+  languageName
+} from './languages.js';
 import {
   KREN_SECRET_KEYS,
   runKrenOperation,
@@ -70,6 +75,7 @@ const OPENAI_CONSENT = 'kren.openai.paidConsent.v2';
 const ANTHROPIC_CONSENT = 'kren.anthropic.paidConsent.v2';
 const CLOUD_DEFAULT_MIGRATION = 'kren.migration.cloudTranslationDefault.v1';
 const GEMINI_FALLBACK_MODEL_MIGRATION = 'kren.migration.geminiFallbackModel.v1';
+const AUTO_TRANSLATION_TARGET_MIGRATION = 'kren.migration.autoTranslationTarget.v1';
 const LEGACY_CLOUD_USAGE_KEY = 'kren.googleCloudTranslation.usage.v1';
 const EDGE_TTS_CONSENT = 'kren.edgeTts.onlineConsent.v1';
 const GRAMMAR_CUSTOM_WORDS = 'kren.grammar.customWords.v1';
@@ -119,6 +125,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void warmHarperGrammar().catch(() => undefined);
   await migrateTranslationProviderToCloud(context);
   await migrateDeprecatedGeminiFallback(context);
+  await migrateTranslationTargetToAutomatic(context);
   registerKrenChatTools(context, extensionRuntime(context));
   resultsView = new KrenResultsViewProvider({
     copy: copyLastResult,
@@ -377,7 +384,10 @@ function readPanelSettings(): KrenPanelSettings {
       'translationProvider',
       'googleCloudTranslation'
     ),
-    translationTargetLanguage: config.get<string>('translation.targetLanguage', 'ko'),
+    translationTargetLanguage: config.get<string>(
+      'translation.targetLanguage',
+      AUTO_ENGLISH_KOREAN_TARGET
+    ),
     grammarDialect: config.get<KrenPanelSettings['grammarDialect']>(
       'grammar.dialect',
       'american'
@@ -526,7 +536,8 @@ function validatedPanelSetting(
     return value === 'googleCloudTranslation' || value === 'gemini' ? value : undefined;
   }
   if (key === 'translation.targetLanguage') {
-    return typeof value === 'string' && isPlausibleLanguageCode(value.trim())
+    return typeof value === 'string' &&
+      (value.trim() === AUTO_ENGLISH_KOREAN_TARGET || isPlausibleLanguageCode(value.trim()))
       ? value.trim()
       : undefined;
   }
@@ -829,6 +840,26 @@ async function migrateDeprecatedGeminiFallback(
     );
   }
   await context.globalState.update(GEMINI_FALLBACK_MODEL_MIGRATION, true);
+}
+
+async function migrateTranslationTargetToAutomatic(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (context.globalState.get<boolean>(AUTO_TRANSLATION_TARGET_MIGRATION, false)) return;
+  const config = vscode.workspace.getConfiguration('kren');
+  const inspected = config.inspect<string>('translation.targetLanguage');
+  if (
+    inspected?.workspaceValue === undefined &&
+    inspected?.workspaceFolderValue === undefined &&
+    inspected?.globalValue === 'ko'
+  ) {
+    await config.update(
+      'translation.targetLanguage',
+      AUTO_ENGLISH_KOREAN_TARGET,
+      vscode.ConfigurationTarget.Global
+    );
+  }
+  await context.globalState.update(AUTO_TRANSLATION_TARGET_MIGRATION, true);
 }
 
 async function setGoogleCloudTranslationKey(context: vscode.ExtensionContext): Promise<void> {
@@ -1820,7 +1851,12 @@ async function pickOutputLanguage(
   const items = [
     ...(includeBilingual
       ? [{ label: 'English and Korean', description: 'Bilingual explanation', code: 'bilingual', name: 'English and Korean' }]
-      : []),
+      : [{
+          label: '$(arrow-swap) Auto: English ↔ Korean',
+          description: 'English to Korean; Korean to English',
+          code: AUTO_ENGLISH_KOREAN_TARGET,
+          name: 'Auto: English ↔ Korean'
+        }]),
     ...KREN_LANGUAGES.map((language) => ({
       label: language.name,
       description: language.code,
