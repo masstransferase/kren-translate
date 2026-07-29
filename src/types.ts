@@ -1,34 +1,34 @@
+import type {
+  DictionaryDiscussion as CoreDictionaryDiscussion,
+  DictionaryDiscussionBlock as CoreDictionaryDiscussionBlock,
+  DictionaryEntry as CoreDictionaryEntry,
+  DictionarySection as CoreDictionarySection,
+  GrammarDialect as CoreGrammarDialect,
+  GrammarIssue as CoreGrammarIssue,
+  GrammarSuggestion as CoreGrammarSuggestion,
+  GrammarSuggestionKind as CoreGrammarSuggestionKind,
+  LanguageModelProviderId as CoreLanguageModelProviderId,
+  RewriteDomain as CoreRewriteDomain,
+  RewriteEnglishVariety as CoreRewriteEnglishVariety,
+  RewriteRhetoricalMode as CoreRewriteRhetoricalMode,
+  RewriteTone as CoreRewriteTone,
+  RewriteVariant as CoreRewriteVariant,
+  RewriteVariantId as CoreRewriteVariantId,
+  ThesaurusSection as CoreThesaurusSection,
+  ThesaurusSense as CoreThesaurusSense,
+  ThesaurusWord as CoreThesaurusWord
+} from '@kren/core/contracts';
+
 export type LanguageCode = string;
 export type LookupKind = 'dictionary' | 'translation';
 export type TranslationProviderId = 'gemini' | 'googleCloudTranslation';
-export type LanguageModelProviderId = 'gemini' | 'openai' | 'anthropic';
+export type LanguageModelProviderId = CoreLanguageModelProviderId;
 export type ExplanationOutputLanguage = string;
-export type RewriteDomain = 'general' | 'academic' | 'technical' | 'business' | 'email';
-export type RewriteEnglishVariety =
-  | 'american'
-  | 'british'
-  | 'australian'
-  | 'canadian'
-  | 'indian'
-  | 'international';
+export type RewriteDomain = CoreRewriteDomain;
+export type RewriteEnglishVariety = CoreRewriteEnglishVariety;
 export type RewriteEnglishVarietySetting = 'followGrammar' | RewriteEnglishVariety;
-export type RewriteTone =
-  | 'preserveVoice'
-  | 'neutral'
-  | 'professional'
-  | 'warm'
-  | 'assertive'
-  | 'cautious'
-  | 'diplomatic'
-  | 'formal'
-  | 'direct'
-  | 'plainLanguage';
-export type RewriteRhetoricalMode =
-  | 'preserveOriginal'
-  | 'explain'
-  | 'persuade'
-  | 'recommend'
-  | 'constructivelyChallenge';
+export type RewriteTone = CoreRewriteTone;
+export type RewriteRhetoricalMode = CoreRewriteRhetoricalMode;
 export type RewriteOperation =
   | 'rewrite'
   | 'rewriteNatural'
@@ -85,14 +85,9 @@ export interface TranslationResult extends BaseResult {
   fallbackFromModel?: string;
 }
 
-export type RewriteVariantId = 'natural' | 'concise' | 'jargonFree';
+export type RewriteVariantId = CoreRewriteVariantId;
 
-export interface RewriteVariant {
-  id: RewriteVariantId;
-  label: string;
-  text: string;
-  changeNote?: string;
-}
+export interface RewriteVariant extends CoreRewriteVariant {}
 
 export interface RewriteResult extends BaseResult {
   kind: 'rewrite';
@@ -105,26 +100,13 @@ export interface RewriteResult extends BaseResult {
   fallbackFromModel?: string;
 }
 
-export type GrammarDialect = 'american' | 'british' | 'australian' | 'canadian' | 'indian';
-export type GrammarSuggestionKind = 'replace' | 'remove' | 'insertAfter';
+export type GrammarDialect = CoreGrammarDialect;
+export type GrammarSuggestionKind = CoreGrammarSuggestionKind;
 
-export interface GrammarSuggestion {
-  kind: GrammarSuggestionKind;
-  replacement: string;
-  label: string;
-}
+export interface GrammarSuggestion extends CoreGrammarSuggestion {}
 
-export interface GrammarIssue {
-  id: string;
-  start: number;
-  end: number;
-  original: string;
-  category: string;
-  message: string;
-  suggestions: GrammarSuggestion[];
-  /** Harper's privacy-preserving context hash; never contains the checked passage. */
-  ignoreHash?: string;
-}
+/** Harper's privacy-preserving context hash never contains the checked passage. */
+export interface GrammarIssue extends CoreGrammarIssue {}
 
 export interface GrammarResult extends BaseResult {
   kind: 'grammar';
@@ -137,62 +119,19 @@ export interface GrammarChoice {
   suggestionIndex: number;
 }
 
-export interface DictionaryEntry {
-  senseNumber?: string;
-  grammaticalLabel?: string;
-  partOfSpeech?: string;
-  meaning: string;
-  definition?: string;
-  examples?: string[];
-}
+export interface DictionaryEntry extends CoreDictionaryEntry {}
 
-export interface DictionarySection {
-  headword: string;
-  homograph?: number;
-  partOfSpeech?: string;
-  pronunciation?: string;
-  audioUrl?: string;
-  inflections?: string[];
-  entries: DictionaryEntry[];
-  synonymDiscussions?: DictionaryDiscussion[];
-}
+export interface DictionarySection extends CoreDictionarySection {}
 
-export interface DictionaryDiscussion {
-  label?: string;
-  text: string;
-  examples?: string[];
-  seeAlso?: string[];
-  blocks?: DictionaryDiscussionBlock[];
-}
+export interface DictionaryDiscussion extends CoreDictionaryDiscussion {}
 
-export interface DictionaryDiscussionBlock {
-  kind: 'text' | 'example';
-  text: string;
-}
+export interface DictionaryDiscussionBlock extends CoreDictionaryDiscussionBlock {}
 
-export interface ThesaurusWord {
-  word: string;
-  labels?: string[];
-}
+export interface ThesaurusWord extends CoreThesaurusWord {}
 
-export interface ThesaurusSense {
-  senseNumber?: string;
-  definition?: string;
-  synonyms: ThesaurusWord[];
-  nearSynonyms?: ThesaurusWord[];
-  relatedWords?: ThesaurusWord[];
-  synonymousPhrases?: ThesaurusWord[];
-  antonyms?: ThesaurusWord[];
-  nearAntonyms?: ThesaurusWord[];
-}
+export interface ThesaurusSense extends CoreThesaurusSense {}
 
-export interface ThesaurusSection {
-  headword: string;
-  partOfSpeech?: string;
-  pronunciation?: string;
-  audioUrl?: string;
-  senses: ThesaurusSense[];
-}
+export interface ThesaurusSection extends CoreThesaurusSection {}
 
 export interface ThesaurusResult extends BaseResult {
   kind: 'thesaurus';

@@ -1,5 +1,8 @@
 import { execFile, spawn } from 'node:child_process';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
+import { prepareTextForSpeech } from '@kren/core/speech';
+
+export { prepareTextForSpeech } from '@kren/core/speech';
 
 type SpawnProcess = (
   command: string,
@@ -125,34 +128,6 @@ export class WindowsReadAloudPlayer {
   public dispose(): void {
     this.stop();
   }
-}
-
-export function prepareTextForSpeech(text: string): string {
-  return text
-    .normalize('NFC')
-    .replace(/```[\s\S]*?```/gu, ' ')
-    .replace(/~~~[\s\S]*?~~~/gu, ' ')
-    .replace(/!\[[^\]]*\]\([^)]*\)/gu, ' ')
-    .replace(/\[([^\]]+)\]\((?:[^()]|\([^)]*\))*\)/gu, '$1')
-    .replace(/\[([^\]]+)\]\[[^\]]*\]/gu, '$1')
-    .replace(/<https?:\/\/[^>]+>/giu, ' ')
-    .replace(/<[^>]+>/gu, ' ')
-    .replace(/https?:\/\/\S+/giu, ' ')
-    .replace(/\[(?:\s|x|X)\]/gu, ' ')
-    .replace(/\[\^(?:[^\]]+)\]/gu, ' ')
-    .replace(/\[(?:@[^\]]+|\d+(?:\s*[-,;]\s*\d+)*)\]/gu, ' ')
-    .replace(/^\s{0,3}(?:#{1,6}|>|[-+*]|\d+[.)])\s+/gmu, '')
-    .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gmu, ' ')
-    .replace(/[|]/gu, ' ')
-    .replace(/[`*_~]/gu, '')
-    .replace(/&nbsp;/giu, ' ')
-    .replace(/&amp;/giu, ' and ')
-    .replace(/&(?:lt|gt|quot|apos);/giu, ' ')
-    .replace(/[\u200B-\u200D\u2060\uFEFF]/gu, '')
-    .replace(/\s+/gu, ' ')
-    .replace(/\s+([,.;:!?])/gu, '$1')
-    .trim()
-    .slice(0, 20_000);
 }
 
 export async function listWindowsSpeechVoices(

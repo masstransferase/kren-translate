@@ -8,6 +8,7 @@ import type {
   GrammarResult
 } from '../types.js';
 import type { HarperWorkerRequest, HarperWorkerResponse } from './harperWorkerProtocol.js';
+import { applyGrammarChoices as applyCoreGrammarChoices } from '@kren/core/grammar';
 
 interface HarperPreferences {
   customWords: string[];
@@ -80,35 +81,7 @@ export async function clearHarperWords(): Promise<void> {
 }
 
 export function applyGrammarChoices(result: GrammarResult, choices: readonly GrammarChoice[]): string {
-  const selected = new Map<string, number>();
-  for (const choice of choices) {
-    if (!Number.isInteger(choice.suggestionIndex) || choice.suggestionIndex < 0) continue;
-    selected.set(choice.issueId, choice.suggestionIndex);
-  }
-  const edits = result.issues.flatMap((issue) => {
-    const suggestionIndex = selected.get(issue.id);
-    if (suggestionIndex === undefined) return [];
-    const suggestion = issue.suggestions[suggestionIndex];
-    if (!suggestion) return [];
-    if (result.sourceText.slice(issue.start, issue.end) !== issue.original) {
-      throw new Error('A grammar issue no longer matches the checked text.');
-    }
-    return [{
-      start: suggestion.kind === 'insertAfter' ? issue.end : issue.start,
-      end: suggestion.kind === 'insertAfter' ? issue.end : issue.end,
-      replacement: suggestion.replacement
-    }];
-  });
-  edits.sort((left, right) => right.start - left.start || right.end - left.end);
-  for (let index = 1; index < edits.length; index += 1) {
-    const previous = edits[index - 1];
-    const current = edits[index];
-    if (previous && current && current.end > previous.start) {
-      throw new Error('Overlapping grammar corrections cannot be applied together.');
-    }
-  }
-  return edits.reduce((text, edit) =>
-    text.slice(0, edit.start) + edit.replacement + text.slice(edit.end), result.sourceText);
+  return applyCoreGrammarChoices(result, choices);
 }
 
 export async function disposeHarperGrammar(): Promise<void> {

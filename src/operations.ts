@@ -1,4 +1,8 @@
 import { analyzeSelection } from './classifier.js';
+import {
+  isEnglishDictionaryQuery as coreIsEnglishDictionaryQuery,
+  isMultiWordEnglishQuery as coreIsMultiWordEnglishQuery
+} from '@kren/core/validation';
 import { ProviderError } from './errors.js';
 import { AUTO_ENGLISH_KOREAN_TARGET, isPlausibleLanguageCode } from './languages.js';
 import {
@@ -312,18 +316,12 @@ async function lookupMerriamWebsterThesaurus(
   return result;
 }
 
-const ENGLISH_EXPRESSION_TOKEN = "[\\p{Script=Latin}\\p{M}][\\p{Script=Latin}\\p{M}'’.-]*";
-const ENGLISH_EXPRESSION_PATTERN = new RegExp(
-  `^${ENGLISH_EXPRESSION_TOKEN}(?:\\s+${ENGLISH_EXPRESSION_TOKEN}){0,7}$`,
-  'u'
-);
-
 export function isEnglishDictionaryQuery(text: string): boolean {
-  return ENGLISH_EXPRESSION_PATTERN.test(text.trim());
+  return coreIsEnglishDictionaryQuery(text);
 }
 
 function isMultiWordEnglishQuery(text: string): boolean {
-  return isEnglishDictionaryQuery(text) && text.trim().split(/\s+/u).length > 1;
+  return coreIsMultiWordEnglishQuery(text);
 }
 
 function applyLanguages(

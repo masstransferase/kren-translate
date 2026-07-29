@@ -1,4 +1,9 @@
 import { ProviderError } from '../errors.js';
+import {
+  isRetryableLanguageModelStatus as retryableStatus,
+  retryDelayMs,
+  waitForRetry
+} from '@kren/core/retry';
 import type {
   LanguageModelProvider,
   RewriteRequest,
@@ -23,7 +28,6 @@ interface OpenAIResponse {
   }>;
   error?: { message?: unknown };
 }
-
 export interface LanguageModelOption {
   id: string;
   displayName: string;
@@ -246,25 +250,4 @@ export function rewriteSchema(request: RewriteRequest): Record<string, unknown> 
 
 function boundedAttempts(value: number): number {
   return Math.max(1, Math.min(5, Number.isFinite(value) ? Math.floor(value) : 3));
-}
-
-function retryableStatus(status: number): boolean {
-  return status === 408 || status === 429 || (status >= 500 && status <= 504);
-}
-
-function retryDelayMs(attempt: number, retryAfter: string | null = null): number {
-  const seconds = retryAfter ? Number.parseFloat(retryAfter) : Number.NaN;
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 20000);
-  return Math.min(12000, 1000 * 2 ** attempt);
-}
-
-function waitForRetry(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) return reject(new DOMException('The request was aborted.', 'AbortError'));
-    const timeout = setTimeout(resolve, milliseconds);
-    signal.addEventListener('abort', () => {
-      clearTimeout(timeout);
-      reject(new DOMException('The request was aborted.', 'AbortError'));
-    }, { once: true });
-  });
 }

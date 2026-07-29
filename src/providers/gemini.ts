@@ -1,5 +1,11 @@
 import { ProviderError } from '../errors.js';
 import { languageName } from '../languages.js';
+import { parseStructuredJson } from '@kren/core/structured-json';
+import {
+  isRetryableLanguageModelStatus,
+  retryDelayMs as coreRetryDelayMs,
+  waitForRetry
+} from '@kren/core/retry';
 import type {
   RewriteRequest,
   RewriteResult,
@@ -228,38 +234,14 @@ export function configuredThinkingLevel(
 }
 
 export function isRetryableGeminiStatus(status: number): boolean {
-  return status === 408 || status === 429 || (status >= 500 && status <= 504);
+  return isRetryableLanguageModelStatus(status);
 }
 
 function retryDelayMs(attempt: number, retryAfter: string | null = null): number {
-  const retryAfterSeconds = retryAfter ? Number.parseFloat(retryAfter) : Number.NaN;
-  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
-    return Math.min(retryAfterSeconds * 1000, 20000);
-  }
-  const retryAt = retryAfter ? Date.parse(retryAfter) : Number.NaN;
-  if (Number.isFinite(retryAt)) {
-    return Math.max(0, Math.min(retryAt - Date.now(), 20000));
-  }
-  const exponential = 1250 * 2 ** attempt;
-  return Math.min(12000, exponential + Math.floor(Math.random() * 501));
-}
-
-function waitForRetry(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException('The request was aborted.', 'AbortError'));
-      return;
-    }
-    const timeout = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, milliseconds);
-    const onAbort = (): void => {
-      clearTimeout(timeout);
-      signal.removeEventListener('abort', onAbort);
-      reject(new DOMException('The request was aborted.', 'AbortError'));
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
+  return coreRetryDelayMs(attempt, retryAfter, {
+    baseDelayMs: 1_250,
+    jitterMs: 500,
+    parseHttpDate: true
   });
 }
 
@@ -345,9 +327,8 @@ export function rewriteSystemInstruction(request: RewriteRequest): string {
 }
 
 export function parseJson(raw: string, providerName = 'Provider'): unknown {
-  const cleaned = raw.replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '');
   try {
-    return JSON.parse(cleaned);
+    return parseStructuredJson(raw);
   } catch {
     throw new ProviderError(
       `${providerName} returned malformed structured output. Try again.`,
