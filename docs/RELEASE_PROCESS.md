@@ -66,20 +66,30 @@ Before continuing, confirm:
 
 Never solve a release failure by weakening privacy tests, removing attribution, bypassing type checking, or using `--no-verify`.
 
-## 4. Commit and push GitHub
+## 4. Commit through a protected release branch
 
-Stage the reviewed public files explicitly. Use a concise release commit:
+The public `main` branch requires a pull request and status checks. Start the release branch from current `main`, stage the reviewed public files explicitly, and use a concise release commit:
 
 ```powershell
+git switch main
+git pull --ff-only origin main
+git switch -c release/kren-<version>
 git add <reviewed-public-files>
 git diff --cached
 git commit -m "Release KREN <version>"
-git push origin main
+git push -u origin release/kren-<version>
 ```
 
-Ordinary Git credentials are sufficient for this established direct-release path. GitHub CLI is optional unless a branch-and-pull-request workflow is intentionally used.
+Open a pull request from `release/kren-<version>` to `main`. Ordinary Git credentials are sufficient to push the branch. GitHub CLI is optional because the pull request can be opened through the connected GitHub tools or website.
 
-Check the GitHub Actions run for the pushed commit. Both the package job and extension-host tests must pass before Marketplace upload.
+Check the GitHub Actions run for the pull request. Both the package job and extension-host tests must pass. Merge as one concise release commit, then synchronize local `main`:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+```
+
+Do not bypass the branch rule or force-push `main`.
 
 ## 5. Publish to the VS Code Marketplace
 
