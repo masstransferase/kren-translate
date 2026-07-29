@@ -133,7 +133,7 @@ Harper is rule-based. A clean result is not a guarantee that every spelling, gra
 
 ## Translation
 
-Translation detects the input language automatically and uses the configured ISO/BCP-47 output language. Cloud Translation API Basic v2 is the default provider; Gemini is optional. KREN never silently switches translation providers. Google Translate powers Cloud Translation API results, so KREN places Google's official linked attribution badge and an available translation disclaimer beside every such result.
+Translation detects the input language automatically. The default `auto-en-ko` target sends English to Korean and Korean to English. Choose a fixed ISO/BCP-47 target for other languages or mixed-language edge cases. Cloud Translation API Basic v2 is the default provider; Gemini is optional. KREN never silently switches translation providers. Google Translate powers Cloud Translation API results, so KREN places Google's official linked attribution badge and an available translation disclaimer beside every such result.
 
 Editor-originated translation results can be copied or explicitly replace the unchanged original selection. Clipboard-originated results can be copied but have no editor range to replace.
 

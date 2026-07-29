@@ -1,6 +1,6 @@
 import { analyzeSelection } from './classifier.js';
 import { ProviderError } from './errors.js';
-import { isPlausibleLanguageCode } from './languages.js';
+import { AUTO_ENGLISH_KOREAN_TARGET, isPlausibleLanguageCode } from './languages.js';
 import {
   configuredThinkingLevel,
   GeminiProvider,
@@ -333,9 +333,14 @@ function applyLanguages(
   analysis: SelectionAnalysis
 ): SelectionAnalysis {
   const configured = operation === 'translate'
-    ? input.targetLanguage ?? runtime.getSetting<string>('translation.targetLanguage', 'ko')
+    ? input.targetLanguage ?? runtime.getSetting<string>(
+      'translation.targetLanguage',
+      AUTO_ENGLISH_KOREAN_TARGET
+    )
     : input.outputLanguage ?? runtime.getSetting<string>('explanation.outputLanguage', 'bilingual');
-  const targetLanguage = configured === 'bilingual' ? 'ko' : configured;
+  const targetLanguage = configured === AUTO_ENGLISH_KOREAN_TARGET
+    ? analysis.targetLanguage
+    : configured === 'bilingual' ? 'ko' : configured;
   if (!isPlausibleLanguageCode(targetLanguage)) {
     throw new Error(`Invalid output language code: ${targetLanguage}.`);
   }
@@ -375,7 +380,13 @@ async function lookupEnglishDictionary(
     );
   }
 
-  const targetLanguage = runtime.getSetting<string>('translation.targetLanguage', 'ko');
+  const configuredTarget = runtime.getSetting<string>(
+    'translation.targetLanguage',
+    AUTO_ENGLISH_KOREAN_TARGET
+  );
+  const targetLanguage = configuredTarget === AUTO_ENGLISH_KOREAN_TARGET
+    ? analysis.targetLanguage
+    : configuredTarget;
   if (!isPlausibleLanguageCode(targetLanguage)) {
     throw new Error(`Invalid output language code: ${targetLanguage}.`);
   }

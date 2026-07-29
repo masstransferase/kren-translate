@@ -20,7 +20,7 @@ Passive hovering sends nothing. KREN starts a remote request only after you expl
 | **English Dictionary** | Structured Merriam-Webster entries, examples, inflections, and pronunciation | Collegiate API key |
 | **Synonyms** | Sense-grouped synonyms, related words, and antonyms | Thesaurus API key |
 | **Korean Dictionary** | Korean headwords with English explanations | Korean Basic Dictionary API key |
-| **Translation** | Automatic input detection and a selected output language | Cloud Translation API or Gemini key |
+| **Translation** | Automatic English-to-Korean and Korean-to-English direction by default, or a fixed multilingual target | Cloud Translation API or Gemini key |
 | **Explain Nuance** | Meaning, connotation, register, ambiguity, and technical usage | Gemini, OpenAI API, or Anthropic API key |
 | **Rewrite English** | Natural, Concise, and Jargon-Free variants with English-variety, domain, tone, and rhetorical-mode controls | Gemini, OpenAI API, or Anthropic API key |
 | **Read Aloud** | Offline Windows voices or optional Edge Online natural voices | Local Windows; Edge mode also needs Python and `edge-tts` |
@@ -54,6 +54,7 @@ Do not submit secrets, confidential material, or personal data unless the select
 - [Provider Setup](https://github.com/masstransferase/kren-translate/blob/main/docs/PROVIDER_SETUP.md)
 - [Privacy Policy](https://github.com/masstransferase/kren-translate/blob/main/PRIVACY.md)
 - [Troubleshooting](https://github.com/masstransferase/kren-translate/blob/main/docs/TROUBLESHOOTING.md)
+- [Public Release Process](https://github.com/masstransferase/kren-translate/blob/main/docs/RELEASE_PROCESS.md)
 
 The same User Manual is available from KREN's in-panel menu.
 

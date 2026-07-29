@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Adds automatic English-to-Korean and Korean-to-English translation as the default direction.
+- Keeps explicit multilingual targets available and migrates the former global Korean default once without overriding workspace-specific targets.
+
 ## 1.0.1
 
 - Replaces the retired alternate-profile fallback preset with stable `gemini-3.5-flash` and migrates the former saved default automatically.

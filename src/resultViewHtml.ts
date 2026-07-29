@@ -623,7 +623,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
     <p>Automatic paragraph checking is off by default and remains local. Added words and privacy-preserving ignored hashes are stored in VS Code global storage; checked passages are not stored. Harper is rule-based, so review every suggestion.</p>
 
     <h3>Translation and explanation</h3>
-    <p>Translation detects input automatically and uses the selected output language. Google Translate powers Cloud Translation API results, which display the required linked attribution and an available disclaimer. Explanation can use a selected language or English/Korean bilingual output. Gemini, OpenAI, and Anthropic are selected independently for Explain and Rewrite. Gemini also offers independently selected Default or Alternate profiles for Explain and Rewrite. KREN never silently sends text to a different company, and model discovery or connection tests send no selected document text.</p>
+    <p>Translation detects input automatically. The default Auto English-Korean target sends English to Korean and Korean to English; a fixed output language remains available. Google Translate powers Cloud Translation API results, which display the required linked attribution and an available disclaimer. Explanation can use a selected language or English/Korean bilingual output. Gemini, OpenAI, and Anthropic are selected independently for Explain and Rewrite. Gemini also offers independently selected Default or Alternate profiles for Explain and Rewrite. KREN never silently sends text to a different company, and model discovery or connection tests send no selected document text.</p>
 
     <h3>Rewrite English</h3>
     <p>Rewrite is for English input, not translation. Choose Natural, Concise, Jargon-Free, or all three. Select an English variety, domain, tone, and rhetorical mode in Settings. Follow Grammar Check uses the currently selected grammar dialect. <strong>Preserve My Voice</strong> and <strong>Preserve Original</strong> are the safest defaults. Formatting protection covers Markdown, LaTeX, citations, links, placeholders, filenames, and code. AI output can still be wrong; verify facts, numbers, citations, terminology, and intended tone before replacement.</p>
@@ -822,7 +822,7 @@ function renderSettings(
       ${selectSetting('Translation provider', 'Dictionary providers are configured separately.', 'translationProvider', settings.translationProvider, [
         ['googleCloudTranslation', 'Google Cloud Translation'], ['gemini', 'Gemini']
       ])}
-      ${textSetting('Translation language', 'ISO/BCP-47 code, such as ko, ja, es, or de.', 'translation.targetLanguage', settings.translationTargetLanguage)}
+      ${textSetting('Translation language', 'Use auto-en-ko, or an ISO/BCP-47 fixed target such as ko, ja, es, or de.', 'translation.targetLanguage', settings.translationTargetLanguage)}
     </section>
     <section class="settings-group">
       <h3>Grammar Check</h3>

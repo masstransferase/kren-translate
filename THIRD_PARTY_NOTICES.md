@@ -6,14 +6,15 @@ KREN bundles the following open-source packages. Versions are locked by `package
 | --- | --- | --- | --- | --- |
 | `harper.js` | 2.4.0 | Apache-2.0 | Elijah Potter and contributors | <https://github.com/Automattic/harper> |
 | `fflate` | 0.8.3 | MIT | Arjun Barrett | <https://github.com/101arrowz/fflate> |
-| `fast-xml-parser` | 5.9.3 | MIT | Amit Kumar Gupta | <https://github.com/NaturalIntelligence/fast-xml-parser> |
+| `fast-xml-parser` | 5.10.1 | MIT | Amit Kumar Gupta | <https://github.com/NaturalIntelligence/fast-xml-parser> |
 | `fast-xml-builder` | 1.2.1 | MIT | Natural Intelligence | <https://github.com/NaturalIntelligence/fast-xml-parser> |
-| `@nodable/entities` | 2.2.0 | MIT | Amit Gupta | <https://github.com/nodable/valgen> |
+| `@nodable/entities` | 3.0.0 | MIT | Amit Gupta | <https://github.com/nodable/valgen> |
 | `anynum` | 1.0.1 | MIT | Natural Intelligence | <https://github.com/NaturalIntelligence/anynum> |
-| `is-unsafe` | 1.0.1 | MIT | Natural Intelligence | <https://github.com/NaturalIntelligence/is-unsafe> |
+| `is-unsafe` | 2.0.0 | MIT | Natural Intelligence | <https://github.com/NaturalIntelligence/is-unsafe> |
 | `path-expression-matcher` | 1.6.2 | MIT | Contributors | <https://github.com/NaturalIntelligence/path-expression-matcher> |
 | `strnum` | 2.4.1 | MIT | Natural Intelligence | <https://github.com/NaturalIntelligence/strnum> |
 | `xml-naming` | 0.1.0 | MIT | Amit Gupta | <https://github.com/NaturalIntelligence/xml-naming> |
+| `fast-xml-parser/node_modules/xml-naming` | 0.3.0 | MIT | Amit Gupta | <https://github.com/NaturalIntelligence/xml-naming> |
 
 The complete Apache License 2.0 is included at [`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt). The MIT License text is included at [`licenses/MIT.txt`](licenses/MIT.txt). These components run locally. Their inclusion does not create a network connection to their authors or projects.
 

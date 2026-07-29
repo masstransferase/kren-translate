@@ -3,6 +3,8 @@ export interface KrenLanguage {
   name: string;
 }
 
+export const AUTO_ENGLISH_KOREAN_TARGET = 'auto-en-ko';
+
 export const KREN_LANGUAGES: readonly KrenLanguage[] = [
   { code: 'ar', name: 'Arabic' },
   { code: 'bn', name: 'Bengali' },
@@ -53,6 +55,7 @@ export const KREN_LANGUAGES: readonly KrenLanguage[] = [
 
 export function languageName(code: string): string {
   if (code === 'auto') return 'Auto-detect';
+  if (code === AUTO_ENGLISH_KOREAN_TARGET) return 'Auto: English ↔ Korean';
   if (code === 'bilingual') return 'English and Korean';
   return KREN_LANGUAGES.find((language) => language.code === code)?.name ?? code;
 }
