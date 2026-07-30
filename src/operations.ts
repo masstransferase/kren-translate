@@ -151,7 +151,7 @@ function validateDictionaryInput(operation: KrenOperation, analysis: SelectionAn
     throw new Error('Korean Dictionary Search requires one Korean word.');
   }
   if (isRewriteOperation(operation) && !/[\p{L}\p{N}]/u.test(analysis.text)) {
-    throw new Error('Rewrite / Polish Text requires text containing a letter or number.');
+    throw new Error('Rewrite Text requires text containing a letter or number.');
   }
   if (operation === 'grammar' && !/\p{Script=Latin}/u.test(analysis.text)) {
     throw new Error('Grammar Check currently requires English text.');

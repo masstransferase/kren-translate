@@ -534,7 +534,7 @@ function renderEmptyView(
 ): string {
   return `${renderHeader('', false, brandImageUri, true)}
   <section class="card welcome">
-    <p class="welcome-lead"><strong>KREN is a privacy-conscious language workbench for dictionaries, offline grammar checking, translation, nuance, English rewriting, and read-aloud inside VS Code.</strong></p>
+    <p class="welcome-lead"><strong>KREN is a privacy-conscious language workbench for dictionaries, offline grammar checking, translation, nuance, multilingual rewriting, and read-aloud inside VS Code.</strong></p>
     <div class="welcome-layout">
       <div class="welcome-flow">
         <div class="welcome-step"><strong>1. Select or copy</strong><span>Select editor text, or copy text from chat, terminals, and other panels.</span></div>
@@ -542,7 +542,7 @@ function renderEmptyView(
         <div class="welcome-step"><strong>3. Use the result</strong><span>Read, compare, copy, replace eligible text, hear pronunciation, or open full details.</span></div>
       </div>
       <div class="capability-grid" aria-label="KREN capabilities">
-        <span class="capability">English Dictionary</span><span class="capability">Synonyms</span><span class="capability">Korean Dictionary</span><span class="capability">Translation</span><span class="capability">Explain Nuance</span><span class="capability">Grammar Check</span><span class="capability">Rewrite / Polish</span><span class="capability">Read Aloud</span>
+        <span class="capability">English Dictionary</span><span class="capability">Synonyms</span><span class="capability">Korean Dictionary</span><span class="capability">Translation</span><span class="capability">Explain Nuance</span><span class="capability">Grammar Check</span><span class="capability">Rewrite</span><span class="capability">Read Aloud</span>
       </div>
     </div>
     <p class="privacy-note">Passive hovering sends nothing. Remote services receive only text you explicitly submit. Use the menu above for the User Manual and Settings.</p>
@@ -613,7 +613,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
       <li><strong>Translate:</strong> automatic input detection and your selected output language.</li>
       <li><strong>Explain Meaning or Nuance:</strong> contextual meaning, connotation, register, ambiguity, and technical usage.</li>
       <li><strong>Grammar Check:</strong> private, offline English spelling and grammar review in a background worker, with user-selected corrections, a local custom dictionary, privacy-preserving ignored findings, and optional current-paragraph auto-check.</li>
-      <li><strong>Rewrite / Polish Text:</strong> Detects and preserves the source language. Natural, Concise, and Jargon-Free variants use the selected domain, tone, and rhetorical mode; English variety applies only to English.</li>
+      <li><strong>Rewrite Text:</strong> Detects and preserves the source language. Natural, Concise, and Jargon-Free variants use the selected domain, tone, and rhetorical mode; English variety applies only to English.</li>
       <li><strong>Read Aloud:</strong> speak a cleaned copy of selected text without changing the document.</li>
     </ul>
 
@@ -627,8 +627,8 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
     <h3>Translation and explanation</h3>
     <p>Translation detects input automatically. The default Auto English-Korean target sends English to Korean and Korean to English; a fixed output language remains available. Google Translate powers Cloud Translation API results, which display the required linked attribution and an available disclaimer. Explanation can use a selected language or English/Korean bilingual output. Gemini, OpenAI, and Anthropic are selected independently for Explain and Rewrite. Gemini also offers independently selected Default or Alternate profiles for Explain and Rewrite. KREN never silently sends text to a different company, and model discovery or connection tests send no selected document text.</p>
 
-    <h3>Rewrite / Polish Text</h3>
-    <p>Rewrite / Polish Text detects and preserves the source language; it does not translate. For short or mixed-language text, select the source language manually in Settings. Choose Natural, Concise, Jargon-Free, or all three. Domain, tone, and rhetorical mode apply across languages. English variety applies only to English. <strong>Preserve My Voice</strong> and <strong>Preserve Original</strong> are the safest defaults. Formatting protection covers Markdown, LaTeX, citations, links, placeholders, filenames, and code. AI output can still be wrong; verify facts, numbers, citations, terminology, language, and intended tone before replacement.</p>
+    <h3>Rewrite Text</h3>
+    <p>Rewrite Text detects and preserves the source language; it does not translate. For short or mixed-language text, select the source language manually in Settings. Choose Natural, Concise, Jargon-Free, or all three. Domain, tone, and rhetorical mode apply across languages. English variety applies only to English. <strong>Preserve My Voice</strong> and <strong>Preserve Original</strong> are the safest defaults. Formatting protection covers Markdown, LaTeX, citations, links, placeholders, filenames, and code. AI output can still be wrong; verify facts, numbers, citations, terminology, language, and intended tone before replacement.</p>
     <p>Rewrite and Explain depend on remote model availability. Repeating a request often resolves a temporary provider or network failure. High thinking or effort settings can take substantially longer; Auto or Low is usually sufficient for routine editing.</p>
 
     <h3>Copy and replacement safety</h3>
@@ -670,7 +670,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
 
     <h3>Known limitations</h3>
     <ul>
-      <li>Grammar Check is English-focused and rule-based. Rewrite / Polish Text supports multilingual input and does not translate it.</li>
+      <li>Grammar Check is English-focused and rule-based. Rewrite Text supports multilingual input and does not translate it.</li>
       <li>Korean Dictionary accepts one Korean headword; the other dictionary products are English-specific.</li>
       <li>Read Aloud is limited to a local Windows extension host, and Edge Online relies on an unofficial service interface.</li>
       <li>Models, access, quotas, pricing, permitted use, and retention can change. AI output is informational, not professional advice.</li>
@@ -851,7 +851,7 @@ function renderSettings(
       ${providerSettings('explanation.provider', 'explanation.geminiProfile', settings.explanationProfile, settings, proModels, openAIModels, anthropicModels, true)}
     </section>
     <section class="settings-group">
-      <h3>Rewrite / Polish Text</h3>
+      <h3>Rewrite Text</h3>
       ${selectSetting('Source language', 'Auto-detect preserves the detected language. Choose a language when short or mixed text is ambiguous.', 'rewrite.sourceLanguage', settings.rewriteSourceLanguage, [
         ['auto', 'Auto-detect (recommended)'], ['en', 'English'], ['ko', 'Korean'],
         ['ja', 'Japanese'], ['zh-CN', 'Chinese (Simplified)'], ['zh-TW', 'Chinese (Traditional)'],

@@ -1460,10 +1460,10 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
     'all'
   );
   const rewriteItems: Array<{ label: string; operation: KrenOperation; id: string }> = [
-    { label: '$(edit) Rewrite / Polish Text: All 3 Variants', operation: 'rewrite', id: 'all' },
-    { label: '$(sparkle) Rewrite / Polish Text: Natural', operation: 'rewriteNatural', id: 'natural' },
-    { label: '$(symbol-ruler) Rewrite / Polish Text: Concise', operation: 'rewriteConcise', id: 'concise' },
-    { label: '$(clear-all) Rewrite / Polish Text: Jargon-Free', operation: 'rewriteJargonFree', id: 'jargonFree' }
+    { label: '$(edit) Rewrite Text: All 3 Variants', operation: 'rewrite', id: 'all' },
+    { label: '$(sparkle) Rewrite Text: Natural', operation: 'rewriteNatural', id: 'natural' },
+    { label: '$(symbol-ruler) Rewrite Text: Concise', operation: 'rewriteConcise', id: 'concise' },
+    { label: '$(clear-all) Rewrite Text: Jargon-Free', operation: 'rewriteJargonFree', id: 'jargonFree' }
   ];
   rewriteItems.sort((left, right) =>
     left.id === preferredRewrite ? -1 : right.id === preferredRewrite ? 1 : 0
@@ -1629,7 +1629,7 @@ async function configureRewriteGeminiProfile(
       }
     ],
     {
-      title: 'Choose the Gemini profile used by Rewrite / Polish Text',
+      title: 'Choose the Gemini profile used by Rewrite Text',
       placeHolder: 'Access and billing are determined by the Google project associated with each key'
     }
   );
@@ -1678,7 +1678,7 @@ async function configureRewriteGeminiProfile(
     );
   }
   await vscode.window.showInformationMessage(
-    `Rewrite / Polish Text now uses the ${selected.profile === 'pro' ? 'alternate' : 'default'} Gemini profile.`
+    `Rewrite Text now uses the ${selected.profile === 'pro' ? 'alternate' : 'default'} Gemini profile.`
   );
 }
 
@@ -2108,10 +2108,10 @@ function progressTitle(operation: KrenOperation): string {
   if (operation === 'englishDictionary') return 'KREN: searching the English dictionary…';
   if (operation === 'koreanDictionary') return 'KREN: searching the Korean dictionary…';
   if (operation === 'synonyms') return 'KREN: searching the thesaurus…';
-  if (operation === 'rewrite') return 'KREN: rewriting English in three styles…';
-  if (operation === 'rewriteNatural') return 'KREN: rewriting as natural English…';
-  if (operation === 'rewriteConcise') return 'KREN: rewriting concise English…';
-  if (operation === 'rewriteJargonFree') return 'KREN: rewriting English without jargon…';
+  if (operation === 'rewrite') return 'KREN: rewriting text in three styles…';
+  if (operation === 'rewriteNatural') return 'KREN: producing a natural rewrite…';
+  if (operation === 'rewriteConcise') return 'KREN: making the text concise…';
+  if (operation === 'rewriteJargonFree') return 'KREN: rewriting text without jargon…';
   return 'KREN: translating selection…';
 }
 

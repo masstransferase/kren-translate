@@ -46,7 +46,7 @@ Gemini is optional and uses a key supplied by the user. Google's current [Gemini
 
 Each request contains KREN's fixed translation or explanation instructions, the exact submitted text, automatic-input and selected-output language metadata, and non-user generation settings. Gemini is not used as a dictionary or thesaurus fallback.
 
-Rewrite / Polish Text sends the exact submitted text plus fixed, provider-independent rewriting rules and visible language and style settings. The selected provider detects or follows the configured source language and rewrites in that same language. KREN does not attach surrounding editor or chat context. The three-variant operation requests Natural, Concise, and Jargon-Free results; direct operations request only the selected variant.
+Rewrite Text sends the exact submitted text plus fixed, provider-independent rewriting rules and visible language and style settings. The selected provider detects or follows the configured source language and rewrites in that same language. KREN does not attach surrounding editor or chat context. The three-variant operation requests Natural, Concise, and Jargon-Free results; direct operations request only the selected variant.
 
 The default rewrite profile uses the primary Gemini key. The optional alternate rewrite profile uses a separate user-supplied SecretStorage key and configurable model. If explicit alternate-profile fallback is enabled, KREN resubmits the same exact text to the configured fallback model only after the primary model exhausts retries with HTTP 429, 503, or 504, or returns unusable structured output. The result identifies both models. Authentication, invalid-request, empty-result, and safety errors never trigger fallback.
 

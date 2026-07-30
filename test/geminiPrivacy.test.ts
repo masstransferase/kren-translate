@@ -121,6 +121,13 @@ describe('Gemini privacy boundary', () => {
       domain: 'general',
       tone: 'neutral'
     };
+    const body = buildGeminiRewriteRequestBody(request);
+    expect(body.systemInstruction.parts[0]?.text).toContain(
+      'fluent, native-level prose in the detected language'
+    );
+    expect(body.systemInstruction.parts[0]?.text).not.toContain(
+      'fluent native-level English'
+    );
     const result = normalizeGeminiRewriteResult({
       detectedLanguage: 'ko',
       variants: [{ id: 'natural', text: '이 문장을 더 자연스럽게 고쳐 주세요.' }]

@@ -312,8 +312,8 @@ export function rewriteSystemInstruction(request: RewriteRequest): string {
   const singleVariant = rewriteOperationVariant(request.operation);
   if (singleVariant) {
     const variantInstructions: Record<RewriteVariantId, string[]> = {
-      natural: ['Write fluent native-level English that follows the configured tone and rhetorical mode while preserving the original level of detail.'],
-      concise: ['Write tighter, more direct English while retaining every important point.'],
+      natural: ['Write fluent, native-level prose in the detected language that follows the configured tone and rhetorical mode while preserving the original level of detail.'],
+      concise: ['Write tighter, more direct prose in the detected language while retaining every important point.'],
       jargonFree
     };
     const label = rewriteVariantLabel(singleVariant, request.sourceLanguage);

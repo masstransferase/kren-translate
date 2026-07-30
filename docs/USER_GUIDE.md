@@ -25,7 +25,7 @@ Core text operations work on supported Windows, macOS, and Linux VS Code Desktop
 | Korean Dictionary | Korean Basic Dictionary Open API key | Exact Korean headword goes to the dictionary API |
 | Translation | Google Cloud Translation Basic v2 key by default, or a Gemini API key if Gemini is selected | Exact submitted text goes only to the selected provider |
 | Explain Meaning or Nuance | A Gemini, OpenAI API, or Anthropic API key for the selected provider | Exact submitted text and selected settings go to that provider |
-| Rewrite / Polish Text | A Gemini, OpenAI API, or Anthropic API key for the selected provider | Exact submitted text and visible language and rewrite settings go to that provider |
+| Rewrite Text | A Gemini, OpenAI API, or Anthropic API key for the selected provider | Exact submitted text and visible language and rewrite settings go to that provider |
 | Merriam-Webster pronunciation | A successful Merriam-Webster lookup and network access to its allowlisted audio host | Downloads the provider's pronunciation MP3 |
 | Local Windows Read Aloud | A local Windows extension host, PowerShell, Windows System.Speech, and an installed speech voice | None |
 | Edge Online Read Aloud | A local Windows extension host, working Python, `edge-tts`, network access, and first-use consent | Sends only KREN's cleaned speech copy to Microsoft's Edge speech service |
@@ -62,7 +62,7 @@ See [Provider Setup](PROVIDER_SETUP.md) for account-specific instructions.
 
 1. Select exactly one word, expression, sentence, or passage.
 2. Right-click the selection.
-3. Choose Dictionary Search, Translate Selection, Explain Meaning or Nuance, Grammar Check, Rewrite / Polish Text, or Read Aloud. Read Aloud is available on local Windows.
+3. Choose Dictionary Search, Translate Selection, Explain Meaning or Nuance, Grammar Check, Rewrite Text, or Read Aloud. Read Aloud is available on local Windows.
 4. Review the hover, native Quick Fix, or KREN panel result.
 5. Copy the result, explicitly replace eligible editor text, play audio, or open plain-text details.
 
@@ -143,9 +143,9 @@ Choose Gemini, OpenAI API, or Anthropic API independently for explanation. With 
 
 KREN never silently falls back across companies. Model discovery and connection tests authenticate only with the selected provider and do not send selected document text.
 
-## Rewrite / Polish Text
+## Rewrite Text
 
-Rewrite / Polish Text detects the dominant source language and rewrites in that same language. It does not translate. For short or mixed-language text, select the source language manually in Settings. Choose all three variants or request one directly:
+Rewrite Text detects the dominant source language and rewrites in that same language. It does not translate. For short or mixed-language text, select the source language manually in Settings. Choose all three variants or request one directly:
 
 - **Natural** for fluent native-level phrasing in the source language.
 - **Concise** for shorter wording that preserves the message.
@@ -211,7 +211,7 @@ KREN does not bundle an MCP server. Copying text and using the KREN status item 
 - Custom grammar words, ignored Harper hashes, consent flags, and the Cloud Translation usage ledger are stored in VS Code global storage.
 - The default submitted-text limit is 5,000 characters and is configurable from 1 to 20,000 with `kren.translation.maxCharacters`; despite its historical name, this shared limit applies to KREN operations generally.
 - The default provider/local-operation timeout is 45 seconds and is configurable from 1 to 120 seconds with `kren.request.timeoutMs`.
-- Same-provider retries are bounded. For Rewrite / Polish Text, the alternate Gemini profile can use only its explicitly configured same-provider fallback after eligible temporary overload errors or an unusable structured response, and results identify fallback use. Authentication, invalid-request, empty-result, and safety errors do not trigger fallback. Explain uses the selected model without this rewrite fallback.
+- Same-provider retries are bounded. For Rewrite Text, the alternate Gemini profile can use only its explicitly configured same-provider fallback after eligible temporary overload errors or an unusable structured response, and results identify fallback use. Authentication, invalid-request, empty-result, and safety errors do not trigger fallback. Explain uses the selected model without this rewrite fallback.
 - OpenAI Responses requests set `store: false`, but provider-side security, abuse-monitoring, and legal retention can still apply.
 
 See [Privacy and Cost](PRIVACY_AND_COST.md) for the complete boundary.
@@ -245,7 +245,7 @@ Deleting or resetting the local Cloud Translation ledger does not change provide
 ## Known limitations
 
 - Grammar Check is English-focused and rule-based.
-- Rewrite / Polish Text relies on provider language detection when Source language is Auto; short or mixed-language text may require a manual source-language selection.
+- Rewrite Text relies on provider language detection when Source language is Auto; short or mixed-language text may require a manual source-language selection.
 - Korean Dictionary accepts one Korean headword; other dictionary products are English-specific.
 - Read Aloud is currently limited to a local Windows extension host.
 - Edge Online speech relies on an unofficial service interface that may change independently of KREN.

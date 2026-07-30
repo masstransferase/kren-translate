@@ -1,6 +1,6 @@
 # KREN: Dictionary, Translate & Rewrite
 
-KREN is a privacy-conscious language workbench for dictionaries, offline grammar checking, translation, nuance explanation, English rewriting, and read-aloud inside VS Code.
+KREN is a privacy-conscious language workbench for dictionaries, offline grammar checking, translation, nuance explanation, multilingual rewriting, and read-aloud inside VS Code.
 
 ![KREN overview showing the select or copy, choose an action, and use the result workflow](https://raw.githubusercontent.com/masstransferase/kren-translate/main/media/kren-marketplace-overview.png)
 
@@ -22,7 +22,7 @@ Passive hovering sends nothing. KREN starts a remote request only after you expl
 | **Korean Dictionary** | Korean headwords with English explanations | Korean Basic Dictionary API key |
 | **Translation** | Automatic English-to-Korean and Korean-to-English direction by default, or a fixed multilingual target | Cloud Translation API or Gemini key |
 | **Explain Nuance** | Meaning, connotation, register, ambiguity, and technical usage | Gemini, OpenAI API, or Anthropic API key |
-| **Rewrite / Polish Text** | Auto-detects and preserves the source language; Natural, Concise, and Jargon-Free variants use domain, tone, and rhetorical-mode controls. English variety applies only to English. | Gemini, OpenAI API, or Anthropic API key |
+| **Rewrite Text** | Auto-detects and preserves the source language; Natural, Concise, and Jargon-Free variants use domain, tone, and rhetorical-mode controls. English variety applies only to English. | Gemini, OpenAI API, or Anthropic API key |
 | **Read Aloud** | Offline Windows voices or optional Edge Online natural voices | Local Windows; Edge mode also needs Python and `edge-tts` |
 
 You need keys only for the online features you choose. Every user must obtain and enter their own API keys; KREN includes no shared credentials. For Merriam-Webster, obtain your own Collegiate Dictionary and Collegiate Thesaurus keys. Standard free Merriam-Webster API use is limited to noncommercial applications, two reference works, and 1,000 queries per day per reference. Consumer AI subscriptions do not automatically include developer API access.

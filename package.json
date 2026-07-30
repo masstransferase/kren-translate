@@ -1,7 +1,7 @@
 {
   "name": "kren-translate",
   "displayName": "KREN: Dictionary, Translate & Rewrite",
-  "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, English rewriting, and read aloud inside VS Code.",
+  "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, multilingual rewriting, and read aloud inside VS Code.",
   "version": "1.0.2",
   "private": true,
   "publisher": "masstransferase",
@@ -111,22 +111,22 @@
       },
       {
         "command": "kren.rewriteEnglishSelection",
-        "title": "Rewrite / Polish Text: All 3 Variants",
+        "title": "Rewrite Text: All 3 Variants",
         "category": "KREN"
       },
       {
         "command": "kren.rewriteNaturalSelection",
-        "title": "Rewrite / Polish Text: Natural",
+        "title": "Rewrite Text: Natural",
         "category": "KREN"
       },
       {
         "command": "kren.rewriteConciseSelection",
-        "title": "Rewrite / Polish Text: Concise",
+        "title": "Rewrite Text: Concise",
         "category": "KREN"
       },
       {
         "command": "kren.rewriteJargonFreeSelection",
-        "title": "Rewrite / Polish Text: Jargon-Free",
+        "title": "Rewrite Text: Jargon-Free",
         "category": "KREN"
       },
       {
@@ -331,7 +331,7 @@
       },
       {
         "id": "kren.rewriteMenu",
-        "label": "Rewrite / Polish Text"
+        "label": "Rewrite Text"
       }
     ],
     "menus": {
@@ -646,12 +646,12 @@
             "Use the Anthropic Claude API. API charges may apply."
           ],
           "default": "gemini",
-          "description": "Language-model provider used by Rewrite / Polish Text. KREN never silently falls back to a different provider."
+          "description": "Language-model provider used by Rewrite Text. KREN never silently falls back to a different provider."
         },
         "kren.rewrite.sourceLanguage": {
           "type": "string",
           "default": "auto",
-          "description": "Source language for Rewrite / Polish Text. Use auto to detect and preserve the selected text's language, or enter a BCP-47 code such as en, ko, ja, or es. English-variety settings apply only to English."
+          "description": "Source language for Rewrite Text. Use auto to detect and preserve the selected text's language, or enter a BCP-47 code such as en, ko, ja, or es. English-variety settings apply only to English."
         },
         "kren.openai.model": {
           "type": "string",
@@ -748,22 +748,22 @@
             "Use the optional user-supplied alternate Gemini key and kren.gemini.alternateModel."
           ],
           "default": "standard",
-          "description": "Gemini credential and model profile used by Rewrite / Polish Text."
+          "description": "Gemini credential and model profile used by Rewrite Text."
         },
         "kren.gemini.alternateModel": {
           "type": "string",
           "default": "gemini-3.1-pro-preview",
-          "description": "Model used by the alternate Gemini profile for Explain Meaning or Nuance and Rewrite / Polish Text. The KREN settings interface provides editable discovered suggestions."
+          "description": "Model used by the alternate Gemini profile for Explain Meaning or Nuance and Rewrite Text. The KREN settings interface provides editable discovered suggestions."
         },
         "kren.gemini.alternateFallbackEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "For Explain Meaning or Nuance and Rewrite / Polish Text, use the configured same-provider fallback when the alternate model is unavailable, remains temporarily unavailable, or returns unusable structured output. Fallback use is identified in the result."
+          "description": "For Explain Meaning or Nuance and Rewrite Text, use the configured same-provider fallback when the alternate model is unavailable, remains temporarily unavailable, or returns unusable structured output. Fallback use is identified in the result."
         },
         "kren.gemini.alternateFallbackModel": {
           "type": "string",
           "default": "gemini-3.5-flash",
-          "description": "Fallback model for the alternate Gemini profile in Explain Meaning or Nuance and Rewrite / Polish Text."
+          "description": "Fallback model for the alternate Gemini profile in Explain Meaning or Nuance and Rewrite Text."
         },
         "kren.gemini.alternateFallbackThinkingLevel": {
           "type": "string",
@@ -829,7 +829,7 @@
             "Place Jargon-Free first in the KREN clipboard Quick Pick."
           ],
           "default": "all",
-          "description": "Preferred Rewrite / Polish Text action in the KREN clipboard Quick Pick. All four rewrite choices remain available."
+          "description": "Preferred Rewrite Text action in the KREN clipboard Quick Pick. All four rewrite choices remain available."
         },
         "kren.rewrite.domain": {
           "type": "string",
@@ -848,7 +848,7 @@
             "Natural professional email wording without invented greetings or sign-offs."
           ],
           "default": "general",
-          "description": "Domain preset applied to Rewrite / Polish Text requests."
+          "description": "Domain preset applied to Rewrite Text requests."
         },
         "kren.rewrite.englishVariety": {
           "type": "string",
@@ -871,7 +871,7 @@
             "Use internationally accessible, region-neutral English."
           ],
           "default": "followGrammar",
-          "description": "English spelling, punctuation, vocabulary, idiom, and usage applied only when Rewrite / Polish Text detects or is assigned English."
+          "description": "English spelling, punctuation, vocabulary, idiom, and usage applied only when Rewrite Text detects or is assigned English."
         },
         "kren.rewrite.tone": {
           "type": "string",
@@ -900,7 +900,7 @@
             "Prefer familiar words, direct syntax, and reasonably short sentences."
           ],
           "default": "preserveVoice",
-          "description": "Tone preset applied to Rewrite / Polish Text requests."
+          "description": "Tone preset applied to Rewrite Text requests."
         },
         "kren.rewrite.rhetoricalMode": {
           "type": "string",
@@ -919,7 +919,7 @@
             "Express the supplied concern or disagreement clearly and respectfully."
           ],
           "default": "preserveOriginal",
-          "description": "Rhetorical goal applied to Rewrite / Polish Text requests."
+          "description": "Rhetorical goal applied to Rewrite Text requests."
         },
         "kren.rewrite.preserveFormatting": {
           "type": "boolean",

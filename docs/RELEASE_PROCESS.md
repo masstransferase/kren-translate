@@ -111,7 +111,7 @@ After Marketplace processing:
 2. Install or update KREN from the Marketplace in a clean VS Code profile.
 3. Confirm no API key is preloaded and all Set/Remove key controls behave correctly.
 4. Smoke-test Grammar Check without a key.
-5. Smoke-test English Dictionary, Synonyms, Korean Dictionary, Translation, Explain Nuance, multilingual Rewrite / Polish Text, and supported Read Aloud modes with user-owned restricted test keys.
+5. Smoke-test English Dictionary, Synonyms, Korean Dictionary, Translation, Explain Nuance, multilingual Rewrite Text, and supported Read Aloud modes with user-owned restricted test keys.
 6. Confirm passive hovering and ordinary typing send nothing.
 7. Confirm editor replacement rechecks the original range.
 8. Confirm the public build has no private-only feature or provider setting.
