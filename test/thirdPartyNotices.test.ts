@@ -17,7 +17,12 @@ const notices = readFileSync('THIRD_PARTY_NOTICES.md', 'utf8');
 describe('third-party release notices', () => {
   it('lists every bundled production package with its locked version and license', () => {
     const productionPackages = Object.entries(lockfile.packages)
-      .filter(([path, metadata]) => path.startsWith('node_modules/') && metadata.dev !== true)
+      .filter(
+        ([path, metadata]) =>
+          path.startsWith('node_modules/') &&
+          path !== 'node_modules/@kren/core' &&
+          metadata.dev !== true
+      )
       .map(([path, metadata]) => ({
         name: path.replace(/^node_modules\//u, ''),
         version: metadata.version,

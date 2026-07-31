@@ -86,6 +86,7 @@ describe('English dictionary query validation', () => {
   it('routes alternate-profile rewrites with the configured supported thinking level', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify({
+        detectedLanguage: 'en',
         variants: [
           { id: 'natural', text: 'Use our combined strengths.' },
           { id: 'concise', text: 'Combine our strengths.' },
@@ -142,7 +143,7 @@ describe('English dictionary query validation', () => {
       .mockResolvedValueOnce(overloaded())
       .mockResolvedValueOnce(overloaded())
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: JSON.stringify({ variants: [
+        candidates: [{ content: { parts: [{ text: JSON.stringify({ detectedLanguage: 'en', variants: [
           { id: 'natural', text: 'Data packages prepared for partners.' },
           { id: 'concise', text: 'Partner-ready data packages.' },
           { id: 'jargonFree', text: 'Data packages that partners can use.' }
@@ -193,7 +194,7 @@ describe('English dictionary query validation', () => {
         candidates: [{ content: { parts: [{ text: '{not valid json' }] } }]
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: JSON.stringify({ variants: [
+        candidates: [{ content: { parts: [{ text: JSON.stringify({ detectedLanguage: 'en', variants: [
           { id: 'natural', text: 'Data packages prepared for partners.' },
           { id: 'concise', text: 'Partner-ready data packages.' },
           { id: 'jargonFree', text: 'Data packages that partners can use.' }

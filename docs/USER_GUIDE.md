@@ -25,7 +25,7 @@ Core text operations work on supported Windows, macOS, and Linux VS Code Desktop
 | Korean Dictionary | Korean Basic Dictionary Open API key | Exact Korean headword goes to the dictionary API |
 | Translation | Google Cloud Translation Basic v2 key by default, or a Gemini API key if Gemini is selected | Exact submitted text goes only to the selected provider |
 | Explain Meaning or Nuance | A Gemini, OpenAI API, or Anthropic API key for the selected provider | Exact submitted text and selected settings go to that provider |
-| Rewrite English | A Gemini, OpenAI API, or Anthropic API key for the selected provider | Exact submitted English text and rewrite settings go to that provider |
+| Rewrite Text | A Gemini, OpenAI API, or Anthropic API key for the selected provider | Exact submitted text and visible language and rewrite settings go to that provider |
 | Merriam-Webster pronunciation | A successful Merriam-Webster lookup and network access to its allowlisted audio host | Downloads the provider's pronunciation MP3 |
 | Local Windows Read Aloud | A local Windows extension host, PowerShell, Windows System.Speech, and an installed speech voice | None |
 | Edge Online Read Aloud | A local Windows extension host, working Python, `edge-tts`, network access, and first-use consent | Sends only KREN's cleaned speech copy to Microsoft's Edge speech service |
@@ -62,7 +62,7 @@ See [Provider Setup](PROVIDER_SETUP.md) for account-specific instructions.
 
 1. Select exactly one word, expression, sentence, or passage.
 2. Right-click the selection.
-3. Choose Dictionary Search, Translate Selection, Explain Meaning or Nuance, Grammar Check, Rewrite English, or Read Aloud. Read Aloud is available on local Windows.
+3. Choose Dictionary Search, Translate Selection, Explain Meaning or Nuance, Grammar Check, Rewrite Text, or Read Aloud. Read Aloud is available on local Windows.
 4. Review the hover, native Quick Fix, or KREN panel result.
 5. Copy the result, explicitly replace eligible editor text, play audio, or open plain-text details.
 
@@ -143,15 +143,15 @@ Choose Gemini, OpenAI API, or Anthropic API independently for explanation. With 
 
 KREN never silently falls back across companies. Model discovery and connection tests authenticate only with the selected provider and do not send selected document text.
 
-## Rewrite English
+## Rewrite Text
 
-Rewrite English is for English input; it is not translation. Choose all three variants or request one directly:
+Rewrite Text detects the dominant source language and rewrites in that same language. It does not translate. For short or mixed-language text, select the source language manually in Settings. Choose all three variants or request one directly:
 
-- **Natural English** for fluent native-level phrasing.
+- **Natural** for fluent native-level phrasing in the source language.
 - **Concise** for shorter wording that preserves the message.
 - **Jargon-Free** for direct, human wording with necessary domain terminology retained.
 
-Configure an English variety, a domain (General, Academic, Technical, Business, or Email), a tone, and a rhetorical mode. English variety offers American, British, Australian, Canadian, Indian, and International English. The default, **Follow Grammar Check**, uses the dialect currently selected for Grammar Check. **Preserve My Voice** and **Preserve Original** are the safest defaults. Formatting protection asks the selected provider to retain Markdown, LaTeX, citations, links, placeholders, filenames, and code. Optional change notes summarize important edits.
+Configure the source language, a domain (General, Academic, Technical, Business, or Email), a tone, and a rhetorical mode. When English is detected or selected, English variety offers American, British, Australian, Canadian, Indian, and International English. The default, **Follow Grammar Check**, uses the dialect currently selected for Grammar Check. English variety is ignored for non-English text. **Preserve My Voice** and **Preserve Original** are the safest defaults. Formatting protection asks the selected provider to retain Markdown, LaTeX, citations, links, placeholders, filenames, and code. Optional change notes summarize important edits.
 
 KREN instructs providers not to invent facts, evidence, promises, certainty, examples, greetings, or document context. AI output can still be wrong; verify claims, numbers, citations, terminology, and intended tone before replacement. Editor results provide Copy and guarded Replace controls for each variant. Clipboard results provide Copy only.
 
@@ -211,7 +211,7 @@ KREN does not bundle an MCP server. Copying text and using the KREN status item 
 - Custom grammar words, ignored Harper hashes, consent flags, and the Cloud Translation usage ledger are stored in VS Code global storage.
 - The default submitted-text limit is 5,000 characters and is configurable from 1 to 20,000 with `kren.translation.maxCharacters`; despite its historical name, this shared limit applies to KREN operations generally.
 - The default provider/local-operation timeout is 45 seconds and is configurable from 1 to 120 seconds with `kren.request.timeoutMs`.
-- Same-provider retries are bounded. For Rewrite English, the alternate Gemini profile can use only its explicitly configured same-provider fallback after eligible temporary overload errors or an unusable structured response, and results identify fallback use. Authentication, invalid-request, empty-result, and safety errors do not trigger fallback. Explain uses the selected model without this rewrite fallback.
+- Same-provider retries are bounded. For Rewrite Text, the alternate Gemini profile can use only its explicitly configured same-provider fallback after eligible temporary overload errors or an unusable structured response, and results identify fallback use. Authentication, invalid-request, empty-result, and safety errors do not trigger fallback. Explain uses the selected model without this rewrite fallback.
 - OpenAI Responses requests set `store: false`, but provider-side security, abuse-monitoring, and legal retention can still apply.
 
 See [Privacy and Cost](PRIVACY_AND_COST.md) for the complete boundary.
@@ -229,6 +229,7 @@ See [Privacy and Cost](PRIVACY_AND_COST.md) for the complete boundary.
 - **Read Aloud is unavailable:** confirm this is a local Windows extension host, install an OS speech voice, and use Preview.
 - **Edge voice fails:** verify the configured Python command, run `python -m pip install edge-tts` in that interpreter, confirm the voice ID and network, then use Preview.
 - **Pronunciation opens KREN:** native playback was disabled/unavailable or failed, so KREN safely used the panel fallback.
+- **Intel graphics blue screen after shutdown/startup:** KREN installs no kernel driver. Update the exact computer model's OEM graphics driver and firmware. If the failure occurs only after Windows shutdown and power-on, disable Windows **Turn on fast startup** and test a full shutdown. This is a targeted driver-resume workaround, not a normal KREN requirement or the similarly named BIOS Fast Boot option.
 
 See [Troubleshooting](TROUBLESHOOTING.md) for additional details. Never paste an API key into a document, issue, log, screenshot, or support request.
 
@@ -245,7 +246,7 @@ Deleting or resetting the local Cloud Translation ledger does not change provide
 ## Known limitations
 
 - Grammar Check is English-focused and rule-based.
-- Rewrite English accepts English input only.
+- Rewrite Text relies on provider language detection when Source language is Auto; short or mixed-language text may require a manual source-language selection.
 - Korean Dictionary accepts one Korean headword; other dictionary products are English-specific.
 - Read Aloud is currently limited to a local Windows extension host.
 - Edge Online speech relies on an unofficial service interface that may change independently of KREN.

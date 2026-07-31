@@ -48,6 +48,7 @@ export type KrenPanelSettingKey =
   | 'explanation.provider'
   | 'explanation.geminiProfile'
   | 'rewrite.provider'
+  | 'rewrite.sourceLanguage'
   | 'rewrite.englishVariety'
   | 'gemini.model'
   | 'gemini.thinkingLevel'
@@ -516,6 +517,7 @@ const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   'explanation.provider',
   'explanation.geminiProfile',
   'rewrite.provider',
+  'rewrite.sourceLanguage',
   'rewrite.englishVariety',
   'gemini.model',
   'gemini.thinkingLevel',

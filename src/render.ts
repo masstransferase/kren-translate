@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { languageName } from './languages.js';
+import { isEnglishLanguageCode } from '@kren/core/languages';
 import type {
   DictionaryResult,
   DictionarySection,
@@ -218,7 +219,10 @@ export function resultDetails(result: KrenResult): string {
       lines.push(`Fallback: ${result.modelId} used after ${result.fallbackFromModel} could not produce a usable result.`);
     }
     if (result.modelId || result.fallbackFromModel) lines.push('');
-    lines.push(`English: ${rewriteEnglishVarietyLabel(result.englishVariety)}`);
+    lines.push(`Language: ${languageName(result.sourceLanguage)}`);
+    if (isEnglishLanguageCode(result.sourceLanguage)) {
+      lines.push(`English: ${rewriteEnglishVarietyLabel(result.englishVariety)}`);
+    }
     lines.push(`Domain: ${rewriteDomainLabel(result.domain)}`);
     lines.push(`Tone: ${rewriteToneLabel(result.tone)}`);
     lines.push(`Mode: ${rewriteRhetoricalModeLabel(result.rhetoricalMode)}`, '');
@@ -278,7 +282,10 @@ function renderRewriteMarkdown(markdown: vscode.MarkdownString, result: RewriteR
     markdown.appendMarkdown(`_Model: ${escapeMarkdown(result.modelId)}${fallback}_\n\n`);
   }
   markdown.appendMarkdown(
-    `_English: ${escapeMarkdown(rewriteEnglishVarietyLabel(result.englishVariety))}; ` +
+    `_Language: ${escapeMarkdown(languageName(result.sourceLanguage))}; ` +
+    (isEnglishLanguageCode(result.sourceLanguage)
+      ? `English: ${escapeMarkdown(rewriteEnglishVarietyLabel(result.englishVariety))}; `
+      : '') +
     `Domain: ${escapeMarkdown(rewriteDomainLabel(result.domain))}; ` +
     `Tone: ${escapeMarkdown(rewriteToneLabel(result.tone))}; ` +
     `Mode: ${escapeMarkdown(rewriteRhetoricalModeLabel(result.rhetoricalMode))}_\n\n`

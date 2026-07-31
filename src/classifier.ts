@@ -1,35 +1,26 @@
 import type { LanguageCode, SelectionAnalysis } from './types.js';
-
-const HANGUL_PATTERN = /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/u;
-const WORD_PATTERN = /^[\p{L}\p{M}\p{N}'’-]+$/u;
+import {
+  classifySelection,
+  containsHangul as coreContainsHangul,
+  detectEnglishKoreanDirection,
+  isWordCandidate as coreIsWordCandidate
+} from '@kren/core/classification';
 
 export function containsHangul(text: string): boolean {
-  return HANGUL_PATTERN.test(text);
+  return coreContainsHangul(text);
 }
 
 export function detectDirection(text: string): {
   sourceLanguage: LanguageCode;
   targetLanguage: LanguageCode;
 } {
-  return containsHangul(text)
-    ? { sourceLanguage: 'ko', targetLanguage: 'en' }
-    : { sourceLanguage: 'en', targetLanguage: 'ko' };
+  return detectEnglishKoreanDirection(text);
 }
 
 export function isWordCandidate(text: string): boolean {
-  return WORD_PATTERN.test(text.trim());
+  return coreIsWordCandidate(text);
 }
 
 export function analyzeSelection(rawText: string): SelectionAnalysis {
-  const text = rawText.trim();
-  if (!text) {
-    throw new Error('Select a word, phrase, or sentence first.');
-  }
-
-  const direction = detectDirection(text);
-  return {
-    text,
-    ...direction,
-    kind: isWordCandidate(text) ? 'dictionary' : 'translation'
-  };
+  return classifySelection(rawText);
 }

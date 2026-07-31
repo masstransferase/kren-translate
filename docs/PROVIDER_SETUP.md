@@ -16,7 +16,7 @@ Enable Cloud Translation Basic v2 for a Google Cloud project, create a restricte
 
 ## Gemini
 
-Run **KREN: Set Default Gemini API Key** for the Default profile. Explain Meaning or Nuance and Rewrite English can optionally use a separately supplied key through **KREN: Set Alternate Gemini API Key**. Choose the profile independently for Explain and Rewrite. KREN does not classify either key by service tier. Gemini is available only in [regions listed by Google](https://ai.google.dev/gemini-api/docs/available-regions). Availability, access, quotas, pricing, data use, and permitted use depend on the user's Google project and region; review the current [Gemini API terms](https://ai.google.dev/gemini-api/terms) and [documentation](https://ai.google.dev/gemini-api/docs).
+Run **KREN: Set Default Gemini API Key** for the Default profile. Explain Meaning or Nuance and Rewrite Text can optionally use a separately supplied key through **KREN: Set Alternate Gemini API Key**. Choose the profile independently for Explain and Rewrite. KREN does not classify either key by service tier. Gemini is available only in [regions listed by Google](https://ai.google.dev/gemini-api/docs/available-regions). Availability, access, quotas, pricing, data use, and permitted use depend on the user's Google project and region; review the current [Gemini API terms](https://ai.google.dev/gemini-api/terms) and [documentation](https://ai.google.dev/gemini-api/docs).
 
 ## OpenAI API
 

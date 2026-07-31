@@ -21,6 +21,7 @@ const settings: KrenPanelSettings = {
   explanationProvider: 'gemini',
   explanationProfile: 'standard',
   rewriteProvider: 'gemini',
+  rewriteSourceLanguage: 'auto',
   rewriteEnglishVariety: 'followGrammar',
   geminiModel: 'gemini-3.5-flash',
   geminiThinkingLevel: 'auto',
@@ -213,6 +214,7 @@ describe('KREN rich result view', () => {
     expect(html).toContain('data-setting="gemini.alternateFallbackThinkingLevel"');
     expect(html).toContain('data-setting="explanation.geminiProfile"');
     expect(html).toContain('data-setting="rewrite.quickMenuVariant"');
+    expect(html).toContain('data-setting="rewrite.sourceLanguage"');
     expect(html).toContain('data-setting="rewrite.englishVariety"');
     expect(html).toContain('English dialect or variety');
     expect(html).toContain('data-setting="rewrite.domain"');
@@ -228,7 +230,7 @@ describe('KREN rich result view', () => {
     expect(html).toContain('Microsoft Zira Desktop');
     expect(html).toContain('data-action="kren.previewReadAloud"');
     expect(html).toContain('data-setting="pronunciation.windowsNativePlayback"');
-    expect(html).toContain('Result <span class="result-meta">| English: <strong>British</strong> | Domain: <strong>Technical</strong> | Tone: <strong>Preserve My Voice</strong> | Mode: <strong>Recommend</strong> |</span>');
+    expect(html).toContain('Result <span class="result-meta">| Language: <strong>English</strong> | English: <strong>British</strong> | Domain: <strong>Technical</strong> | Tone: <strong>Preserve My Voice</strong> | Mode: <strong>Recommend</strong> |</span>');
     expect(html).toContain('data-command="refreshProModels"');
     expect(html).toContain('data-preset="explain-gemini"');
     expect(html).toContain('data-preset="rewrite-gemini-default"');
