@@ -35,6 +35,7 @@ You need keys only for the online features you choose. Every user must obtain an
 - **Grammar Check needs no key or network.** Online features need outbound HTTPS and the matching provider key.
 - **Read Aloud requires local Windows.** Edge Online voices also require Python and `edge-tts`.
 - **Gemini is optional and restricted by Google's current terms.** Gemini API users must be at least 18, use it for professional or business purposes, and meet current account and regional eligibility requirements. KREN asks for confirmation before first Gemini use.
+- **Windows startup problems are not expected.** If a blue screen names an Intel graphics driver and occurs only after shutdown and startup, see the targeted [Fast Startup guidance](https://github.com/masstransferase/kren-translate/blob/main/docs/TROUBLESHOOTING.md#windows-blue-screen-after-shutdown-and-startup). KREN does not install a kernel driver.
 
 Open the KREN Secondary Sidebar menu and choose **Settings**. The settings page guides provider, language, model, rewrite, grammar, speech, and API-key removal. The status-bar KREN menu can show or hide the Secondary Sidebar.
 

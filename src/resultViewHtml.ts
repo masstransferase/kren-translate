@@ -666,6 +666,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
 
     <h3>Panel placement and troubleshooting</h3>
     <p>Use the hamburger menu for Start Page, User Manual, and Settings; Clear removes the current in-memory result and grammar findings. For online failures, verify the matching key, API enablement, model, network path from the extension host, quota/billing, retries, and timeout.</p>
+    <p>A Windows blue screen is not an expected KREN result; KREN installs no kernel driver. If a blue screen names an Intel graphics driver and occurs only after Shut down and power-on, update the computer manufacturer's graphics driver and firmware, then disable Windows <strong>Turn on fast startup</strong> and test a full shutdown. This targeted driver-resume workaround is not a general KREN requirement or the similarly named BIOS Fast Boot option.</p>
     <p>To uninstall cleanly, use Settings to remove individual keys or Delete all stored API keys, clear optional grammar data, uninstall, and remove <code>masstransferase.kren-translate</code> global storage if you also want consent flags and the Cloud usage ledger removed. Uninstalling alone is not KREN's credential-removal workflow.</p>
 
     <h3>Known limitations</h3>

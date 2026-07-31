@@ -229,6 +229,7 @@ See [Privacy and Cost](PRIVACY_AND_COST.md) for the complete boundary.
 - **Read Aloud is unavailable:** confirm this is a local Windows extension host, install an OS speech voice, and use Preview.
 - **Edge voice fails:** verify the configured Python command, run `python -m pip install edge-tts` in that interpreter, confirm the voice ID and network, then use Preview.
 - **Pronunciation opens KREN:** native playback was disabled/unavailable or failed, so KREN safely used the panel fallback.
+- **Intel graphics blue screen after shutdown/startup:** KREN installs no kernel driver. Update the exact computer model's OEM graphics driver and firmware. If the failure occurs only after Windows shutdown and power-on, disable Windows **Turn on fast startup** and test a full shutdown. This is a targeted driver-resume workaround, not a normal KREN requirement or the similarly named BIOS Fast Boot option.
 
 See [Troubleshooting](TROUBLESHOOTING.md) for additional details. Never paste an API key into a document, issue, log, screenshot, or support request.
 

@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.0.3
 
 - Adds automatic source-language detection to Rewrite Text and keeps the result in the detected language.
 - Adds a manual source-language override and applies English-variety preferences only when the source language is English.
+- Adds targeted Windows Fast Startup guidance for an Intel graphics-driver blue screen after shutdown and startup. KREN does not install a kernel driver, and disabling Fast Startup is not a general requirement.
 
 ## 1.0.2
 

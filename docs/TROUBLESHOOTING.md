@@ -15,6 +15,31 @@
 
 Never paste API keys into a document, issue, log, screenshot, or support request.
 
+## Windows blue screen after shutdown and startup
+
+KREN does not install a Windows service, startup driver, display driver, or
+other kernel component. A Windows blue screen is therefore not an expected
+KREN installation result.
+
+If a blue screen names an Intel graphics driver such as `igdkmdn64.sys` and
+appears after **Shut down** followed by power-on, but not after **Restart**:
+
+1. Record the stop code and named driver without including API keys or private
+   document content.
+2. Install the graphics driver and firmware recommended by the computer
+   manufacturer for the exact model.
+3. In Windows Power Options, disable **Turn on fast startup**, then perform a
+   full shutdown and power-on test. This is Windows Fast Startup, not a BIOS
+   option that may also be called Fast Boot.
+4. Leave Fast Startup disabled if that removes the problem, and report the
+   driver failure to the computer or graphics-driver manufacturer.
+
+Windows Fast Startup restores a hibernated kernel and device-driver session.
+An ordinary Restart performs a full boot instead. Disabling Fast Startup is a
+targeted workaround for a reproduced driver-resume problem, not a general KREN
+requirement. If the computer cannot boot normally, use Windows recovery or Safe
+Mode and obtain qualified system support before reinstalling extensions.
+
 For Grammar Check:
 
 - If the first check feels slow, wait a few seconds while KREN warms Harper in its background worker. VS Code's main extension host remains responsive.
