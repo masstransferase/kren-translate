@@ -1040,7 +1040,7 @@
   "dependencies": {
     "@kren/core": "file:vendor/kren-core-0.1.5.tgz",
     "fast-xml-parser": "^5.10.1",
-    "harper.js": "^2.4.0"
+    "harper.js": "^2.7.0"
   },
   "overrides": {
     "diff": "^8.0.3",
