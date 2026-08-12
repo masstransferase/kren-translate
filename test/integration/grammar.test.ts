@@ -4,9 +4,17 @@ import * as vscode from 'vscode';
 declare function suite(name: string, callback: () => void): void;
 declare function test(name: string, callback: () => Promise<void>): void;
 
+// The extension identity is publisher-dependent: "local" when sideloaded from the
+// private tree, "masstransferase" in the produced public tree. Looking it up by a
+// hard-coded identifier passes in one channel and fails in the other, which is how a
+// publisher change first showed up as "extension was not discovered".
+function findKrenExtension(): vscode.Extension<unknown> | undefined {
+  return vscode.extensions.all.find((candidate) => candidate.id.endsWith('.kren-translate'));
+}
+
 suite('KREN native Grammar Check', () => {
   test('publishes diagnostics, offers Quick Fixes, applies one, and rechecks', async () => {
-    const extension = vscode.extensions.getExtension('local.kren-translate');
+    const extension = findKrenExtension();
     assert.ok(extension, 'KREN extension was not discovered by the Extension Development Host.');
     await extension.activate();
     const document = await vscode.workspace.openTextDocument({

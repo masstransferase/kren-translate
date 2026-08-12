@@ -691,7 +691,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
 
     <h3>Panel placement and troubleshooting</h3>
     <p>Use the hamburger menu for Start Page, User Manual, and Settings; Clear removes the current in-memory result and grammar findings. For online failures, verify the matching key, API enablement, model, network path from the extension host, quota/billing, retries, and timeout.</p>
-    <p>To uninstall cleanly, use Settings to remove individual keys or Delete all stored API keys, clear optional grammar data, uninstall, and remove <code>local.kren-translate</code> global storage if you also want consent flags and the Cloud usage ledger removed. Uninstalling alone is not KREN's credential-removal workflow.</p>
+    <p>To uninstall cleanly, use Settings to remove individual keys or Delete all stored API keys, clear optional grammar data, uninstall, and remove KREN's VS Code global storage folder if you also want consent flags and the Cloud usage ledger removed. That folder is named for the extension identifier shown on KREN's entry in the Extensions view, which differs between a sideloaded build and a Marketplace install. Uninstalling alone is not KREN's credential-removal workflow.</p>
 
     <h3>Known limitations</h3>
     <ul>

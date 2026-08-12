@@ -112,7 +112,15 @@ let automaticGrammarTimer: NodeJS.Timeout | undefined;
 let activeExtensionContext: vscode.ExtensionContext;
 let storedSecretKeys = new Set<string>();
 
+// The extension identity is publisher-dependent: "local.kren-translate" when sideloaded
+// from the private tree, "masstransferase.kren-translate" once published. Hard-coding it
+// means the settings filter below silently matches nothing in whichever channel was not
+// the one it was written for, and a settings page that opens empty looks like a bug in
+// VS Code rather than in KREN. Read it from the running extension instead.
+let extensionId = 'local.kren-translate';
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  extensionId = context.extension.id;
   // The rich view is unavailable until an explicit KREN action calls reveal(),
   // unless the user has deliberately enabled the opt-in startup-sidebar setting.
   await vscode.commands.executeCommand(
@@ -828,7 +836,7 @@ async function testLanguageModelConnection(
 
 async function runPanelCommand(command: KrenPanelCommand): Promise<void> {
   if (command === 'workbench.action.openSettings') {
-    await vscode.commands.executeCommand(command, '@ext:local.kren-translate');
+    await vscode.commands.executeCommand(command, `@ext:${extensionId}`);
     return;
   }
   await vscode.commands.executeCommand(command);

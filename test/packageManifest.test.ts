@@ -44,7 +44,11 @@ const manifest = JSON.parse(
 
 describe('VS Code menu contributions', () => {
   it('uses language-workbench metadata and opens KREN in the Secondary Sidebar', () => {
-    expect(manifest.publisher).toBe('local');
+    // Two channels, two publishers. The private build sideloads as "local"; the
+    // produced public tree is rewritten to "masstransferase", because the Marketplace
+    // requires the manifest to match the account. Pinning either one here fails in the
+    // other tree, and this file is copied into both.
+    expect(['local', 'masstransferase']).toContain(manifest.publisher);
     expect(manifest.categories).toEqual(['Other']);
     expect(manifest.keywords).toEqual(expect.arrayContaining(['language', 'productivity']));
     expect(manifest.engines.vscode).toBe('^1.106.0');
