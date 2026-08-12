@@ -2,9 +2,9 @@
   "name": "kren-translate",
   "displayName": "KREN: Dictionary, Translate & Rewrite",
   "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, multilingual rewriting, and read aloud inside VS Code.",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "private": true,
-  "publisher": "masstransferase",
+  "publisher": "local",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -76,6 +76,12 @@
         "command": "kren.koreanDictionarySearchSelection",
         "title": "Korean Dictionary Search",
         "shortTitle": "Korean Dictionary",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.lookupMedicalSelection",
+        "title": "Medical Dictionary Search",
+        "shortTitle": "Medical Dictionary",
         "category": "KREN"
       },
       {
@@ -275,6 +281,16 @@
         "category": "KREN"
       },
       {
+        "command": "kren.setMerriamWebsterMedicalApiKey",
+        "title": "Set Merriam-Webster Medical API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteMerriamWebsterMedicalApiKey",
+        "title": "Delete Merriam-Webster Medical API Key",
+        "category": "KREN"
+      },
+      {
         "command": "kren.setMerriamWebsterThesaurusApiKey",
         "title": "Set Merriam-Webster Thesaurus API Key",
         "category": "KREN"
@@ -320,7 +336,8 @@
           "type": "webview",
           "id": "kren.resultsView",
           "name": "Results",
-          "contextualTitle": "KREN Results"
+          "contextualTitle": "KREN Results",
+          "when": "kren.resultsEnabled"
         }
       ]
     },
@@ -379,9 +396,14 @@
           "group": "1_dictionary@20"
         },
         {
-          "command": "kren.koreanDictionarySearchSelection",
+          "command": "kren.lookupMedicalSelection",
           "when": "editorHasSelection",
           "group": "1_dictionary@30"
+        },
+        {
+          "command": "kren.koreanDictionarySearchSelection",
+          "when": "editorHasSelection",
+          "group": "1_dictionary@40"
         }
       ],
       "kren.rewriteMenu": [
@@ -470,6 +492,28 @@
         }
       },
       {
+        "name": "kren_lookupMedicalDictionary",
+        "displayName": "KREN Medical Dictionary",
+        "toolReferenceName": "krenMedicalDictionary",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(book)",
+        "userDescription": "Look up an English medical term with Merriam-Webster Medical Dictionary.",
+        "modelDescription": "Look up one English medical term in Merriam-Webster Medical Dictionary. Use for dictionary definitions and terminology, not diagnosis or medical advice.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The exact English medical term to look up."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
         "name": "kren_searchSynonyms",
         "displayName": "KREN Synonyms Search",
         "toolReferenceName": "krenSynonyms",
@@ -547,6 +591,11 @@
     "configuration": {
       "title": "KREN Translate",
       "properties": {
+        "kren.results.openAtStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open the KREN Secondary Sidebar after VS Code finishes starting. Off by default; enabling creates the KREN webview at startup."
+        },
         "kren.translationProvider": {
           "type": "string",
           "enum": [
@@ -647,11 +696,6 @@
           ],
           "default": "gemini",
           "description": "Language-model provider used by Rewrite Text. KREN never silently falls back to a different provider."
-        },
-        "kren.rewrite.sourceLanguage": {
-          "type": "string",
-          "default": "auto",
-          "description": "Source language for Rewrite Text. Use auto to detect and preserve the selected text's language, or enter a BCP-47 code such as en, ko, ja, or es. English-variety settings apply only to English."
         },
         "kren.openai.model": {
           "type": "string",
@@ -759,6 +803,11 @@
           "type": "boolean",
           "default": true,
           "description": "For Explain Meaning or Nuance and Rewrite Text, use the configured same-provider fallback when the alternate model is unavailable, remains temporarily unavailable, or returns unusable structured output. Fallback use is identified in the result."
+        },
+        "kren.rewrite.sourceLanguage": {
+          "type": "string",
+          "default": "auto",
+          "description": "Source language for Rewrite Text. Use auto to detect and preserve the selected text's language, or enter a BCP-47 code such as en, ko, ja, or es. English-variety settings apply only to English."
         },
         "kren.gemini.alternateFallbackModel": {
           "type": "string",

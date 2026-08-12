@@ -8,6 +8,7 @@ interface MenuItem {
 }
 
 interface Manifest {
+  publisher: string;
   activationEvents: string[];
   categories: string[];
   keywords: string[];
@@ -43,16 +44,28 @@ const manifest = JSON.parse(
 
 describe('VS Code menu contributions', () => {
   it('uses language-workbench metadata and opens KREN in the Secondary Sidebar', () => {
+    expect(manifest.publisher).toBe('local');
     expect(manifest.categories).toEqual(['Other']);
     expect(manifest.keywords).toEqual(expect.arrayContaining(['language', 'productivity']));
     expect(manifest.engines.vscode).toBe('^1.106.0');
-    expect(manifest.activationEvents).toContain('onStartupFinished');
+    expect(manifest.activationEvents).toEqual(['onStartupFinished']);
+    expect(
+      manifest.contributes.configuration.properties['kren.results.openAtStartup']?.default
+    ).toBe(false);
     expect(manifest.contributes.viewsContainers.secondarySidebar).toContainEqual({
       id: 'kren-results',
       title: 'KREN',
       icon: 'media/kren-book.svg'
     });
     expect(manifest.contributes.viewsContainers.panel).toBeUndefined();
+    expect(
+      (manifest.contributes as unknown as {
+        views: Record<string, Array<{ id: string; when?: string }>>;
+      }).views['kren-results']
+    ).toContainEqual(expect.objectContaining({
+      id: 'kren.resultsView',
+      when: 'kren.resultsEnabled'
+    }));
   });
 
   it('exposes accurate Gemini and credential-deletion commands', () => {
@@ -76,6 +89,7 @@ describe('VS Code menu contributions', () => {
     expect(manifest.contributes.menus['kren.dictionaryMenu']?.map((item) => item.command)).toEqual([
       'kren.dictionarySearchSelection',
       'kren.synonymsSearchSelection',
+      'kren.lookupMedicalSelection',
       'kren.koreanDictionarySearchSelection'
     ]);
     const shortTitles = new Map(
@@ -84,13 +98,16 @@ describe('VS Code menu contributions', () => {
     expect([...shortTitles.entries()].filter(([command]) => [
       'kren.dictionarySearchSelection',
       'kren.synonymsSearchSelection',
+      'kren.lookupMedicalSelection',
       'kren.koreanDictionarySearchSelection'
     ].includes(command))).toEqual([
       ['kren.dictionarySearchSelection', 'English Dictionary'],
       ['kren.koreanDictionarySearchSelection', 'Korean Dictionary'],
+      ['kren.lookupMedicalSelection', 'Medical Dictionary'],
       ['kren.synonymsSearchSelection', 'Synonyms']
     ]);
-    expect(JSON.stringify(manifest.contributes)).not.toMatch(/medical/iu);
+    expect(manifest.contributes.languageModelTools.map((tool) => tool.name))
+      .toContain('kren_lookupMedicalDictionary');
   });
 
   it('uses Escape only while KREN speech is active', () => {
@@ -116,6 +133,12 @@ describe('VS Code menu contributions', () => {
   it('isolates Harper from the main extension bundle', () => {
     expect(statSync('dist/extension.js').size).toBeLessThan(1_000_000);
     expect(statSync('dist/grammar-worker.js').size).toBeGreaterThan(1_000_000);
+  });
+
+  it('fails closed when the packaged grammar worker is missing', () => {
+    const source = readFileSync('src/providers/harperGrammar.ts', 'utf8');
+    expect(source).not.toContain("path.resolve(process.cwd(), 'dist', 'grammar-worker.js')");
+    expect(source).toContain('KREN grammar worker is missing from the extension installation');
   });
 
   it('requires Workspace Trust for the configurable Edge Python executable', () => {

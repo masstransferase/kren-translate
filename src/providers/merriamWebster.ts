@@ -1,23 +1,54 @@
 import { ProviderError } from '../errors.js';
+import { MerriamWebsterThesaurusProvider } from './merriamWebsterThesaurus.js';
 import type {
   DictionaryEntry,
   DictionaryDiscussion,
   DictionaryDiscussionBlock,
-  DictionaryProvider,
   DictionaryRequest,
   DictionaryResult,
-  DictionarySection
+  DictionarySection,
+  ThesaurusResult
 } from '../types.js';
 
-export class MerriamWebsterProvider implements DictionaryProvider {
-  public readonly id = 'merriamWebsterCollegiate';
+export type MerriamWebsterReference = 'collegiate' | 'medical' | 'thesaurus';
 
-  public constructor(private readonly apiKey: string) {}
+const MERRIAM_WEBSTER_REFERENCES: Record<MerriamWebsterReference, {
+  providerId: string;
+  credentialAction: 'setMerriamWebsterCollegiateKey' |
+    'setMerriamWebsterMedicalKey' |
+    'setMerriamWebsterThesaurusKey';
+}> = {
+  collegiate: {
+    providerId: 'merriamWebsterCollegiate',
+    credentialAction: 'setMerriamWebsterCollegiateKey'
+  },
+  medical: {
+    providerId: 'merriamWebsterMedical',
+    credentialAction: 'setMerriamWebsterMedicalKey'
+  },
+  thesaurus: {
+    providerId: 'merriamWebsterThesaurus',
+    credentialAction: 'setMerriamWebsterThesaurusKey'
+  }
+};
+
+export class MerriamWebsterProvider {
+  public readonly id: string;
+
+  public constructor(
+    private readonly apiKey: string,
+    private readonly reference: MerriamWebsterReference = 'collegiate'
+  ) {
+    this.id = MERRIAM_WEBSTER_REFERENCES[reference].providerId;
+  }
 
   public async lookup(
     request: DictionaryRequest,
     signal: AbortSignal
-  ): Promise<DictionaryResult | undefined> {
+  ): Promise<DictionaryResult | ThesaurusResult | undefined> {
+    if (this.reference === 'thesaurus') {
+      return new MerriamWebsterThesaurusProvider(this.apiKey).lookup(request, signal);
+    }
     return this.fetchAndNormalize(request.text, request, signal, true);
   }
 
@@ -28,7 +59,7 @@ export class MerriamWebsterProvider implements DictionaryProvider {
     followSuggestion: boolean
   ): Promise<DictionaryResult | undefined> {
     const url = new URL(
-      `https://www.dictionaryapi.com/api/v3/references/collegiate/json/${encodeURIComponent(query)}`
+      `https://www.dictionaryapi.com/api/v3/references/${this.reference}/json/${encodeURIComponent(query)}`
     );
     url.searchParams.set('key', this.apiKey);
 
@@ -42,10 +73,8 @@ export class MerriamWebsterProvider implements DictionaryProvider {
 
     const payload = (await response.json().catch(() => undefined)) as unknown;
     if (!response.ok) {
-      throw new ProviderError(
-        `Merriam-Webster request failed (${response.status}).`,
-        'setMerriamWebsterCollegiateKey'
-      );
+      const action = MERRIAM_WEBSTER_REFERENCES[this.reference].credentialAction;
+      throw new ProviderError(`Merriam-Webster request failed (${response.status}).`, action);
     }
 
     const result = parseMerriamWebsterResponse(payload, request, this.id);

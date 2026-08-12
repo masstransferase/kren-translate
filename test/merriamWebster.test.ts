@@ -205,4 +205,45 @@ describe('Merriam-Webster provider', () => {
     expect(result?.headword).toBe('come');
     expect(result?.note).toContain('suggestion “come”');
   });
+
+  it('uses the Medical Dictionary endpoint and provider identity when selected', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify([{
+        meta: { id: 'hypertension:1' },
+        hwi: { hw: 'hypertension' },
+        fl: 'noun',
+        shortdef: ['abnormally high arterial blood pressure']
+      }]), { status: 200 })
+    );
+
+    const result = await new MerriamWebsterProvider('medical-key', 'medical').lookup(
+      { ...request, text: 'hypertension' },
+      new AbortController().signal
+    );
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/references/medical/json/hypertension');
+    expect(result?.providerId).toBe('merriamWebsterMedical');
+  });
+
+  it('serves the Collegiate Thesaurus through the parameterized provider', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify([{
+        meta: { id: 'merry:1', syns: [['cheerful', 'jolly']] },
+        hwi: { hw: 'merry' },
+        fl: 'adjective'
+      }]), { status: 200 })
+    );
+
+    const result = await new MerriamWebsterProvider('configured-thesaurus', 'thesaurus').lookup(
+      { ...request, text: 'merry', targetLanguage: 'en' },
+      new AbortController().signal
+    );
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/references/thesaurus/json/merry');
+    expect(result).toMatchObject({
+      kind: 'thesaurus',
+      providerId: 'merriamWebsterThesaurus',
+      headword: 'merry'
+    });
+  });
 });

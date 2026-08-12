@@ -15,8 +15,12 @@ import {
   languageName
 } from './languages.js';
 import {
+  canStoreMerriamWebsterKey,
+  isMerriamWebsterSecretKey,
   KREN_SECRET_KEYS,
+  MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE,
   runKrenOperation,
+  storeMerriamWebsterKey,
   type KrenOperation,
   type KrenRuntime
 } from './operations.js';
@@ -28,6 +32,12 @@ import {
   type KrenPanelSettingKey
 } from './resultsView.js';
 import type { KrenPanelSettings } from './resultViewHtml.js';
+import {
+  ALL_REWRITE_VARIANTS_ID,
+  isRewriteVariantId,
+  REWRITE_VARIANT_LIST,
+  type QuickMenuRewriteVariantId
+} from './rewriteVariants.js';
 import { KoreanDictionaryProvider } from './providers/koreanDictionary.js';
 import {
   DEFAULT_PRO_MODELS,
@@ -56,8 +66,7 @@ import {
   configureHarperGrammar,
   disposeHarperGrammar,
   ignoreHarperLint,
-  normalizeCustomWord,
-  warmHarperGrammar
+  normalizeCustomWord
 } from './providers/harperGrammar.js';
 import { GrammarCodeActions, type GrammarDiagnosticState } from './grammarCodeActions.js';
 
@@ -68,8 +77,8 @@ const ANTHROPIC_KEY = KREN_SECRET_KEYS.anthropic;
 const GOOGLE_CLOUD_TRANSLATION_KEY = KREN_SECRET_KEYS.googleCloudTranslation;
 const DICTIONARY_KEY = KREN_SECRET_KEYS.koreanDictionary;
 const MW_COLLEGIATE_KEY = KREN_SECRET_KEYS.merriamWebsterCollegiate;
+const MW_MEDICAL_KEY = KREN_SECRET_KEYS.merriamWebsterMedical;
 const MW_THESAURUS_KEY = KREN_SECRET_KEYS.merriamWebsterThesaurus;
-const LEGACY_MW_MEDICAL_KEY = 'kren.merriamWebster.medicalApiKey';
 const GEMINI_CONSENT = 'kren.gemini.termsConsent.v4';
 const OPENAI_CONSENT = 'kren.openai.paidConsent.v2';
 const ANTHROPIC_CONSENT = 'kren.anthropic.paidConsent.v2';
@@ -96,6 +105,7 @@ let readAloudPlayer: WindowsReadAloudPlayer;
 let edgeReadAloudPlayer: WindowsEdgeReadAloudPlayer;
 let grammarCodeActions: GrammarCodeActions;
 let readAloudVoices: string[] = [];
+let readAloudVoicesPromise: Promise<void> | undefined;
 let extensionVersion = '0.0.0';
 let readAloudSession = 0;
 let automaticGrammarTimer: NodeJS.Timeout | undefined;
@@ -103,17 +113,27 @@ let activeExtensionContext: vscode.ExtensionContext;
 let storedSecretKeys = new Set<string>();
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // The rich view is unavailable until an explicit KREN action calls reveal(),
+  // unless the user has deliberately enabled the opt-in startup-sidebar setting.
+  await vscode.commands.executeCommand(
+    'setContext',
+    KrenResultsViewProvider.enabledContext,
+    false
+  );
   activeExtensionContext = context;
   extensionVersion = String(context.extension.packageJSON.version ?? '0.0.0');
-  await context.secrets.delete(LEGACY_MW_MEDICAL_KEY);
   await refreshStoredSecretKeys(context);
   outputChannel = vscode.window.createOutputChannel('KREN Translate');
   cloudTranslationUsage = new FileCloudTranslationUsage(
     path.join(context.globalStorageUri.fsPath, 'cloud-translation-usage.json')
   );
-  await cloudTranslationUsage.initialize(
-    context.globalState.get<CloudTranslationUsageState>(LEGACY_CLOUD_USAGE_KEY)
-  );
+  try {
+    await cloudTranslationUsage.initialize(
+      context.globalState.get<CloudTranslationUsageState>(LEGACY_CLOUD_USAGE_KEY)
+    );
+  } catch (error) {
+    void vscode.window.showWarningMessage(errorMessage(error));
+  }
   const hoverStore = new HoverStore(vscode.Uri.joinPath(context.extensionUri, 'media'));
   readAloudPlayer = new WindowsReadAloudPlayer();
   edgeReadAloudPlayer = new WindowsEdgeReadAloudPlayer();
@@ -122,7 +142,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     customWords: context.globalState.get<string[]>(GRAMMAR_CUSTOM_WORDS, []),
     ignoredLints: context.globalState.get<string>(GRAMMAR_IGNORED_LINTS, '')
   });
-  void warmHarperGrammar().catch(() => undefined);
   await migrateTranslationProviderToCloud(context);
   await migrateDeprecatedGeminiFallback(context);
   await migrateTranslationTargetToAutomatic(context);
@@ -145,15 +164,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     updateSetting: updatePanelSetting,
     runCommand: runPanelCommand,
+    log: (message) => outputChannel.appendLine(message),
     settings: readPanelSettings,
     refreshProModels: () => refreshProModels(context),
     refreshOpenAIModels: () => refreshOpenAIModels(context),
-    refreshAnthropicModels: () => refreshAnthropicModels(context)
+    refreshAnthropicModels: () => refreshAnthropicModels(context),
+    refreshReadAloudVoices
   }, context.extensionUri);
-  void listWindowsSpeechVoices().then((voices) => {
-    readAloudVoices = voices;
-    resultsView.refresh();
-  });
   const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.text = '$(book) KREN';
   statusItem.tooltip = 'KREN actions, clipboard tools, and Secondary Sidebar';
@@ -174,8 +191,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.window.registerWebviewViewProvider(
       KrenResultsViewProvider.viewId,
-      resultsView,
-      { webviewOptions: { retainContextWhenHidden: true } }
+      resultsView
     ),
     vscode.languages.registerHoverProvider({ scheme: '*' }, hoverStore),
     vscode.commands.registerCommand('kren.translateSelection', () =>
@@ -189,6 +205,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand('kren.koreanDictionarySearchSelection', () =>
       executeLookup(context, hoverStore, 'koreanDictionary')
+    ),
+    vscode.commands.registerCommand('kren.lookupMedicalSelection', () =>
+      executeLookup(context, hoverStore, 'medical')
     ),
     vscode.commands.registerCommand('kren.synonymsSearchSelection', () =>
       executeLookup(context, hoverStore, 'synonyms')
@@ -331,6 +350,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kren.deleteMerriamWebsterCollegiateApiKey', () =>
       deleteSecret(context, MW_COLLEGIATE_KEY, 'Merriam-Webster Collegiate API key deleted.')
     ),
+    vscode.commands.registerCommand('kren.setMerriamWebsterMedicalApiKey', () =>
+      setSecret(context, MW_MEDICAL_KEY, 'Enter your Merriam-Webster Medical API key')
+    ),
+    vscode.commands.registerCommand('kren.deleteMerriamWebsterMedicalApiKey', () =>
+      deleteSecret(context, MW_MEDICAL_KEY, 'Merriam-Webster Medical API key deleted.')
+    ),
     vscode.commands.registerCommand('kren.setMerriamWebsterThesaurusApiKey', () =>
       setSecret(
         context,
@@ -375,11 +400,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     })
   );
+
+  if (vscode.workspace.getConfiguration('kren').get<boolean>('results.openAtStartup', false)) {
+    const startupRevealTimer = setTimeout(() => {
+      void resultsView.reveal().catch((error: unknown) => {
+        outputChannel.appendLine(
+          `KREN startup sidebar could not be opened: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
+    }, 750);
+    context.subscriptions.push({
+      dispose: () => clearTimeout(startupRevealTimer)
+    });
+  }
 }
 
 function readPanelSettings(): KrenPanelSettings {
   const config = vscode.workspace.getConfiguration('kren');
   return {
+    openResultsAtStartup: config.get<boolean>('results.openAtStartup', false),
     translationProvider: config.get<'googleCloudTranslation' | 'gemini'>(
       'translationProvider',
       'googleCloudTranslation'
@@ -448,11 +487,11 @@ function readPanelSettings(): KrenPanelSettings {
     ),
     preferredRewriteVariant: config.get<KrenPanelSettings['preferredRewriteVariant']>(
       'rewrite.preferredVariant',
-      'natural'
+      REWRITE_VARIANT_LIST[0].id
     ),
     quickMenuRewriteVariant: config.get<KrenPanelSettings['quickMenuRewriteVariant']>(
       'rewrite.quickMenuVariant',
-      'all'
+      ALL_REWRITE_VARIANTS_ID
     ),
     rewriteDomain: config.get<KrenPanelSettings['rewriteDomain']>('rewrite.domain', 'general'),
     rewriteTone: config.get<KrenPanelSettings['rewriteTone']>(
@@ -505,6 +544,7 @@ function readPanelSettings(): KrenPanelSettings {
       openai: storedSecretKeys.has(OPENAI_KEY),
       anthropic: storedSecretKeys.has(ANTHROPIC_KEY),
       merriamWebsterCollegiate: storedSecretKeys.has(MW_COLLEGIATE_KEY),
+      merriamWebsterMedical: storedSecretKeys.has(MW_MEDICAL_KEY),
       merriamWebsterThesaurus: storedSecretKeys.has(MW_THESAURUS_KEY),
       koreanDictionary: storedSecretKeys.has(DICTIONARY_KEY)
     },
@@ -599,13 +639,10 @@ function validatedPanelSetting(
       : undefined;
   }
   if (key === 'rewrite.preferredVariant') {
-    return value === 'natural' || value === 'concise' || value === 'jargonFree'
-      ? value
-      : undefined;
+    return isRewriteVariantId(value) ? value : undefined;
   }
   if (key === 'rewrite.quickMenuVariant') {
-    return value === 'all' || value === 'natural' || value === 'concise' ||
-      value === 'jargonFree' ? value : undefined;
+    return value === ALL_REWRITE_VARIANTS_ID || isRewriteVariantId(value) ? value : undefined;
   }
   if (key === 'rewrite.domain') {
     return value === 'general' || value === 'academic' || value === 'technical' ||
@@ -791,7 +828,7 @@ async function testLanguageModelConnection(
 
 async function runPanelCommand(command: KrenPanelCommand): Promise<void> {
   if (command === 'workbench.action.openSettings') {
-    await vscode.commands.executeCommand(command, '@ext:masstransferase.kren-translate');
+    await vscode.commands.executeCommand(command, '@ext:local.kren-translate');
     return;
   }
   await vscode.commands.executeCommand(command);
@@ -815,6 +852,22 @@ async function migrateTranslationProviderToCloud(
     );
   }
   await context.globalState.update(CLOUD_DEFAULT_MIGRATION, true);
+}
+
+function refreshReadAloudVoices(): Promise<void> {
+  if (readAloudVoices.length > 0) return Promise.resolve();
+  if (readAloudVoicesPromise) return readAloudVoicesPromise;
+  readAloudVoicesPromise = listWindowsSpeechVoices()
+    .then((voices) => {
+      readAloudVoices = voices;
+    })
+    .catch(() => {
+      readAloudVoices = [];
+    })
+    .finally(() => {
+      readAloudVoicesPromise = undefined;
+    });
+  return readAloudVoicesPromise;
 }
 
 async function migrateDeprecatedGeminiFallback(
@@ -887,6 +940,8 @@ async function setGoogleCloudTranslationKey(context: vscode.ExtensionContext): P
 
 export function deactivate(): void {
   lastResult = undefined;
+  if (automaticGrammarTimer) clearTimeout(automaticGrammarTimer);
+  automaticGrammarTimer = undefined;
   void disposeHarperGrammar();
 }
 
@@ -1455,15 +1510,21 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
   const config = vscode.workspace.getConfiguration('kren');
   const maxCharacters = config.get<number>('translation.maxCharacters', 5000);
 
-  const preferredRewrite = config.get<'all' | 'natural' | 'concise' | 'jargonFree'>(
+  const preferredRewrite = config.get<QuickMenuRewriteVariantId>(
     'rewrite.quickMenuVariant',
-    'all'
+    ALL_REWRITE_VARIANTS_ID
   );
   const rewriteItems: Array<{ label: string; operation: KrenOperation; id: string }> = [
-    { label: '$(edit) Rewrite Text: All 3 Variants', operation: 'rewrite', id: 'all' },
-    { label: '$(sparkle) Rewrite Text: Natural', operation: 'rewriteNatural', id: 'natural' },
-    { label: '$(symbol-ruler) Rewrite Text: Concise', operation: 'rewriteConcise', id: 'concise' },
-    { label: '$(clear-all) Rewrite Text: Jargon-Free', operation: 'rewriteJargonFree', id: 'jargonFree' }
+    {
+      label: '$(edit) Rewrite Text: All 3 Variants',
+      operation: 'rewrite',
+      id: ALL_REWRITE_VARIANTS_ID
+    },
+    ...REWRITE_VARIANT_LIST.map(({ id, label, operation, quickPickIcon }) => ({
+      label: `${quickPickIcon} Rewrite Text: ${label}`,
+      operation,
+      id
+    }))
   ];
   rewriteItems.sort((left, right) =>
     left.id === preferredRewrite ? -1 : right.id === preferredRewrite ? 1 : 0
@@ -1473,6 +1534,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
   > = [
       { label: '$(book) English Dictionary Search', operation: 'englishDictionary' as const },
       { label: '$(symbol-keyword) Synonyms Search', operation: 'synonyms' as const },
+      { label: '$(heart) Medical Dictionary Search', operation: 'medical' as const },
       { label: '$(book) Korean Dictionary Search', operation: 'koreanDictionary' as const },
       { label: '$(globe) Translate', operation: 'translate' as const },
       { label: '$(comment-discussion) Explain Meaning or Nuance', operation: 'explain' as const },
@@ -1907,6 +1969,10 @@ async function setSecret(
     );
     return false;
   }
+  if (isMerriamWebsterSecretKey(key) && !await canStoreMerriamWebsterKey(context.secrets, key)) {
+    await vscode.window.showWarningMessage(MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
+    return false;
+  }
   const value = await vscode.window.showInputBox({
     title: prompt,
     prompt: 'The key is encrypted by VS Code Secret Storage and is not synced.',
@@ -1914,7 +1980,15 @@ async function setSecret(
     ignoreFocusOut: true
   });
   if (!value?.trim()) return false;
-  await context.secrets.store(key, value.trim());
+  if (isMerriamWebsterSecretKey(key)) {
+    const stored = await storeMerriamWebsterKey(context.secrets, key, value.trim());
+    if (!stored) {
+      await vscode.window.showWarningMessage(MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
+      return false;
+    }
+  } else {
+    await context.secrets.store(key, value.trim());
+  }
   storedSecretKeys.add(key);
   resultsView.refresh();
   await vscode.window.showInformationMessage('KREN API key saved securely.');
@@ -2021,6 +2095,7 @@ function isCredentialSetupAction(
     action === 'setOpenAIKey' || action === 'setAnthropicKey' ||
     action === 'setGoogleCloudTranslationKey' ||
     action === 'setMerriamWebsterCollegiateKey' ||
+    action === 'setMerriamWebsterMedicalKey' ||
     action === 'setMerriamWebsterThesaurusKey' || action === 'setDictionaryKey';
 }
 
@@ -2038,6 +2113,7 @@ function credentialLabel(key: string): string {
   if (key === GOOGLE_CLOUD_TRANSLATION_KEY) return 'a Google Cloud Translation API key';
   if (key === DICTIONARY_KEY) return 'a Korean Dictionary API key';
   if (key === MW_COLLEGIATE_KEY) return 'a Merriam-Webster Collegiate API key';
+  if (key === MW_MEDICAL_KEY) return 'a Merriam-Webster Medical API key';
   if (key === MW_THESAURUS_KEY) return 'a Merriam-Webster Thesaurus API key';
   return 'an API key';
 }
@@ -2058,6 +2134,9 @@ async function runProviderErrorAction(
   }
   if (action === 'setMerriamWebsterCollegiateKey') {
     await vscode.commands.executeCommand('kren.setMerriamWebsterCollegiateApiKey');
+  }
+  if (action === 'setMerriamWebsterMedicalKey') {
+    await vscode.commands.executeCommand('kren.setMerriamWebsterMedicalApiKey');
   }
   if (action === 'setMerriamWebsterThesaurusKey') {
     await vscode.commands.executeCommand('kren.setMerriamWebsterThesaurusApiKey');
@@ -2083,6 +2162,7 @@ function actionLabel(action: NonNullable<ProviderError['action']>): string {
   if (action === 'setAnthropicKey') return 'Set Anthropic API Key';
   if (action === 'setGoogleCloudTranslationKey') return 'Set Google Cloud Translation API Key';
   if (action === 'setMerriamWebsterCollegiateKey') return 'Set Collegiate API Key';
+  if (action === 'setMerriamWebsterMedicalKey') return 'Set Medical API Key';
   if (action === 'setMerriamWebsterThesaurusKey') return 'Set Thesaurus API Key';
   if (action === 'setDictionaryKey') return 'Set Dictionary API Key';
   if (action === 'configureGeminiModel') return 'Configure Gemini Model';
@@ -2098,6 +2178,7 @@ function providerLabel(providerId: string): string {
   if (providerId === 'googleCloudTranslation') return 'Google Cloud Translation';
   if (providerId === 'koreanBasicDictionary') return 'Korean Basic Dictionary';
   if (providerId === 'merriamWebsterCollegiate') return "Merriam-Webster's Collegiate Dictionary";
+  if (providerId === 'merriamWebsterMedical') return "Merriam-Webster's Medical Dictionary";
   if (providerId === 'merriamWebsterThesaurus') return "Merriam-Webster's Collegiate Thesaurus";
   return providerId;
 }
@@ -2105,6 +2186,7 @@ function providerLabel(providerId: string): string {
 function progressTitle(operation: KrenOperation): string {
   if (operation === 'grammar') return 'KREN: checking grammar and spelling locally...';
   if (operation === 'explain') return 'KREN: explaining selection…';
+  if (operation === 'medical') return 'KREN: searching the medical dictionary…';
   if (operation === 'englishDictionary') return 'KREN: searching the English dictionary…';
   if (operation === 'koreanDictionary') return 'KREN: searching the Korean dictionary…';
   if (operation === 'synonyms') return 'KREN: searching the thesaurus…';

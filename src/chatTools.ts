@@ -16,6 +16,7 @@ interface TextToolInput {
 
 const CHAT_TOOLS: ReadonlyArray<{ name: string; operation: KrenOperation }> = [
   { name: 'kren_lookupEnglishDictionary', operation: 'englishDictionary' },
+  { name: 'kren_lookupMedicalDictionary', operation: 'medical' },
   { name: 'kren_lookupKoreanDictionary', operation: 'koreanDictionary' },
   { name: 'kren_searchSynonyms', operation: 'synonyms' },
   { name: 'kren_translateText', operation: 'translate' },
@@ -93,6 +94,7 @@ function providerDescription(runtime: KrenRuntime, operation: KrenOperation): st
   if (operation === 'englishDictionary') {
     return 'Merriam-Webster Collegiate (or Google Cloud Translation when a multi-word expression has no dictionary entry)';
   }
+  if (operation === 'medical') return 'Merriam-Webster Medical Dictionary';
   if (operation === 'koreanDictionary') return 'Korean Basic Dictionary';
   if (operation === 'synonyms') return 'Merriam-Webster Collegiate Thesaurus';
   if (operation === 'explain') {
@@ -108,6 +110,7 @@ function providerDescription(runtime: KrenRuntime, operation: KrenOperation): st
 
 function operationLabel(operation: KrenOperation): string {
   if (operation === 'englishDictionary') return 'English dictionary lookup';
+  if (operation === 'medical') return 'medical dictionary lookup';
   if (operation === 'koreanDictionary') return 'Korean dictionary lookup';
   if (operation === 'synonyms') return 'synonyms search';
   if (operation === 'explain') return 'meaning/nuance explanation';

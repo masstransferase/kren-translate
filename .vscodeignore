@@ -11,8 +11,14 @@ vendor/
 coverage/
 DESIGN.md
 docs/RELEASE_CHECKLIST.md
+docs/RELEASE_PROCESS.md
 UI.md
 UI.html
 esbuild.mjs
 tsconfig.json
 *.vsix
+UNSAFE_BUILD_DO_NOT_INSTALL.md
+SAFETY_TEST_PLAN_1.0.2.md
+VALIDATED_BUILD_1.0.3.md
+STARTUP_SIDEBAR_TEST_1.0.4.md
+tools/

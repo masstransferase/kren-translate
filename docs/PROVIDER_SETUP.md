@@ -6,7 +6,7 @@ KREN is bring-your-own-key. A ChatGPT, Claude, Gemini app, or Google One subscri
 
 Each user must register for and enter their own provider keys. KREN includes no shared credentials.
 
-For Merriam-Webster, obtain the Collegiate Dictionary and Collegiate Thesaurus keys from your own [Merriam-Webster developer account](https://dictionaryapi.com/register/index). Store them with the matching KREN commands. Merriam-Webster's standard free terms limit use to noncommercial applications, no more than two reference works, and 1,000 queries per day per reference. Review the current [Merriam-Webster API terms](https://dictionaryapi.com/info/terms-of-service).
+KREN supports Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary. Merriam-Webster issues two API keys per account, so KREN refuses a third key before writing it to Secret Storage. Remove one stored key before adding the key for a different reference work. Use only references and keys that Merriam-Webster has authorized for your account. KREN does not combine keys, bypass the two-reference-work or 1000-query-per-day limits, schedule lookups, or relay credentials. Every lookup follows an explicit user action. Review the current [Merriam-Webster registration page](https://dictionaryapi.com/register/index) and [API terms](https://dictionaryapi.com/info/terms-of-service).
 
 Korean Dictionary Search requires a separate Korean Basic Dictionary Open API key. All dictionary keys are stored locally in VS Code Secret Storage and are not bundled, published, logged, or shared by KREN.
 

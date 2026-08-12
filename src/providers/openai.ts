@@ -18,6 +18,7 @@ import {
   rewriteSystemInstruction,
   systemInstruction
 } from './gemini.js';
+import { REWRITE_VARIANT_IDS } from '../rewriteVariants.js';
 
 export type OpenAIReasoningEffort = 'auto' | 'none' | 'low' | 'medium' | 'high';
 
@@ -221,12 +222,12 @@ export function explanationSchema(): Record<string, unknown> {
 export function rewriteSchema(request: RewriteRequest): Record<string, unknown> {
   const includeChangeNotes = request.includeChangeNotes === true;
   const variantProperties: Record<string, unknown> = {
-    id: { type: 'string', enum: ['natural', 'concise', 'jargonFree'] },
+    id: { type: 'string', enum: REWRITE_VARIANT_IDS },
     label: { type: 'string' },
     text: { type: 'string' }
   };
   if (includeChangeNotes) variantProperties.changeNote = { type: 'string' };
-  const count = request.operation === 'rewrite' ? 3 : 1;
+  const count = request.operation === 'rewrite' ? REWRITE_VARIANT_IDS.length : 1;
   return {
     type: 'object',
     additionalProperties: false,

@@ -19,13 +19,14 @@ Passive hovering sends nothing. KREN starts a remote request only after you expl
 | **Grammar Check** | Private English spelling and grammar review with optional corrections | None. Harper runs offline. |
 | **English Dictionary** | Structured Merriam-Webster entries, examples, inflections, and pronunciation | Collegiate API key |
 | **Synonyms** | Sense-grouped synonyms, related words, and antonyms | Thesaurus API key |
+| **Medical Dictionary** | Structured definitions for English medical terminology | Medical Dictionary API key |
 | **Korean Dictionary** | Korean headwords with English explanations | Korean Basic Dictionary API key |
 | **Translation** | Automatic English-to-Korean and Korean-to-English direction by default, or a fixed multilingual target | Cloud Translation API or Gemini key |
 | **Explain Nuance** | Meaning, connotation, register, ambiguity, and technical usage | Gemini, OpenAI API, or Anthropic API key |
 | **Rewrite Text** | Auto-detects and preserves the source language; Natural, Concise, and Jargon-Free variants use domain, tone, and rhetorical-mode controls. English variety applies only to English. | Gemini, OpenAI API, or Anthropic API key |
 | **Read Aloud** | Offline Windows voices or optional Edge Online natural voices | Local Windows; Edge mode also needs Python and `edge-tts` |
 
-You need keys only for the online features you choose. Every user must obtain and enter their own API keys; KREN includes no shared credentials. For Merriam-Webster, obtain your own Collegiate Dictionary and Collegiate Thesaurus keys. Standard free Merriam-Webster API use is limited to noncommercial applications, two reference works, and 1,000 queries per day per reference. Consumer AI subscriptions do not automatically include developer API access.
+You need keys only for the online features you choose. This private local build includes no shared credentials and accepts separately issued Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary keys. Use only keys issued to you and follow the provider's current reference-access, account, query, and usage terms. KREN does not bypass provider limits. Consumer AI subscriptions do not automatically include developer API access.
 
 > **AI reliability:** Rewrite and Explain depend on remote model availability and can occasionally fail even with valid settings. Repeating the request often resolves a transient failure. Higher thinking or effort levels can take noticeably longer; use Auto or Low for routine work.
 
@@ -35,7 +36,6 @@ You need keys only for the online features you choose. Every user must obtain an
 - **Grammar Check needs no key or network.** Online features need outbound HTTPS and the matching provider key.
 - **Read Aloud requires local Windows.** Edge Online voices also require Python and `edge-tts`.
 - **Gemini is optional and restricted by Google's current terms.** Gemini API users must be at least 18, use it for professional or business purposes, and meet current account and regional eligibility requirements. KREN asks for confirmation before first Gemini use.
-- **Windows startup problems are not expected.** If a blue screen names an Intel graphics driver and occurs only after shutdown and startup, see the targeted [Fast Startup guidance](https://github.com/masstransferase/kren-translate/blob/main/docs/TROUBLESHOOTING.md#windows-blue-screen-after-shutdown-and-startup). KREN does not install a kernel driver.
 
 Open the KREN Secondary Sidebar menu and choose **Settings**. The settings page guides provider, language, model, rewrite, grammar, speech, and API-key removal. The status-bar KREN menu can show or hide the Secondary Sidebar.
 
@@ -55,7 +55,6 @@ Do not submit secrets, confidential material, or personal data unless the select
 - [Provider Setup](https://github.com/masstransferase/kren-translate/blob/main/docs/PROVIDER_SETUP.md)
 - [Privacy Policy](https://github.com/masstransferase/kren-translate/blob/main/PRIVACY.md)
 - [Troubleshooting](https://github.com/masstransferase/kren-translate/blob/main/docs/TROUBLESHOOTING.md)
-- [Public Release Process](https://github.com/masstransferase/kren-translate/blob/main/docs/RELEASE_PROCESS.md)
 
 The same User Manual is available from KREN's in-panel menu.
 

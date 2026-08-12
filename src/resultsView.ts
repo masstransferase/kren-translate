@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { PANEL_COMMANDS, type KrenPanelCommand } from './panelCommands.js';
+import { isRewriteVariantId } from './rewriteVariants.js';
 import { readFile, stat } from 'node:fs/promises';
 import { isAllowedPronunciationUrl } from './pronunciation.js';
 import {
@@ -12,6 +14,10 @@ import {
 } from './providers/geminiModels.js';
 import { WindowsPronunciationPlayer } from './windowsPronunciation.js';
 import type { EdgeAudioPlayback, EdgeReadAloudResult } from './windowsEdgeReadAloud.js';
+import {
+  priorityWebviewCommand,
+  type PriorityWebviewCommand
+} from './webviewMessagePriority.js';
 
 interface ResultState {
   result: KrenResult;
@@ -32,13 +38,16 @@ interface ResultsViewActions {
   clear(): void;
   updateSetting(key: KrenPanelSettingKey, value: string | number | boolean): Promise<void>;
   runCommand(command: KrenPanelCommand): Promise<void>;
+  log(message: string): void;
   settings(): KrenPanelSettings;
   refreshProModels(): Promise<GeminiModelOption[]>;
   refreshOpenAIModels(): Promise<GeminiModelOption[]>;
   refreshAnthropicModels(): Promise<GeminiModelOption[]>;
+  refreshReadAloudVoices(): Promise<void>;
 }
 
 export type KrenPanelSettingKey =
+  | 'results.openAtStartup'
   | 'translationProvider'
   | 'translation.targetLanguage'
   | 'grammar.dialect'
@@ -84,39 +93,14 @@ export type KrenPanelSettingKey =
   | 'dictionary.multiWordTranslationFallback'
   | 'pronunciation.windowsNativePlayback';
 
-export type KrenPanelCommand =
-  | 'kren.setGeminiApiKey'
-  | 'kren.deleteGeminiApiKey'
-  | 'kren.setGeminiProApiKey'
-  | 'kren.deleteGeminiProApiKey'
-  | 'kren.setOpenAIApiKey'
-  | 'kren.deleteOpenAIApiKey'
-  | 'kren.setAnthropicApiKey'
-  | 'kren.deleteAnthropicApiKey'
-  | 'kren.setGoogleCloudTranslationApiKey'
-  | 'kren.deleteGoogleCloudTranslationApiKey'
-  | 'kren.setMerriamWebsterCollegiateApiKey'
-  | 'kren.deleteMerriamWebsterCollegiateApiKey'
-  | 'kren.setMerriamWebsterThesaurusApiKey'
-  | 'kren.deleteMerriamWebsterThesaurusApiKey'
-  | 'kren.setKoreanDictionaryApiKey'
-  | 'kren.deleteKoreanDictionaryApiKey'
-  | 'kren.testKoreanDictionary'
-  | 'kren.deleteAllApiKeys'
-  | 'kren.testOpenAIConnection'
-  | 'kren.testAnthropicConnection'
-  | 'kren.showGoogleCloudTranslationUsage'
-  | 'kren.previewReadAloud'
-  | 'kren.stopReadAloud'
-  | 'kren.clearGrammarFindings'
-  | 'kren.clearGrammarCustomDictionary'
-  | 'kren.clearIgnoredGrammarFindings'
-  | 'workbench.action.openSettings';
+export type { KrenPanelCommand } from './panelCommands.js';
 
 export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewId = 'kren.resultsView';
+  public static readonly enabledContext = 'kren.resultsEnabled';
 
   private view: vscode.WebviewView | undefined;
+  private viewDisposables: vscode.Disposable[] = [];
   private state: ResultState | undefined;
   private autoplayAudio: { url: string; headword: string } | undefined;
   private audioPlaybackResolver: ((started: boolean) => void) | undefined;
@@ -128,6 +112,9 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   private anthropicModels: GeminiModelOption[] = [
     { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' }
   ];
+  private proModelRefresh = 0;
+  private openAIModelRefresh = 0;
+  private anthropicModelRefresh = 0;
   private readonly windowsPronunciation = new WindowsPronunciationPlayer();
 
   public constructor(
@@ -136,16 +123,33 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   ) {}
 
   public resolveWebviewView(view: vscode.WebviewView): void {
+    this.disposeViewDisposables();
     this.view = view;
     view.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
     };
-    view.webview.onDidReceiveMessage((message: unknown) => {
-      this.messageQueue = this.messageQueue
-        .then(() => this.handleMessage(message))
-        .catch(() => undefined);
-    });
+    this.viewDisposables = [
+      view.webview.onDidReceiveMessage((message: unknown) => {
+        const priorityCommand = priorityWebviewCommand(message);
+        if (priorityCommand) {
+          this.handlePriorityMessage(priorityCommand);
+          return;
+        }
+        this.messageQueue = this.messageQueue
+          .then(() => this.handleMessage(message))
+          .catch(() => undefined);
+      }),
+      view.onDidDispose(() => {
+        if (this.view !== view) return;
+        this.view = undefined;
+        this.audioPlaybackResolver?.(false);
+        this.audioPlaybackResolver = undefined;
+        this.generatedAudioResolver?.('stopped');
+        this.generatedAudioResolver = undefined;
+        this.disposeViewDisposables();
+      })
+    ];
     this.render();
   }
 
@@ -225,6 +229,11 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   }
 
   public async reveal(): Promise<void> {
+    await vscode.commands.executeCommand(
+      'setContext',
+      KrenResultsViewProvider.enabledContext,
+      true
+    );
     await vscode.commands.executeCommand(`${KrenResultsViewProvider.viewId}.focus`);
   }
 
@@ -248,11 +257,30 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     this.activeScreen = 'settings';
     this.render();
     await this.reveal();
+    this.refreshReadAloudVoicesInBackground();
   }
 
   public dispose(): void {
+    this.proModelRefresh += 1;
+    this.openAIModelRefresh += 1;
+    this.anthropicModelRefresh += 1;
+    this.view = undefined;
+    this.disposeViewDisposables();
     this.stopGeneratedAudio();
+    this.audioPlaybackResolver?.(false);
+    this.audioPlaybackResolver = undefined;
     this.windowsPronunciation.dispose();
+    void vscode.commands.executeCommand(
+      'setContext',
+      KrenResultsViewProvider.enabledContext,
+      false
+    );
+  }
+
+  private disposeViewDisposables(): void {
+    const disposables = this.viewDisposables;
+    this.viewDisposables = [];
+    for (const disposable of disposables) disposable.dispose();
   }
 
   private async playGeneratedAudio(file: string): Promise<EdgeReadAloudResult> {
@@ -345,10 +373,11 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     }
     if (message.command === 'readVariant') {
       const text = this.rewriteVariantText(message.variantId);
-      if (text) void this.actions.readAloudText(text).catch(() => undefined);
-    }
-    if (message.command === 'stopReadAloud') {
-      this.actions.stopReadAloud();
+      if (text) {
+        void this.actions.readAloudText(text).catch((error: unknown) => {
+          this.reportActionFailure('Read Aloud', error, 'panel read aloud failed');
+        });
+      }
     }
     if (message.command === 'clear') {
       this.actions.clear();
@@ -361,11 +390,25 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       // Do not hold the serialized settings queue while a long-running audio command
       // waits for its webview playback acknowledgement. Earlier setting updates have
       // already completed by the time this branch starts.
-      void this.actions.runCommand(message.action).catch(() => undefined);
+      const action = message.action;
+      if (!isPanelCommand(action)) {
+        const text = `KREN programming error: command "${action}" is not available in this build.`;
+        this.actions.log(`[panel command unavailable] ${action}`);
+        void vscode.window.showErrorMessage(text);
+      } else {
+        void this.actions.runCommand(action).catch((error: unknown) => {
+          this.reportActionFailure(
+            action,
+            error,
+            'panel command failed'
+          );
+        });
+      }
     }
     if (message.command === 'showSettings') {
       this.activeScreen = 'settings';
       this.render();
+      this.refreshReadAloudVoicesInBackground();
     }
     if (message.command === 'showManual') {
       this.activeScreen = 'manual';
@@ -380,32 +423,77 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       this.render();
     }
     if (message.command === 'refreshProModels') {
-      this.proModels = await this.actions.refreshProModels();
-      this.activeScreen = 'settings';
-      this.render();
+      this.refreshProModelsInBackground();
     }
     if (message.command === 'refreshOpenAIModels') {
-      this.openAIModels = await this.actions.refreshOpenAIModels();
-      this.activeScreen = 'settings';
-      this.render();
+      this.refreshOpenAIModelsInBackground();
     }
     if (message.command === 'refreshAnthropicModels') {
-      this.anthropicModels = await this.actions.refreshAnthropicModels();
-      this.activeScreen = 'settings';
-      this.render();
+      this.refreshAnthropicModelsInBackground();
     }
-    if (message.command === 'pronunciationStarted') {
-      this.audioPlaybackResolver?.(true);
-    }
-    if (message.command === 'pronunciationFailed') {
-      this.audioPlaybackResolver?.(false);
-    }
-    if (message.command === 'generatedAudioEnded') {
-      this.generatedAudioResolver?.('completed');
-    }
-    if (message.command === 'generatedAudioFailed') {
-      this.generatedAudioResolver?.('failed');
-    }
+  }
+
+  private handlePriorityMessage(command: PriorityWebviewCommand): void {
+    if (command === 'stopReadAloud') this.actions.stopReadAloud();
+    if (command === 'pronunciationStarted') this.audioPlaybackResolver?.(true);
+    if (command === 'pronunciationFailed') this.audioPlaybackResolver?.(false);
+    if (command === 'generatedAudioEnded') this.generatedAudioResolver?.('completed');
+    if (command === 'generatedAudioFailed') this.generatedAudioResolver?.('failed');
+  }
+
+  private refreshReadAloudVoicesInBackground(): void {
+    void this.actions.refreshReadAloudVoices()
+      .then(() => {
+        if (this.activeScreen === 'settings') this.render();
+      })
+      .catch(() => {
+        this.actions.log('[settings background refresh failed] Read Aloud voices.');
+      });
+  }
+
+  private refreshProModelsInBackground(): void {
+    const generation = ++this.proModelRefresh;
+    void this.actions.refreshProModels()
+      .then((models) => {
+        if (generation !== this.proModelRefresh) return;
+        this.proModels = models;
+        if (this.activeScreen === 'settings') this.render();
+      })
+      .catch(() => {
+        this.actions.log('[settings background refresh failed] Gemini models.');
+      });
+  }
+
+  private refreshOpenAIModelsInBackground(): void {
+    const generation = ++this.openAIModelRefresh;
+    void this.actions.refreshOpenAIModels()
+      .then((models) => {
+        if (generation !== this.openAIModelRefresh) return;
+        this.openAIModels = models;
+        if (this.activeScreen === 'settings') this.render();
+      })
+      .catch(() => {
+        this.actions.log('[settings background refresh failed] OpenAI models.');
+      });
+  }
+
+  private refreshAnthropicModelsInBackground(): void {
+    const generation = ++this.anthropicModelRefresh;
+    void this.actions.refreshAnthropicModels()
+      .then((models) => {
+        if (generation !== this.anthropicModelRefresh) return;
+        this.anthropicModels = models;
+        if (this.activeScreen === 'settings') this.render();
+      })
+      .catch(() => {
+        this.actions.log('[settings background refresh failed] Anthropic models.');
+      });
+  }
+
+  private reportActionFailure(action: string, error: unknown, logKind: string): void {
+    const message = safePanelErrorMessage(error);
+    this.actions.log(`[${logKind}] ${action}: ${message}`);
+    void vscode.window.showErrorMessage(`KREN: ${message}`);
   }
 
   private rewriteVariantText(id: RewriteVariantId | undefined): string | undefined {
@@ -448,7 +536,7 @@ function isCommandMessage(value: unknown): value is {
   issueId?: string;
   key?: KrenPanelSettingKey;
   value?: string | number | boolean;
-  action?: KrenPanelCommand;
+  action?: string;
 } {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as {
@@ -473,8 +561,7 @@ function isCommandMessage(value: unknown): value is {
       command !== 'refreshAnthropicModels' && command !== 'pronunciationStarted' &&
       command !== 'pronunciationFailed' && command !== 'generatedAudioEnded' &&
       command !== 'generatedAudioFailed') return false;
-  if (candidate.variantId !== undefined && candidate.variantId !== 'natural' &&
-      candidate.variantId !== 'concise' && candidate.variantId !== 'jargonFree') return false;
+  if (candidate.variantId !== undefined && !isRewriteVariantId(candidate.variantId)) return false;
   if ((command === 'applyGrammar' || command === 'copyGrammar') &&
       !isGrammarChoices(candidate.grammarChoices)) return false;
   if ((command === 'addGrammarWord' || command === 'ignoreGrammarIssue') &&
@@ -484,7 +571,7 @@ function isCommandMessage(value: unknown): value is {
       (typeof candidate.value === 'string' || typeof candidate.value === 'number' ||
         typeof candidate.value === 'boolean');
   }
-  if (command === 'runCommand') return isPanelCommand(candidate.action);
+  if (command === 'runCommand') return isPanelCommandName(candidate.action);
   return true;
 }
 
@@ -507,7 +594,33 @@ function isPanelCommand(value: unknown): value is KrenPanelCommand {
   return typeof value === 'string' && PANEL_COMMANDS.has(value as KrenPanelCommand);
 }
 
+function isPanelCommandName(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= 128 &&
+    /^(?:kren|workbench)\.[A-Za-z][A-Za-z0-9.]*$/u.test(value);
+}
+
+function safePanelErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/\bBearer\s+\S+/giu, 'Bearer [redacted]')
+    .replace(/([?&](?:api[_-]?key|key|token)=)[^\s&#]+/giu, '$1[redacted]')
+    .replace(/\b((?:api[_-]?key|key|token|secret)\s*[:=]\s*)[^\s,;]+/giu, '$1[redacted]')
+    .replace(/\b(?:AIza[\w-]+|sk-[\w-]+)\b/gu, '[redacted]')
+    .replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/giu, '[redacted]')
+    // Catch-all for opaque tokens the named patterns above do not know about. It requires
+    // both a letter and a digit, because a long run of letters alone is a word, not a key.
+    // The looser form matched any twenty-character run and so redacted ordinary English,
+    // including the dictionary terms and provider messages that make a failure diagnosable.
+    // Over-redaction is not the safe direction here: this function exists so that a failure
+    // can be read, and a message reduced to "[redacted]" fails at that as surely as a leak.
+    .replace(
+      /\b(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{20,}\b/gu,
+      '[redacted]'
+    );
+}
+
 const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
+  'results.openAtStartup',
   'translationProvider',
   'translation.targetLanguage',
   'grammar.dialect',
@@ -554,35 +667,7 @@ const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   'pronunciation.windowsNativePlayback'
 ]);
 
-const PANEL_COMMANDS = new Set<KrenPanelCommand>([
-  'kren.setGeminiApiKey',
-  'kren.deleteGeminiApiKey',
-  'kren.setGeminiProApiKey',
-  'kren.deleteGeminiProApiKey',
-  'kren.setOpenAIApiKey',
-  'kren.deleteOpenAIApiKey',
-  'kren.setAnthropicApiKey',
-  'kren.deleteAnthropicApiKey',
-  'kren.setGoogleCloudTranslationApiKey',
-  'kren.deleteGoogleCloudTranslationApiKey',
-  'kren.setMerriamWebsterCollegiateApiKey',
-  'kren.deleteMerriamWebsterCollegiateApiKey',
-  'kren.setMerriamWebsterThesaurusApiKey',
-  'kren.deleteMerriamWebsterThesaurusApiKey',
-  'kren.setKoreanDictionaryApiKey',
-  'kren.deleteKoreanDictionaryApiKey',
-  'kren.testKoreanDictionary',
-  'kren.deleteAllApiKeys',
-  'kren.testOpenAIConnection',
-  'kren.testAnthropicConnection',
-  'kren.showGoogleCloudTranslationUsage',
-  'kren.previewReadAloud',
-  'kren.stopReadAloud',
-  'kren.clearGrammarFindings',
-  'kren.clearGrammarCustomDictionary',
-  'kren.clearIgnoredGrammarFindings',
-  'workbench.action.openSettings'
-]);
+
 
 function createNonce(): string {
   const bytes = new Uint8Array(16);
