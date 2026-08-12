@@ -133,6 +133,54 @@ describe('results webview failure reporting', () => {
     showErrorMessage.mockClear();
   });
 
+  // Redaction has to be judged in both directions. A leaked key is the obvious
+  // failure; a message flattened to "[redacted]" is the quieter one, and it defeats
+  // the whole reason this reporting exists. The catch-all therefore requires a digit
+  // and a letter together, so an ordinary long word survives and an opaque token
+  // does not.
+  it('redacts opaque tokens without redacting ordinary long words', async () => {
+    // Assembled from parts on purpose. A literal key shape here is caught by
+    // scan-secrets, correctly: this file is copied into the public tree, and the
+    // scanner cannot tell a test fixture from a real credential. Nor should it try.
+    const fakeGoogleKey = ['AIza', 'SyC1234567890abcdefghijklmnopqrstuvw'].join('');
+
+    const cases: Array<{ thrown: string; redacted: string[]; kept: string[] }> = [
+      {
+        thrown: `Request failed with key ${fakeGoogleKey}`,
+        redacted: [fakeGoogleKey],
+        kept: ['Request failed']
+      },
+      {
+        thrown: 'No entry for internationalization or contradistinction',
+        redacted: [],
+        kept: ['internationalization', 'contradistinction']
+      },
+      {
+        thrown: 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345 rejected',
+        redacted: ['abcdefghijklmnopqrstuvwxyz012345'],
+        kept: ['Bearer', 'rejected']
+      }
+    ];
+
+    for (const { thrown, redacted, kept } of cases) {
+      showErrorMessage.mockClear();
+      const harness = createHarness({
+        runCommand: vi.fn(async () => { throw new Error(thrown); })
+      });
+      harness.dispatch({ command: 'runCommand', action: 'kren.deleteAllApiKeys' });
+      await settleMessages();
+
+      const lastCall = showErrorMessage.mock.calls.at(-1) as unknown[] | undefined;
+      const shown = String(lastCall?.[0] ?? '');
+      for (const secret of redacted) {
+        expect(shown, `leaked: ${secret}`).not.toContain(secret);
+      }
+      for (const word of kept) {
+        expect(shown, `over-redacted: ${word}`).toContain(word);
+      }
+    }
+  });
+
   it('reports a rendered command that is unavailable in this build', async () => {
     const harness = createHarness();
 

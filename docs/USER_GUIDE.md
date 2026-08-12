@@ -240,7 +240,7 @@ See [Troubleshooting](TROUBLESHOOTING.md) for additional details. Never paste an
 2. Clear custom grammar words and ignored findings from KREN Settings if desired.
 3. Clear the rich result to remove KREN's current in-memory input/result.
 4. Uninstall KREN.
-5. To remove remaining consent flags and the Cloud Translation usage ledger, delete KREN's VS Code global storage for `local.kren-translate` after uninstalling.
+5. To remove remaining consent flags and the Cloud Translation usage ledger, delete KREN's VS Code global storage folder after uninstalling. The folder is named for the extension identifier shown on KREN's entry in the Extensions view: `masstransferase.kren-translate` for a Marketplace install, or `local.kren-translate` for a sideloaded build.
 
 Deleting or resetting the local Cloud Translation ledger does not change provider billing records and must not be used to bypass the configured safety ceiling.
 
