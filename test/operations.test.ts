@@ -2,11 +2,75 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isEnglishDictionaryQuery,
   KREN_SECRET_KEYS,
+  MERRIAM_WEBSTER_SECRET_KEYS,
   runKrenOperation,
+  storeMerriamWebsterKey,
   type KrenRuntime
 } from '../src/operations.js';
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('Merriam-Webster key limit', () => {
+  function memorySecretStorage() {
+    const values = new Map<string, string>();
+    return {
+      values,
+      storage: {
+        get: async (key: string) => values.get(key),
+        store: async (key: string, value: string) => {
+          values.set(key, value);
+        }
+      }
+    };
+  }
+
+  it('refuses a third Merriam-Webster key before secret storage holds it', async () => {
+    const { values, storage } = memorySecretStorage();
+    expect(await storeMerriamWebsterKey(
+      storage,
+      KREN_SECRET_KEYS.merriamWebsterCollegiate,
+      'configured-collegiate'
+    )).toBe(true);
+    expect(await storeMerriamWebsterKey(
+      storage,
+      KREN_SECRET_KEYS.merriamWebsterMedical,
+      'configured-medical'
+    )).toBe(true);
+
+    expect(await storeMerriamWebsterKey(
+      storage,
+      KREN_SECRET_KEYS.merriamWebsterThesaurus,
+      'configured-thesaurus'
+    )).toBe(false);
+    expect(MERRIAM_WEBSTER_SECRET_KEYS.filter((key) => values.has(key))).toHaveLength(2);
+    expect(values.has(KREN_SECRET_KEYS.merriamWebsterThesaurus)).toBe(false);
+  });
+
+  it('allows add, remove, and add-different without a restart', async () => {
+    const { values, storage } = memorySecretStorage();
+    await storeMerriamWebsterKey(
+      storage,
+      KREN_SECRET_KEYS.merriamWebsterCollegiate,
+      'configured-collegiate'
+    );
+    await storeMerriamWebsterKey(
+      storage,
+      KREN_SECRET_KEYS.merriamWebsterMedical,
+      'configured-medical'
+    );
+
+    values.delete(KREN_SECRET_KEYS.merriamWebsterMedical);
+    expect(await storeMerriamWebsterKey(
+      storage,
+      KREN_SECRET_KEYS.merriamWebsterThesaurus,
+      'configured-thesaurus'
+    )).toBe(true);
+    expect(MERRIAM_WEBSTER_SECRET_KEYS.filter((key) => values.has(key))).toEqual([
+      KREN_SECRET_KEYS.merriamWebsterCollegiate,
+      KREN_SECRET_KEYS.merriamWebsterThesaurus
+    ]);
+  });
+});
 
 describe('English dictionary query validation', () => {
   it('accepts words and short multi-word expressions', () => {
@@ -81,6 +145,93 @@ describe('English dictionary query validation', () => {
       new AbortController().signal
     )).rejects.toThrow('fallback is disabled');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { text: 'Translate this sentence.', expectedTarget: 'ko' },
+    { text: '이 문장을 번역하세요.', expectedTarget: 'en' }
+  ])('automatically routes $text to $expectedTarget', async ({ text, expectedTarget }) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        data: { translations: [{ translatedText: 'translated', detectedSourceLanguage: 'auto' }] }
+      }), { status: 200 })
+    );
+    const runtime: KrenRuntime = {
+      getSecret: async (key) => key === KREN_SECRET_KEYS.googleCloudTranslation
+        ? 'cloud-key'
+        : undefined,
+      getSetting: <T>(key: string, fallback: T): T => {
+        if (key === 'translation.targetLanguage') return 'auto-en-ko' as T;
+        return fallback;
+      },
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+
+    await runKrenOperation(runtime, 'translate', { text }, new AbortController().signal);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { target: string };
+    expect(request.target).toBe(expectedTarget);
+  });
+
+  it('keeps an explicit translation target over automatic routing', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        data: { translations: [{ translatedText: '翻訳', detectedSourceLanguage: 'en' }] }
+      }), { status: 200 })
+    );
+    const runtime: KrenRuntime = {
+      getSecret: async (key) => key === KREN_SECRET_KEYS.googleCloudTranslation
+        ? 'cloud-key'
+        : undefined,
+      getSetting: <T>(_key: string, fallback: T): T => fallback,
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+
+    await runKrenOperation(
+      runtime,
+      'translate',
+      { text: 'Translate this.', targetLanguage: 'ja' },
+      new AbortController().signal
+    );
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { target: string };
+    expect(request.target).toBe('ja');
+  });
+
+  it('routes Medical Dictionary directly to the medical reference without translation fallback', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify([{
+        meta: { id: 'hypertension:1', stems: ['hypertension'] },
+        hwi: { hw: 'hypertension' },
+        fl: 'noun',
+        shortdef: ['abnormally high arterial blood pressure']
+      }]), { status: 200 })
+    );
+    const runtime: KrenRuntime = {
+      getSecret: async (key) => key === KREN_SECRET_KEYS.merriamWebsterMedical
+        ? 'medical-key'
+        : undefined,
+      getSetting: <T>(_key: string, fallback: T): T => fallback,
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+
+    const result = await runKrenOperation(
+      runtime,
+      'medical',
+      { text: 'hypertension' },
+      new AbortController().signal
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/references/medical/json/hypertension');
+    expect(result).toMatchObject({
+      kind: 'dictionary',
+      providerId: 'merriamWebsterMedical',
+      headword: 'hypertension'
+    });
   });
 
   it('routes alternate-profile rewrites with the configured supported thinking level', async () => {
@@ -301,59 +452,6 @@ describe('English dictionary query validation', () => {
     expect(requestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
     expect(consentProfile).toBe('pro');
     expect(result).toMatchObject({ providerId: 'gemini', modelId: 'gemini-3.1-pro-preview' });
-  });
-
-  it.each([
-    { text: 'Translate this sentence.', expectedTarget: 'ko' },
-    { text: '이 문장을 번역하세요.', expectedTarget: 'en' }
-  ])('automatically routes $text to $expectedTarget', async ({ text, expectedTarget }) => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({
-        data: { translations: [{ translatedText: 'translated', detectedSourceLanguage: 'auto' }] }
-      }), { status: 200 })
-    );
-    const runtime: KrenRuntime = {
-      getSecret: async (key) => key === KREN_SECRET_KEYS.googleCloudTranslation
-        ? 'cloud-key'
-        : undefined,
-      getSetting: <T>(key: string, fallback: T): T => {
-        if (key === 'translation.targetLanguage') return 'auto-en-ko' as T;
-        return fallback;
-      },
-      reserveCloudCharacters: async () => undefined,
-      beforeGeminiRequest: async () => undefined
-    };
-
-    await runKrenOperation(runtime, 'translate', { text }, new AbortController().signal);
-
-    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { target: string };
-    expect(request.target).toBe(expectedTarget);
-  });
-
-  it('keeps an explicit translation target over automatic routing', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({
-        data: { translations: [{ translatedText: '翻訳', detectedSourceLanguage: 'en' }] }
-      }), { status: 200 })
-    );
-    const runtime: KrenRuntime = {
-      getSecret: async (key) => key === KREN_SECRET_KEYS.googleCloudTranslation
-        ? 'cloud-key'
-        : undefined,
-      getSetting: <T>(_key: string, fallback: T): T => fallback,
-      reserveCloudCharacters: async () => undefined,
-      beforeGeminiRequest: async () => undefined
-    };
-
-    await runKrenOperation(
-      runtime,
-      'translate',
-      { text: 'Translate this.', targetLanguage: 'ja' },
-      new AbortController().signal
-    );
-
-    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { target: string };
-    expect(request.target).toBe('ja');
   });
 
   it('uses the independent Gemini fallback for an unavailable alternate explanation model', async () => {

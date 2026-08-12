@@ -6,7 +6,7 @@ declare function test(name: string, callback: () => Promise<void>): void;
 
 suite('KREN native Grammar Check', () => {
   test('publishes diagnostics, offers Quick Fixes, applies one, and rechecks', async () => {
-    const extension = vscode.extensions.getExtension('masstransferase.kren-translate');
+    const extension = vscode.extensions.getExtension('local.kren-translate');
     assert.ok(extension, 'KREN extension was not discovered by the Extension Development Host.');
     await extension.activate();
     const document = await vscode.workspace.openTextDocument({

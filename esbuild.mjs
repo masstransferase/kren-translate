@@ -1,6 +1,8 @@
 import * as esbuild from 'esbuild';
+import path from 'node:path';
 
 const watch = process.argv.includes('--watch');
+const projectRoot = import.meta.dirname;
 const commonOptions = {
   bundle: true,
   format: 'cjs',
@@ -13,17 +15,17 @@ const commonOptions = {
 
 const builds = [{
   ...commonOptions,
-  entryPoints: ['src/extension.ts'],
-  outfile: 'dist/extension.js',
+  entryPoints: [path.join(projectRoot, 'src', 'extension.ts')],
+  outfile: path.join(projectRoot, 'dist', 'extension.js'),
   external: ['vscode']
 }, {
   ...commonOptions,
-  entryPoints: ['src/workers/grammarWorker.ts'],
-  outfile: 'dist/grammar-worker.js'
+  entryPoints: [path.join(projectRoot, 'src', 'workers', 'grammarWorker.ts')],
+  outfile: path.join(projectRoot, 'dist', 'grammar-worker.js')
 }, {
   ...commonOptions,
-  entryPoints: ['test/integration/grammar.test.ts'],
-  outfile: 'dist/test/grammar.test.js',
+  entryPoints: [path.join(projectRoot, 'test', 'integration', 'grammar.test.ts')],
+  outfile: path.join(projectRoot, 'dist', 'test', 'grammar.test.js'),
   external: ['vscode']
 }];
 

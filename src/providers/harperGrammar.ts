@@ -150,8 +150,12 @@ class HarperWorkerClient {
   }
 
   public async dispose(): Promise<void> {
+    const disposeRequest = this.request({ type: 'dispose' }).catch(() => undefined);
     try {
-      await this.request({ type: 'dispose' });
+      await Promise.race([
+        disposeRequest,
+        new Promise<void>((resolve) => setTimeout(resolve, 750))
+      ]);
     } finally {
       await this.worker.terminate();
       this.failAll(new Error('KREN grammar worker was disposed.'));
@@ -167,5 +171,9 @@ class HarperWorkerClient {
 function grammarWorkerPath(): string {
   const bundled = path.join(__dirname, 'grammar-worker.js');
   if (existsSync(bundled)) return bundled;
-  return path.resolve(process.cwd(), 'dist', 'grammar-worker.js');
+  const developmentBuild = path.resolve(__dirname, '..', '..', 'dist', 'grammar-worker.js');
+  if (existsSync(developmentBuild)) return developmentBuild;
+  throw new Error(
+    `KREN grammar worker is missing from the extension installation: ${bundled}. Reinstall KREN.`
+  );
 }

@@ -18,6 +18,11 @@ import type {
   TranslationRequest,
   TranslationResult
 } from '../types.js';
+import {
+  isRewriteVariantId,
+  REWRITE_VARIANT_IDS,
+  REWRITE_VARIANT_LIST
+} from '../rewriteVariants.js';
 
 interface GeminiPayload {
   candidates?: Array<{
@@ -424,9 +429,9 @@ export function normalizeGeminiRewriteResult(
     );
   }
   const requestedVariant = rewriteOperationVariant(request.operation);
-  const expectedIds: RewriteVariantId[] = requestedVariant
+  const expectedIds: readonly RewriteVariantId[] = requestedVariant
     ? [requestedVariant]
-    : ['natural', 'concise', 'jargonFree'];
+    : REWRITE_VARIANT_IDS;
   const byId = new Map<RewriteVariantId, RewriteVariant>();
   for (const item of value.variants) {
     if (!isRecord(item)) continue;
@@ -470,10 +475,7 @@ function languageModelProviderName(providerId: string): string {
 }
 
 function rewriteOperationVariant(operation: RewriteRequest['operation']): RewriteVariantId | undefined {
-  if (operation === 'rewriteNatural') return 'natural';
-  if (operation === 'rewriteConcise') return 'concise';
-  if (operation === 'rewriteJargonFree') return 'jargonFree';
-  return undefined;
+  return REWRITE_VARIANT_LIST.find((variant) => variant.operation === operation)?.id;
 }
 
 function rewriteDomainInstruction(domain: RewriteRequest['domain']): string {
@@ -563,15 +565,13 @@ function rewriteRhetoricalModeInstruction(
 }
 
 function rewriteVariantId(value: unknown): RewriteVariantId | undefined {
-  return value === 'natural' || value === 'concise' || value === 'jargonFree'
-    ? value
-    : undefined;
+  return isRewriteVariantId(value) ? value : undefined;
 }
 
 function rewriteVariantLabel(id: RewriteVariantId, sourceLanguage = 'en'): string {
-  if (id === 'natural') return isEnglishLanguageCode(sourceLanguage) ? 'Natural English' : 'Natural';
-  if (id === 'concise') return 'Concise';
-  return 'Jargon-Free';
+  const variant = REWRITE_VARIANT_LIST.find((candidate) => candidate.id === id);
+  if (!variant) return id;
+  return isEnglishLanguageCode(sourceLanguage) ? variant.englishResultLabel : variant.label;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

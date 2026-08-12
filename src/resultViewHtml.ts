@@ -1,6 +1,13 @@
 import { languageName } from './languages.js';
 import { isEnglishLanguageCode } from '@kren/core/languages';
 import { isAllowedPronunciationUrl } from './pronunciation.js';
+import { MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE } from './operations.js';
+import {
+  ALL_REWRITE_VARIANTS_ID,
+  REWRITE_VARIANT_LIST,
+  type QuickMenuRewriteVariantId,
+  type RewriteVariantListId
+} from './rewriteVariants.js';
 import type { GeminiModelOption } from './providers/geminiModels.js';
 import type {
   DictionaryResult,
@@ -29,6 +36,7 @@ export interface ResultViewHtmlOptions {
 }
 
 export interface KrenPanelSettings {
+  openResultsAtStartup: boolean;
   translationProvider: 'googleCloudTranslation' | 'gemini';
   translationTargetLanguage: string;
   grammarDialect: 'american' | 'british' | 'australian' | 'canadian' | 'indian';
@@ -61,8 +69,8 @@ export interface KrenPanelSettings {
   alternateFallbackEnabled: boolean;
   alternateFallbackModel: string;
   alternateFallbackThinkingLevel: 'auto' | 'minimal' | 'low' | 'medium' | 'high';
-  preferredRewriteVariant: 'natural' | 'concise' | 'jargonFree';
-  quickMenuRewriteVariant: 'all' | 'natural' | 'concise' | 'jargonFree';
+  preferredRewriteVariant: RewriteVariantListId;
+  quickMenuRewriteVariant: QuickMenuRewriteVariantId;
   rewriteDomain: 'general' | 'academic' | 'technical' | 'business' | 'email';
   rewriteTone:
     | 'preserveVoice'
@@ -109,6 +117,7 @@ export type KrenCredentialId =
   | 'openai'
   | 'anthropic'
   | 'merriamWebsterCollegiate'
+  | 'merriamWebsterMedical'
   | 'merriamWebsterThesaurus'
   | 'koreanDictionary';
 
@@ -118,6 +127,7 @@ const providerNames: Record<string, string> = {
   googleCloudTranslation: 'Google Cloud Translation',
   koreanBasicDictionary: 'Korean Basic Dictionary',
   merriamWebsterCollegiate: "Merriam-Webster's Collegiate® Dictionary",
+  merriamWebsterMedical: "Merriam-Webster's Medical Dictionary",
   merriamWebsterThesaurus: "Merriam-Webster's Collegiate® Thesaurus"
 };
 
@@ -248,8 +258,10 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .switch input:checked + .slider::before { transform: translateX(16px); background: var(--vscode-button-foreground); }
     .settings-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
     .credential-row { display: grid; grid-template-columns: minmax(145px, 1fr) 2fr; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); }
+    .credential-row.unavailable { color: var(--vscode-descriptionForeground); }
     .credential-row:last-of-type { border-bottom: 0; }
     .credential-status { margin-left: 5px; color: var(--vscode-descriptionForeground); font-size: 0.82em; font-weight: 400; }
+    .credential-reason { display: block; margin-top: 3px; color: var(--vscode-descriptionForeground); font-size: .75rem; font-weight: 400; line-height: 1.25; }
     .credential-label { font-weight: 650; }
     .setting-control { display: flex; align-items: center; gap: 6px; min-width: 0; }
     .setting-control input { flex: 1; }
@@ -265,6 +277,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .welcome-step span { display: block; line-height: 1.45; }
     .capability-grid { display: grid; gap: 10px; }
     .capability { padding: 8px 12px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); font-size: .95rem; }
+    .capability.unavailable { color: var(--vscode-descriptionForeground); background: var(--vscode-sideBarSectionHeader-background); }
+    .capability-reason { display: block; margin-top: 3px; font-size: .72rem; line-height: 1.25; }
     .privacy-note { margin: 24px 5px 0; color: var(--vscode-descriptionForeground); font-size: .95rem; line-height: 1.5; }
     .credits { margin: 16px 0 0; padding-top: 10px; border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); color: var(--vscode-descriptionForeground); font-size: .74rem; text-align: left; }
     .manual-screen { line-height: 1.55; }
@@ -542,12 +556,22 @@ function renderEmptyView(
         <div class="welcome-step"><strong>3. Use the result</strong><span>Read, compare, copy, replace eligible text, hear pronunciation, or open full details.</span></div>
       </div>
       <div class="capability-grid" aria-label="KREN capabilities">
-        <span class="capability">English Dictionary</span><span class="capability">Synonyms</span><span class="capability">Korean Dictionary</span><span class="capability">Translation</span><span class="capability">Explain Nuance</span><span class="capability">Grammar Check</span><span class="capability">Rewrite</span><span class="capability">Read Aloud</span>
+        ${merriamWebsterCapability('English Dictionary', Boolean(settings.credentialPresence?.merriamWebsterCollegiate))}
+        ${merriamWebsterCapability('Synonyms', Boolean(settings.credentialPresence?.merriamWebsterThesaurus))}
+        ${merriamWebsterCapability('Medical Dictionary', Boolean(settings.credentialPresence?.merriamWebsterMedical))}
+        <span class="capability">Korean Dictionary</span><span class="capability">Translation</span><span class="capability">Explain Nuance</span><span class="capability">Grammar Check</span><span class="capability">Rewrite</span><span class="capability">Read Aloud</span>
       </div>
     </div>
     <p class="privacy-note">Passive hovering sends nothing. Remote services receive only text you explicitly submit. Use the menu above for the User Manual and Settings.</p>
     <p class="credits">Designed by Masstransferase &amp; developed using CODEX · Version ${escapeHtml(settings.extensionVersion)}</p>
   </section>`;
+}
+
+function merriamWebsterCapability(label: string, configured: boolean): string {
+  const reason = configured
+    ? ''
+    : '<span class="capability-reason">Unavailable because no API key is configured.</span>';
+  return `<span class="capability${configured ? '' : ' unavailable'}">${escapeHtml(label)}${reason}</span>`;
 }
 
 function renderHeader(
@@ -588,14 +612,14 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
     <ul>
       <li><strong>Base:</strong> VS Code Desktop 1.106 or later and an installed KREN extension. KREN is not a browser-only <code>vscode.dev</code> extension.</li>
       <li><strong>Offline Grammar Check:</strong> no API key, account, Python, Node.js, GPU, or network connection is required. Node.js and npm are development requirements only.</li>
-      <li><strong>Dictionaries:</strong> obtain and enter your own Merriam-Webster Collegiate Dictionary and Collegiate Thesaurus API keys; Korean Dictionary requires your own Korean Basic Dictionary Open API key. KREN includes no shared API keys.</li>
+      <li><strong>Dictionaries:</strong> KREN offers user-owned Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary API keys. Merriam-Webster issues two API keys per account, so KREN refuses a third. Korean Dictionary requires your own Korean Basic Dictionary Open API key. KREN includes no shared API keys.</li>
       <li><strong>Translation:</strong> a Google Cloud Translation Basic v2 key is required by default, or a Gemini key when Gemini translation is selected.</li>
       <li><strong>Explain and Rewrite:</strong> a key for the selected Gemini, OpenAI API, or Anthropic API provider. Consumer ChatGPT, Claude, Gemini app, or Google One subscriptions do not automatically include API credits.</li>
       <li><strong>Network:</strong> outbound HTTPS from the extension host is required for online providers, Merriam-Webster audio, and Edge Online speech. Proxies, VPNs, firewalls, and provider quotas can affect access.</li>
       <li><strong>Windows audio:</strong> Read Aloud requires a local Windows extension host, PowerShell, Windows System.Speech, and an installed voice. Edge Online additionally requires working Python, <code>edge-tts</code>, network access, and first-use consent.</li>
       <li><strong>Remote workspaces:</strong> Windows-native speech is unavailable in WSL, SSH, Dev Containers, Codespaces, and other remote extension hosts. Online calls originate from that remote host.</li>
     </ul>
-    <p>Configure only the keys for features you use. KREN stores keys in VS Code Secret Storage, never in project files or this panel. Merriam-Webster's free developer terms limit reference APIs and daily queries. Third-party API billing and terms remain authoritative.</p>
+    <p>Configure only the keys for features you use. KREN stores keys in VS Code Secret Storage, never in project files or this panel. Remove one Merriam-Webster key before choosing a different reference work. Merriam-Webster's free developer terms limit an account to two reference works and 1000 queries per day per reference work. Every lookup follows an explicit user action. Third-party API billing and terms remain authoritative.</p>
 
     <h3>Quick start</h3>
     <ol>
@@ -609,6 +633,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
     <ul>
       <li><strong>English Dictionary Search:</strong> structured Merriam-Webster Collegiate entries, forms, examples, pronunciation, and usage discussions.</li>
       <li><strong>Synonyms Search:</strong> sense-grouped synonyms, near synonyms, related words, phrases, and antonyms.</li>
+      <li><strong>Medical Dictionary Search:</strong> structured Merriam-Webster Medical Dictionary entries for English medical terms. Results define terminology and are not diagnosis or medical advice.</li>
       <li><strong>Korean Dictionary Search:</strong> Basic Korean Dictionary definitions and English explanations, attributed to the National Institute of Korean Language under CC BY-SA.</li>
       <li><strong>Translate:</strong> automatic input detection and your selected output language.</li>
       <li><strong>Explain Meaning or Nuance:</strong> contextual meaning, connotation, register, ambiguity, and technical usage.</li>
@@ -618,7 +643,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
     </ul>
 
     <h3>Dictionaries</h3>
-    <p>Dictionary Search is ordered English, Synonyms, then Korean. Each user must obtain and enter their own separate Merriam-Webster Collegiate Dictionary and Collegiate Thesaurus keys. English Dictionary preserves provider hierarchy rather than reducing entries to three meanings. For a multi-word expression only, KREN can use Google Cloud Translation after Merriam-Webster returns no entry; provider errors never trigger that fallback. Dictionary results are lookup-only and cannot replace editor text.</p>
+    <p>Dictionary Search is ordered English, Synonyms, Medical, then Korean. Enter a separate key for each selected Merriam-Webster reference, up to two at once. Removing one key enables a different reference work immediately. English and Medical Dictionary results preserve provider hierarchy rather than reducing entries to three meanings. For a multi-word English Dictionary expression only, KREN can use Google Cloud Translation after Merriam-Webster returns no entry; Medical Dictionary never uses that fallback. Provider errors never trigger translation fallback. Dictionary results are lookup-only and cannot replace editor text.</p>
 
     <h3>Grammar Check workflow</h3>
     <p>Select English text and run Grammar Check. KREN underlines findings without forcing this panel open. Right-click an underline and choose <strong>Quick Fix...</strong> for corrections, Add to local dictionary, Ignore this finding, or More details. Every edit revalidates the unchanged checked range and then rechecks it. The panel starts each finding at Keep original; clipboard checks can copy corrections but cannot replace an editor range.</p>
@@ -636,7 +661,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
       <li>Translation and rewrite results from an editor can replace only the original unchanged selection; clipboard results can only be copied.</li>
       <li>Rewrite variants have separate Copy and guarded Replace controls.</li>
       <li>Grammar changes are opt-in per issue and rejected when the checked text is stale.</li>
-      <li>Dictionary, thesaurus, Korean dictionary, and explanation results are not replaceable.</li>
+      <li>Dictionary, thesaurus, medical dictionary, Korean dictionary, and explanation results are not replaceable.</li>
     </ul>
 
     <h3>Read Aloud and pronunciation</h3>
@@ -650,7 +675,7 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
 
     <h3>Providers and credentials</h3>
     <p>Store keys through KREN commands or Settings; VS Code Secret Storage keeps them outside the webview and project files. KREN shows only Stored or Not set, never a key value. Remove an existing key before setting its replacement. Settings provides individual Remove key controls and a confirmed Delete all stored API keys action. Settings are grouped by Translation, Grammar, Explain, Rewrite, Read Aloud, Dictionary, and Credentials. They control languages, providers, editable models, thinking/effort, retries, Gemini profiles/fallback, rewrite style, grammar, speech, and phrase fallback.</p>
-    <p>KREN also registers five confirmed VS Code language-model tools: English Dictionary, Korean Dictionary, Synonyms, Translate, and Explain. Tools receive only their explicit text argument. KREN does not bundle an MCP server.</p>
+    <p>KREN also registers six confirmed VS Code language-model tools: English Dictionary, Medical Dictionary, Korean Dictionary, Synonyms, Translate, and Explain. Tools receive only their explicit text argument. KREN does not bundle an MCP server.</p>
     <p>Current provider disclosures: Google's current <a href="https://ai.google.dev/gemini-api/terms">Gemini API Terms</a> require API users to be at least 18, use it for professional or business purposes, and comply with regional restrictions. Gemini is available only in <a href="https://ai.google.dev/gemini-api/docs/available-regions">regions listed by Google</a>. KREN asks for confirmation before first Gemini use. OpenAI standard abuse-monitoring logs may be retained for 30 days even with <code>store: false</code>. Anthropic standard API inputs and outputs are normally deleted within 30 days, with policy and legal exceptions. Provider terms remain authoritative.</p>
 
     <h3>Privacy, storage, limits, and cost</h3>
@@ -666,13 +691,12 @@ function renderManual(version: string, brandImageUri: string | undefined): strin
 
     <h3>Panel placement and troubleshooting</h3>
     <p>Use the hamburger menu for Start Page, User Manual, and Settings; Clear removes the current in-memory result and grammar findings. For online failures, verify the matching key, API enablement, model, network path from the extension host, quota/billing, retries, and timeout.</p>
-    <p>A Windows blue screen is not an expected KREN result; KREN installs no kernel driver. If a blue screen names an Intel graphics driver and occurs only after Shut down and power-on, update the computer manufacturer's graphics driver and firmware, then disable Windows <strong>Turn on fast startup</strong> and test a full shutdown. This targeted driver-resume workaround is not a general KREN requirement or the similarly named BIOS Fast Boot option.</p>
-    <p>To uninstall cleanly, use Settings to remove individual keys or Delete all stored API keys, clear optional grammar data, uninstall, and remove <code>masstransferase.kren-translate</code> global storage if you also want consent flags and the Cloud usage ledger removed. Uninstalling alone is not KREN's credential-removal workflow.</p>
+    <p>To uninstall cleanly, use Settings to remove individual keys or Delete all stored API keys, clear optional grammar data, uninstall, and remove <code>local.kren-translate</code> global storage if you also want consent flags and the Cloud usage ledger removed. Uninstalling alone is not KREN's credential-removal workflow.</p>
 
     <h3>Known limitations</h3>
     <ul>
       <li>Grammar Check is English-focused and rule-based. Rewrite Text supports multilingual input and does not translate it.</li>
-      <li>Korean Dictionary accepts one Korean headword; the other dictionary products are English-specific.</li>
+      <li>Korean Dictionary accepts one Korean headword; the other dictionary products are English-specific. Medical Dictionary provides terminology definitions, not clinical guidance.</li>
       <li>Read Aloud is limited to a local Windows extension host, and Edge Online relies on an unofficial service interface.</li>
       <li>Models, access, quotas, pricing, permitted use, and retention can change. AI output is informational, not professional advice.</li>
     </ul>
@@ -816,10 +840,27 @@ function renderSettings(
   anthropicModels: GeminiModelOption[],
   brandImageUri: string | undefined
 ): string {
+  const merriamWebsterKeyCount = [
+    settings.credentialPresence?.merriamWebsterCollegiate,
+    settings.credentialPresence?.merriamWebsterMedical,
+    settings.credentialPresence?.merriamWebsterThesaurus
+  ].filter(Boolean).length;
+  const merriamWebsterLimitReason = merriamWebsterKeyCount >= 2
+    ? MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE
+    : undefined;
   return `${renderHeader('', false, brandImageUri)}
     <button class="secondary" data-command="showResult" aria-label="Back to KREN result">&#8592; Back to result</button>
     <h2>KREN Settings</h2>
     <p class="settings-intro">Changes are saved globally in this VS Code profile. API keys remain in VS Code Secret Storage. ChatGPT and Claude subscriptions do not include OpenAI or Anthropic API usage.</p>
+    <section class="settings-group">
+      <h3>Startup and panel</h3>
+      ${toggleSetting(
+        'Open KREN Sidebar at startup',
+        'Experimental and off by default. Opens the KREN Secondary Sidebar after VS Code finishes starting.',
+        'results.openAtStartup',
+        settings.openResultsAtStartup
+      )}
+    </section>
     <section class="settings-group">
       <h3>Translation</h3>
       ${selectSetting('Translation provider', 'Dictionary providers are configured separately.', 'translationProvider', settings.translationProvider, [
@@ -870,11 +911,9 @@ function renderSettings(
         ['gemini', 'Gemini'], ['openai', 'OpenAI API'], ['anthropic', 'Anthropic Claude API']
       ])}
       ${providerSettings('rewrite.provider', 'rewrite.geminiProfile', settings.rewriteProfile, settings, proModels, openAIModels, anthropicModels, true)}
-      ${selectSetting('Preferred rewrite style', 'The style shown first; switch styles from tabs in each result.', 'rewrite.preferredVariant', settings.preferredRewriteVariant, [
-        ['natural', 'Natural'], ['concise', 'Concise'], ['jargonFree', 'Jargon-Free']
-      ])}
+      ${selectSetting('Preferred rewrite style', 'The style shown first; switch styles from tabs in each result.', 'rewrite.preferredVariant', settings.preferredRewriteVariant, rewriteVariantOptions())}
       ${selectSetting('Quick-menu rewrite', 'This choice is listed first; All 3, Natural, Concise, and Jargon-Free remain available.', 'rewrite.quickMenuVariant', settings.quickMenuRewriteVariant, [
-        ['all', 'All 3 Variants'], ['natural', 'Natural'], ['concise', 'Concise'], ['jargonFree', 'Jargon-Free']
+        [ALL_REWRITE_VARIANTS_ID, 'All 3 Variants'], ...rewriteVariantOptions()
       ])}
       ${selectSetting('Domain preset', 'Guides terminology and conventions without sending document or workspace context.', 'rewrite.domain', settings.rewriteDomain, [
         ['general', 'General'], ['academic', 'Academic'], ['technical', 'Technical'], ['business', 'Business'], ['email', 'Email']
@@ -921,7 +960,7 @@ function renderSettings(
     </section>
     <section class="settings-group">
       <h3>Dictionary</h3>
-      <p class="settings-intro"><strong>Merriam-Webster keys:</strong> every user must obtain and enter their own Collegiate Dictionary and Collegiate Thesaurus keys. KREN provides no shared keys. Merriam-Webster's standard free terms limit use to noncommercial applications, two reference works, and 1,000 queries per day per reference.</p>
+      <p class="settings-intro"><strong>Merriam-Webster keys:</strong> KREN offers Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary. Merriam-Webster issues two API keys per account, so remove one stored key before choosing a different reference work. KREN provides no shared keys. Provider terms, permissions, reference access, and daily limits remain authoritative.</p>
       ${toggleSetting('Translate unmatched phrases', 'If Merriam-Webster has no multi-word entry, use Google Cloud Translation.', 'dictionary.multiWordTranslationFallback', settings.multiWordTranslationFallback)}
       ${toggleSetting('Windows background pronunciation', 'On local Windows, play Merriam-Webster audio through a hidden native process without opening KREN. Failures fall back to the KREN player.', 'pronunciation.windowsNativePlayback', settings.windowsNativePronunciation)}
     </section>
@@ -933,8 +972,9 @@ function renderSettings(
       ${credentialRow('Google Cloud Translation', 'kren.setGoogleCloudTranslationApiKey', 'kren.deleteGoogleCloudTranslationApiKey', Boolean(settings.credentialPresence?.googleCloudTranslation), 'kren.showGoogleCloudTranslationUsage', 'Usage', false)}
       ${credentialRow('OpenAI', 'kren.setOpenAIApiKey', 'kren.deleteOpenAIApiKey', Boolean(settings.credentialPresence?.openai), 'kren.testOpenAIConnection', 'Test')}
       ${credentialRow('Anthropic', 'kren.setAnthropicApiKey', 'kren.deleteAnthropicApiKey', Boolean(settings.credentialPresence?.anthropic), 'kren.testAnthropicConnection', 'Test')}
-      ${credentialRow('Merriam-Webster Collegiate', 'kren.setMerriamWebsterCollegiateApiKey', 'kren.deleteMerriamWebsterCollegiateApiKey', Boolean(settings.credentialPresence?.merriamWebsterCollegiate))}
-      ${credentialRow('Merriam-Webster Thesaurus', 'kren.setMerriamWebsterThesaurusApiKey', 'kren.deleteMerriamWebsterThesaurusApiKey', Boolean(settings.credentialPresence?.merriamWebsterThesaurus))}
+      ${credentialRow('Merriam-Webster Collegiate', 'kren.setMerriamWebsterCollegiateApiKey', 'kren.deleteMerriamWebsterCollegiateApiKey', Boolean(settings.credentialPresence?.merriamWebsterCollegiate), undefined, undefined, true, merriamWebsterLimitReason)}
+      ${credentialRow('Merriam-Webster Thesaurus', 'kren.setMerriamWebsterThesaurusApiKey', 'kren.deleteMerriamWebsterThesaurusApiKey', Boolean(settings.credentialPresence?.merriamWebsterThesaurus), undefined, undefined, true, merriamWebsterLimitReason)}
+      ${credentialRow('Merriam-Webster Medical', 'kren.setMerriamWebsterMedicalApiKey', 'kren.deleteMerriamWebsterMedicalApiKey', Boolean(settings.credentialPresence?.merriamWebsterMedical), undefined, undefined, true, merriamWebsterLimitReason)}
       ${credentialRow('Korean Dictionary', 'kren.setKoreanDictionaryApiKey', 'kren.deleteKoreanDictionaryApiKey', Boolean(settings.credentialPresence?.koreanDictionary), 'kren.testKoreanDictionary', 'Test')}
       <div class="settings-buttons">
         <button class="secondary" data-command="runCommand" data-action="kren.deleteAllApiKeys"${Object.values(settings.credentialPresence ?? {}).some(Boolean) ? '' : ' disabled'}>Delete all stored API keys</button>
@@ -950,12 +990,18 @@ function credentialRow(
   stored: boolean,
   extraAction?: string,
   extraLabel?: string,
-  extraRequiresKey = true
+  extraRequiresKey = true,
+  unavailableReason?: string
 ): string {
+  const blockedReason = stored ? undefined : unavailableReason;
   const extra = extraAction && extraLabel
     ? `<button class="secondary" data-command="runCommand" data-action="${escapeHtml(extraAction)}"${extraRequiresKey && !stored ? ' disabled' : ''}>${escapeHtml(extraLabel)}</button>`
     : '';
-  return `<div class="credential-row"><span class="credential-label">${escapeHtml(label)} <span class="credential-status">${stored ? 'Stored' : 'Not set'}</span></span><span class="settings-buttons"><button class="secondary" data-command="runCommand" data-action="${escapeHtml(setAction)}"${stored ? ' disabled' : ''}>Set key</button><button class="secondary" data-command="runCommand" data-action="${escapeHtml(deleteAction)}"${stored ? '' : ' disabled'}>Remove key</button>${extra}</span></div>`;
+  return `<div class="credential-row${blockedReason ? ' unavailable' : ''}"><span class="credential-label">${escapeHtml(label)} <span class="credential-status">${stored ? 'Stored' : 'Not set'}</span>${blockedReason ? `<span class="credential-reason">${escapeHtml(blockedReason)}</span>` : ''}</span><span class="settings-buttons"><button class="secondary" data-command="runCommand" data-action="${escapeHtml(setAction)}"${stored || blockedReason ? ' disabled' : ''}>Set key</button><button class="secondary" data-command="runCommand" data-action="${escapeHtml(deleteAction)}"${stored ? '' : ' disabled'}>Remove key</button>${extra}</span></div>`;
+}
+
+function rewriteVariantOptions(): Array<[string, string]> {
+  return REWRITE_VARIANT_LIST.map(({ id, label }) => [id, label]);
 }
 
 function providerSettings(

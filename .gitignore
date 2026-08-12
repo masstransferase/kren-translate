@@ -10,3 +10,6 @@ coverage/
 *credentials*.json
 *.pem
 *.key
+
+# Audit trail from the publish script. Names every excluded internal document.
+.public-tree-manifest.json

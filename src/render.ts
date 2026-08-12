@@ -17,6 +17,7 @@ const providerNames: Record<string, string> = {
   googleCloudTranslation: 'Google Cloud Translation',
   koreanBasicDictionary: 'Korean Basic Dictionary',
   merriamWebsterCollegiate: "Merriam-Webster's Collegiate® Dictionary",
+  merriamWebsterMedical: "Merriam-Webster's Medical Dictionary",
   merriamWebsterThesaurus: "Merriam-Webster's Collegiate® Thesaurus"
 };
 
@@ -39,6 +40,7 @@ export function renderResultMarkdown(
   markdown.supportHtml = true;
 
   if (result.providerId === 'merriamWebsterCollegiate' ||
+      result.providerId === 'merriamWebsterMedical' ||
       result.providerId === 'merriamWebsterThesaurus') {
     markdown.appendMarkdown(
       '<img src="https://dictionaryapi.com/images/info/branding-guidelines/MWLogo_LightBG_120x120_2x.png" width="50" height="50" alt="Merriam-Webster logo">\n\n'

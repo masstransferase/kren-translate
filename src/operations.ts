@@ -14,8 +14,10 @@ import { GoogleCloudTranslationProvider } from './providers/googleCloudTranslati
 import { KoreanDictionaryProvider } from './providers/koreanDictionary.js';
 import { AnthropicProvider, type AnthropicEffort } from './providers/anthropic.js';
 import { OpenAIProvider, type OpenAIReasoningEffort } from './providers/openai.js';
-import { MerriamWebsterProvider } from './providers/merriamWebster.js';
-import { MerriamWebsterThesaurusProvider } from './providers/merriamWebsterThesaurus.js';
+import {
+  MerriamWebsterProvider,
+  type MerriamWebsterReference
+} from './providers/merriamWebster.js';
 import { checkGrammarWithHarper } from './providers/harperGrammar.js';
 import type {
   DictionaryRequest,
@@ -45,8 +47,56 @@ export const KREN_SECRET_KEYS = {
   googleCloudTranslation: 'kren.googleCloudTranslation.apiKey',
   koreanDictionary: 'kren.koreanDictionary.apiKey',
   merriamWebsterCollegiate: 'kren.merriamWebster.collegiateApiKey',
+  merriamWebsterMedical: 'kren.merriamWebster.medicalApiKey',
   merriamWebsterThesaurus: 'kren.merriamWebster.thesaurusApiKey'
 } as const;
+
+export const MERRIAM_WEBSTER_SECRET_KEYS = [
+  KREN_SECRET_KEYS.merriamWebsterCollegiate,
+  KREN_SECRET_KEYS.merriamWebsterMedical,
+  KREN_SECRET_KEYS.merriamWebsterThesaurus
+] as const;
+
+export type MerriamWebsterSecretKey = typeof MERRIAM_WEBSTER_SECRET_KEYS[number];
+
+export const MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE =
+  'Merriam-Webster issues two API keys per account. Remove one before adding another.';
+
+export interface MerriamWebsterSecretStorage {
+  get(key: MerriamWebsterSecretKey): PromiseLike<string | undefined>;
+  store(key: MerriamWebsterSecretKey, value: string): PromiseLike<void>;
+}
+
+let merriamWebsterStoreQueue = Promise.resolve();
+
+export function isMerriamWebsterSecretKey(key: string): key is MerriamWebsterSecretKey {
+  return MERRIAM_WEBSTER_SECRET_KEYS.includes(key as MerriamWebsterSecretKey);
+}
+
+export async function canStoreMerriamWebsterKey(
+  storage: Pick<MerriamWebsterSecretStorage, 'get'>,
+  key: MerriamWebsterSecretKey
+): Promise<boolean> {
+  const stored = await Promise.all(
+    MERRIAM_WEBSTER_SECRET_KEYS.map((candidate) => storage.get(candidate))
+  );
+  const targetIndex = MERRIAM_WEBSTER_SECRET_KEYS.indexOf(key);
+  return Boolean(stored[targetIndex]) || stored.filter(Boolean).length < 2;
+}
+
+export function storeMerriamWebsterKey(
+  storage: MerriamWebsterSecretStorage,
+  key: MerriamWebsterSecretKey,
+  value: string
+): Promise<boolean> {
+  const attempt = merriamWebsterStoreQueue.then(async () => {
+    if (!await canStoreMerriamWebsterKey(storage, key)) return false;
+    await storage.store(key, value);
+    return true;
+  });
+  merriamWebsterStoreQueue = attempt.then(() => undefined, () => undefined);
+  return attempt;
+}
 
 export type KrenSecretKey = typeof KREN_SECRET_KEYS[keyof typeof KREN_SECRET_KEYS];
 export type KrenOperation =
@@ -54,12 +104,56 @@ export type KrenOperation =
   | 'explain'
   | 'englishDictionary'
   | 'koreanDictionary'
+  | 'medical'
   | 'synonyms'
   | 'grammar'
   | 'rewrite'
   | 'rewriteNatural'
   | 'rewriteConcise'
   | 'rewriteJargonFree';
+
+type MerriamWebsterOperation = Extract<
+  KrenOperation,
+  'englishDictionary' | 'medical' | 'synonyms'
+>;
+
+const MERRIAM_WEBSTER_OPERATIONS: Record<MerriamWebsterOperation, {
+  reference: MerriamWebsterReference;
+  secretKey: MerriamWebsterSecretKey;
+  label: string;
+  missingKeyMessage: string;
+  missingKeyAction: 'setMerriamWebsterCollegiateKey' |
+    'setMerriamWebsterMedicalKey' |
+    'setMerriamWebsterThesaurusKey';
+  noEntryMessage: (text: string) => string;
+}> = {
+  englishDictionary: {
+    reference: 'collegiate',
+    secretKey: KREN_SECRET_KEYS.merriamWebsterCollegiate,
+    label: 'English Dictionary Search',
+    missingKeyMessage: 'Set your Merriam-Webster Collegiate API key before searching.',
+    missingKeyAction: 'setMerriamWebsterCollegiateKey',
+    noEntryMessage: (text) => `Merriam-Webster Collegiate returned no entry for “${text}”.`
+  },
+  medical: {
+    reference: 'medical',
+    secretKey: KREN_SECRET_KEYS.merriamWebsterMedical,
+    label: 'Medical Dictionary Search',
+    missingKeyMessage: 'Set your Merriam-Webster Medical API key before searching.',
+    missingKeyAction: 'setMerriamWebsterMedicalKey',
+    noEntryMessage: (text) =>
+      `Merriam-Webster Medical Dictionary returned no entry for “${text}”.`
+  },
+  synonyms: {
+    reference: 'thesaurus',
+    secretKey: KREN_SECRET_KEYS.merriamWebsterThesaurus,
+    label: 'Synonyms Search',
+    missingKeyMessage: 'Set your Merriam-Webster Collegiate Thesaurus API key before searching.',
+    missingKeyAction: 'setMerriamWebsterThesaurusKey',
+    noEntryMessage: (text) =>
+      `Merriam-Webster Collegiate Thesaurus returned no entry for “${text}”.`
+  }
+};
 
 export type GeminiProfile = 'standard' | 'pro';
 
@@ -112,11 +206,8 @@ export async function runKrenOperation(
     analysis = applyLanguages(runtime, operation, input, analysis);
   }
 
-  if (operation === 'englishDictionary') {
-    return lookupEnglishDictionary(runtime, analysis, signal);
-  }
-  if (operation === 'synonyms') {
-    return lookupMerriamWebsterThesaurus(runtime, analysis, signal);
+  if (isMerriamWebsterOperation(operation)) {
+    return lookupMerriamWebster(runtime, operation, analysis, signal);
   }
   if (operation === 'koreanDictionary') {
     return lookupKoreanDictionary(runtime, analysis, signal);
@@ -141,10 +232,10 @@ export async function runKrenOperation(
 }
 
 function validateDictionaryInput(operation: KrenOperation, analysis: SelectionAnalysis): void {
-  if ((operation === 'englishDictionary' || operation === 'synonyms') &&
-      !isEnglishDictionaryQuery(analysis.text)) {
-    const label = operation === 'synonyms' ? 'Synonyms Search' : 'English Dictionary Search';
-    throw new Error(`${label} requires an English word or short expression.`);
+  if (isMerriamWebsterOperation(operation) && !isEnglishDictionaryQuery(analysis.text)) {
+    throw new Error(
+      `${MERRIAM_WEBSTER_OPERATIONS[operation].label} requires an English word or short expression.`
+    );
   }
   if (operation === 'koreanDictionary' &&
       (analysis.kind !== 'dictionary' || analysis.sourceLanguage !== 'ko')) {
@@ -295,30 +386,6 @@ function normalizeModelId(model: string): string {
   return model.replace(/^models\//u, '');
 }
 
-async function lookupMerriamWebsterThesaurus(
-  runtime: KrenRuntime,
-  analysis: SelectionAnalysis,
-  signal: AbortSignal
-): Promise<KrenResult> {
-  const apiKey = await runtime.getSecret(KREN_SECRET_KEYS.merriamWebsterThesaurus);
-  if (!apiKey) {
-    throw new ProviderError(
-      'Set your Merriam-Webster Collegiate Thesaurus API key before searching.',
-      'setMerriamWebsterThesaurusKey'
-    );
-  }
-  const result = await new MerriamWebsterThesaurusProvider(apiKey).lookup(
-    dictionaryRequest(analysis),
-    signal
-  );
-  if (!result) {
-    throw new ProviderError(
-      `Merriam-Webster Collegiate Thesaurus returned no entry for “${analysis.text}”.`
-    );
-  }
-  return result;
-}
-
 export function isEnglishDictionaryQuery(text: string): boolean {
   return coreIsEnglishDictionaryQuery(text);
 }
@@ -353,32 +420,36 @@ function applyLanguages(
   };
 }
 
-async function lookupEnglishDictionary(
+function isMerriamWebsterOperation(operation: KrenOperation): operation is MerriamWebsterOperation {
+  return operation === 'englishDictionary' || operation === 'medical' || operation === 'synonyms';
+}
+
+async function lookupMerriamWebster(
   runtime: KrenRuntime,
+  operation: MerriamWebsterOperation,
   analysis: SelectionAnalysis,
   signal: AbortSignal
 ): Promise<KrenResult> {
-  const apiKey = await runtime.getSecret(KREN_SECRET_KEYS.merriamWebsterCollegiate);
+  const reference = MERRIAM_WEBSTER_OPERATIONS[operation];
+  const apiKey = await runtime.getSecret(reference.secretKey);
   if (!apiKey) {
-    throw new ProviderError(
-      'Set your Merriam-Webster Collegiate API key before searching.',
-      'setMerriamWebsterCollegiateKey'
-    );
+    throw new ProviderError(reference.missingKeyMessage, reference.missingKeyAction);
   }
-  const result = await new MerriamWebsterProvider(apiKey).lookup(
+  const result = await new MerriamWebsterProvider(apiKey, reference.reference).lookup(
     dictionaryRequest(analysis),
     signal
   );
   if (result) return result;
+  if (operation !== 'englishDictionary') {
+    throw new ProviderError(reference.noEntryMessage(analysis.text));
+  }
   if (!runtime.getSetting<boolean>('dictionary.multiWordTranslationFallback', true)) {
     throw new ProviderError(
-      `Merriam-Webster Collegiate returned no entry for “${analysis.text}”. The multi-word translation fallback is disabled in KREN Settings.`
+      `${reference.noEntryMessage(analysis.text)} The multi-word translation fallback is disabled in KREN Settings.`
     );
   }
   if (!isMultiWordEnglishQuery(analysis.text)) {
-    throw new ProviderError(
-      `Merriam-Webster Collegiate returned no entry for “${analysis.text}”.`
-    );
+    throw new ProviderError(reference.noEntryMessage(analysis.text));
   }
 
   const configuredTarget = runtime.getSetting<string>(

@@ -2,7 +2,7 @@
 
 KREN is a selection-first language workbench for VS Code. It operates only on text you explicitly select, copy, or submit to a confirmed VS Code language-model tool. Passive hovering, ordinary typing, and opening a file do not call remote providers.
 
-This guide applies to KREN 1.x public releases.
+This guide applies to KREN 1.1.0. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
 
 ## Requirements
 
@@ -22,6 +22,7 @@ Core text operations work on supported Windows, macOS, and Linux VS Code Desktop
 | Grammar Check | Nothing; Harper is bundled | None |
 | English Dictionary | Merriam-Webster Collegiate API key | Exact submitted lookup text goes to Merriam-Webster |
 | Synonyms | Separate Merriam-Webster Collegiate Thesaurus API key | Exact submitted lookup text goes to Merriam-Webster |
+| Medical Dictionary | Separate Merriam-Webster Medical Dictionary API key | Exact submitted English medical term goes to Merriam-Webster |
 | Korean Dictionary | Korean Basic Dictionary Open API key | Exact Korean headword goes to the dictionary API |
 | Translation | Google Cloud Translation Basic v2 key by default, or a Gemini API key if Gemini is selected | Exact submitted text goes only to the selected provider |
 | Explain Meaning or Nuance | A Gemini, OpenAI API, or Anthropic API key for the selected provider | Exact submitted text and selected settings go to that provider |
@@ -30,7 +31,7 @@ Core text operations work on supported Windows, macOS, and Linux VS Code Desktop
 | Local Windows Read Aloud | A local Windows extension host, PowerShell, Windows System.Speech, and an installed speech voice | None |
 | Edge Online Read Aloud | A local Windows extension host, working Python, `edge-tts`, network access, and first-use consent | Sends only KREN's cleaned speech copy to Microsoft's Edge speech service |
 
-Every user must obtain and enter their own API keys; KREN includes no shared credentials. Merriam-Webster Collegiate Dictionary and Collegiate Thesaurus use separate keys from the user's own developer account. Standard free Merriam-Webster API use is limited to noncommercial applications, two reference works, and 1,000 queries per day per reference. ChatGPT, Claude, Gemini app, Google One, or similar consumer subscriptions do not automatically include developer API access or credits.
+KREN includes no shared credentials. It offers separately issued Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary keys, while Merriam-Webster issues no more than two API keys per account. KREN refuses a third key before writing it to Secret Storage. Remove one stored key before adding the key for a different reference work. Use only keys and references authorized for your account under the provider's current terms. KREN does not bypass the two-reference-work or 1000-query-per-day limits, and every lookup follows an explicit user action. ChatGPT, Claude, Gemini app, Google One, or similar consumer subscriptions do not automatically include developer API access or credits.
 
 ### Windows, remote, WSL, SSH, and containers
 
@@ -92,9 +93,10 @@ The hamburger menu is available on the Start Page, results, User Manual, and Set
 
 ## Dictionaries
 
-The Dictionary Search submenu is ordered English Dictionary, Synonyms, and Korean Dictionary.
+The Dictionary Search submenu is ordered English Dictionary, Synonyms, Medical Dictionary, and Korean Dictionary.
 
 - **English Dictionary** preserves Merriam-Webster homographs, parts of speech, inflections, numbered senses, examples, run-on forms, pronunciation, and editorial synonym discussions when supplied.
+- **Medical Dictionary** preserves Merriam-Webster Medical Dictionary entries, parts of speech, numbered senses, examples, inflections, and pronunciation when supplied. It defines terminology and does not provide diagnosis or medical advice.
 - **Synonyms** uses the separate Thesaurus API and groups synonyms, near synonyms, related words, phrases, antonyms, and near antonyms by sense.
 - **Korean Dictionary** accepts one Korean headword and returns Korean Basic Dictionary content with English explanations.
 
@@ -102,7 +104,7 @@ Korean Dictionary results identify the Basic Korean Dictionary and the National 
 
 English Dictionary accepts short expressions such as `take on`, `settle on`, and `get rid of`. KREN queries Merriam-Webster first. KREN sends that exact expression to Google Cloud Translation only when no entry is returned for a multi-word expression and the fallback is enabled. Authentication, network, and other errors do not trigger translation fallback.
 
-Dictionary, thesaurus, and Korean dictionary results are lookup-only; they do not offer Replace Selection.
+Dictionary, thesaurus, medical dictionary, and Korean dictionary results are lookup-only; they do not offer Replace Selection.
 
 ## Grammar Check
 
@@ -197,7 +199,7 @@ Settings are global to the current VS Code profile. API keys remain in Secret St
 
 ## Native VS Code language-model tools
 
-KREN registers five tools for compatible VS Code chat agents: English Dictionary, Korean Dictionary, Synonyms, Translate, and Explain. VS Code presents the tool invocation for confirmation. The tool receives only its explicit `text` argument and optional language setting; KREN does not attach editor, file, workspace, or chat context.
+KREN registers six tools for compatible VS Code chat agents: English Dictionary, Medical Dictionary, Korean Dictionary, Synonyms, Translate, and Explain. VS Code presents the tool invocation for confirmation. The tool receives only its explicit `text` argument and optional language setting; KREN does not attach editor, file, workspace, or chat context.
 
 KREN does not bundle an MCP server. Copying text and using the KREN status item is the consistent workflow for Claude Code and Codex extension panels.
 
@@ -207,7 +209,7 @@ KREN does not bundle an MCP server. Copying text and using the KREN status item 
 - KREN does not attach surrounding text, filenames, paths, workspace contents, open tabs, source-control data, previous results, or chat history.
 - KREN collects no telemetry and maintains no translation or rewrite history.
 - The latest submitted input and result remain in memory until replaced, cleared, or the extension host stops. Open Full Details also writes a copy to the KREN Output channel, which VS Code may preserve in session logs.
-- API keys are stored in VS Code Secret Storage. KREN Settings shows only whether each key is stored, never the key value. Remove an existing key before setting its replacement.
+- API keys are stored in VS Code Secret Storage. KREN Settings shows only whether each key is stored, never the key value. Merriam-Webster issues no more than two API keys per account, so KREN refuses a third Merriam-Webster key before storing it. Remove one key to enable a different reference work immediately.
 - Custom grammar words, ignored Harper hashes, consent flags, and the Cloud Translation usage ledger are stored in VS Code global storage.
 - The default submitted-text limit is 5,000 characters and is configurable from 1 to 20,000 with `kren.translation.maxCharacters`; despite its historical name, this shared limit applies to KREN operations generally.
 - The default provider/local-operation timeout is 45 seconds and is configurable from 1 to 120 seconds with `kren.request.timeoutMs`.
@@ -229,7 +231,6 @@ See [Privacy and Cost](PRIVACY_AND_COST.md) for the complete boundary.
 - **Read Aloud is unavailable:** confirm this is a local Windows extension host, install an OS speech voice, and use Preview.
 - **Edge voice fails:** verify the configured Python command, run `python -m pip install edge-tts` in that interpreter, confirm the voice ID and network, then use Preview.
 - **Pronunciation opens KREN:** native playback was disabled/unavailable or failed, so KREN safely used the panel fallback.
-- **Intel graphics blue screen after shutdown/startup:** KREN installs no kernel driver. Update the exact computer model's OEM graphics driver and firmware. If the failure occurs only after Windows shutdown and power-on, disable Windows **Turn on fast startup** and test a full shutdown. This is a targeted driver-resume workaround, not a normal KREN requirement or the similarly named BIOS Fast Boot option.
 
 See [Troubleshooting](TROUBLESHOOTING.md) for additional details. Never paste an API key into a document, issue, log, screenshot, or support request.
 
@@ -239,7 +240,7 @@ See [Troubleshooting](TROUBLESHOOTING.md) for additional details. Never paste an
 2. Clear custom grammar words and ignored findings from KREN Settings if desired.
 3. Clear the rich result to remove KREN's current in-memory input/result.
 4. Uninstall KREN.
-5. To remove remaining consent flags and the Cloud Translation usage ledger, delete KREN's VS Code global storage for `masstransferase.kren-translate` after uninstalling.
+5. To remove remaining consent flags and the Cloud Translation usage ledger, delete KREN's VS Code global storage for `local.kren-translate` after uninstalling.
 
 Deleting or resetting the local Cloud Translation ledger does not change provider billing records and must not be used to bypass the configured safety ceiling.
 
@@ -247,7 +248,7 @@ Deleting or resetting the local Cloud Translation ledger does not change provide
 
 - Grammar Check is English-focused and rule-based.
 - Rewrite Text relies on provider language detection when Source language is Auto; short or mixed-language text may require a manual source-language selection.
-- Korean Dictionary accepts one Korean headword; other dictionary products are English-specific.
+- Korean Dictionary accepts one Korean headword; other dictionary products are English-specific. Medical Dictionary defines terminology and is not clinical guidance.
 - Read Aloud is currently limited to a local Windows extension host.
 - Edge Online speech relies on an unofficial service interface that may change independently of KREN.
 - API model IDs, access, quotas, pricing, permitted use, and retention policies can change; provider documentation is authoritative.

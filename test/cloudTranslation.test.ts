@@ -5,7 +5,10 @@ import {
   googleBillingMonth,
   type UsageStateStore
 } from '../src/cloudTranslationUsage.js';
-import { buildGoogleCloudTranslationRequestBody } from '../src/providers/googleCloudTranslation.js';
+import {
+  buildGoogleCloudTranslationRequestBody,
+  decodeGoogleTranslationHtmlEntities
+} from '../src/providers/googleCloudTranslation.js';
 import type { TranslationRequest } from '../src/types.js';
 
 class MemoryStore implements UsageStateStore {
@@ -75,5 +78,11 @@ describe('Google Cloud Translation safety boundary', () => {
   it('uses Pacific Time for the monthly reset boundary', () => {
     expect(googleBillingMonth(new Date('2026-08-01T06:59:59Z'))).toBe('2026-07');
     expect(googleBillingMonth(new Date('2026-08-01T07:00:00Z'))).toBe('2026-08');
+  });
+
+  it('decodes valid entities and preserves invalid Unicode numeric entities literally', () => {
+    expect(decodeGoogleTranslationHtmlEntities('a &amp; b &#65; &#x1F642;')).toBe('a & b A 🙂');
+    expect(decodeGoogleTranslationHtmlEntities('x &#999999999; &#xD800; y'))
+      .toBe('x &#999999999; &#xD800; y');
   });
 });

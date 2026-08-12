@@ -10,6 +10,7 @@ const base = {
 };
 
 const settings: KrenPanelSettings = {
+  openResultsAtStartup: false,
   translationProvider: 'googleCloudTranslation',
   translationTargetLanguage: 'ko',
   grammarDialect: 'american',
@@ -57,7 +58,7 @@ const settings: KrenPanelSettings = {
   edgeReadAloudVoice: 'en-US-ChristopherNeural',
   edgeReadAloudRatePercent: 0,
   edgeReadAloudPythonCommand: 'python',
-  extensionVersion: '0.14.1'
+  extensionVersion: '1.0.0'
 };
 
 const brandImageUri = 'vscode-webview://test/media/kren-panel-logo.png';
@@ -98,6 +99,49 @@ describe('KREN rich result view', () => {
     expect(storedHtml).toContain('data-action="kren.setGeminiApiKey" disabled>Set key</button>');
     expect(storedHtml).toContain('data-action="kren.deleteGeminiApiKey">Remove key</button>');
     expect(storedHtml).toContain('data-action="kren.deleteAllApiKeys">');
+
+    const medicalHtml = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: {
+        ...settings,
+        credentialPresence: { merriamWebsterMedical: true }
+      },
+      activeScreen: 'settings',
+      proModels
+    });
+    expect(medicalHtml).toContain('Merriam-Webster Medical <span class="credential-status">Stored</span>');
+    expect(medicalHtml).toContain('data-action="kren.setMerriamWebsterMedicalApiKey" disabled>Set key</button>');
+    expect(medicalHtml).toContain('data-action="kren.deleteMerriamWebsterMedicalApiKey">Remove key</button>');
+
+    const limitHtml = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: {
+        ...settings,
+        credentialPresence: {
+          merriamWebsterCollegiate: true,
+          merriamWebsterThesaurus: true
+        }
+      },
+      activeScreen: 'settings',
+      proModels
+    });
+    expect(limitHtml).toContain('Merriam-Webster Medical <span class="credential-status">Not set</span>');
+    expect(limitHtml).toContain('Merriam-Webster issues two API keys per account. Remove one before adding another.');
+    expect(limitHtml).toContain('data-action="kren.setMerriamWebsterMedicalApiKey" disabled>Set key</button>');
+
+    const startHtml = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      activeScreen: 'start',
+      proModels
+    });
+    expect(startHtml).toContain('<span class="capability unavailable">English Dictionary');
+    expect(startHtml).toContain('<span class="capability unavailable">Synonyms');
+    expect(startHtml).toContain('<span class="capability unavailable">Medical Dictionary');
+    expect(startHtml).toContain('Unavailable because no API key is configured.');
   });
 
   it('shows and escapes the complete input with a translation result', () => {
@@ -168,6 +212,23 @@ describe('KREN rich result view', () => {
     expect(html).not.toContain('data-command="replace"');
     expect(html).not.toContain('Replace selection');
     expect(html).toContain('media-src https://media.merriam-webster.com');
+    for (const providerId of [
+      'merriamWebsterCollegiate',
+      'merriamWebsterMedical',
+      'merriamWebsterThesaurus'
+    ]) {
+      const referenceHtml = renderKrenResultViewHtml({
+        cspSource: 'vscode-webview://test',
+        nonce: 'test-nonce',
+        result: { ...result, providerId },
+        sourceText: result.sourceText,
+        allowReplace: false,
+        settings,
+        proModels
+      });
+      expect(referenceHtml).toContain('<img class="provider-logo"');
+      expect(referenceHtml).toContain('.provider-logo { width: 50px; height: 50px;');
+    }
   });
 
   it('renders per-variant copy and editor-only replace actions', () => {
@@ -209,6 +270,7 @@ describe('KREN rich result view', () => {
     expect(html).toContain('data-variant-tab="jargonFree"');
     expect(html).toContain('data-command="clear"');
     expect(html).toContain('KREN Settings');
+    expect(html).toContain('data-setting="results.openAtStartup"');
     expect(html).toContain('data-setting="gemini.retry.enabled"');
     expect(html).toContain('data-setting="gemini.alternateFallbackModel"');
     expect(html).toContain('data-setting="gemini.alternateFallbackThinkingLevel"');
@@ -260,13 +322,13 @@ describe('KREN rich result view', () => {
     expect(html).toContain("target.closest('.menu-wrap')");
     expect(html).not.toContain('&#9432;');
     expect(html).toContain('KREN User Manual');
-    expect(html).toContain('Designed by Masstransferase &amp; developed using CODEX · Version 0.14.1');
+    expect(html).toContain('Designed by Masstransferase &amp; developed using CODEX · Version 1.0.0');
     expect(html).toContain('<h3>Requirements</h3>');
     expect(html).toContain('VS Code Desktop 1.106 or later');
     expect(html).toContain('Delete all stored API keys');
     expect(html).toContain('data-action="kren.deleteGeminiApiKey"');
     expect(html).toContain('no API key, account, Python, Node.js, GPU, or network connection is required');
-    expect(html).toContain('obtain and enter your own Merriam-Webster Collegiate Dictionary and Collegiate Thesaurus API keys');
+    expect(html).toContain('Merriam-Webster issues two API keys per account, so KREN refuses a third');
     expect(html).toContain('Windows-native speech is unavailable in WSL');
     expect(html).toContain('API users to be at least 18');
     expect(html).toContain('professional or business purposes');
@@ -356,9 +418,9 @@ describe('KREN rich result view', () => {
     expect(html).toContain('English Dictionary');
     expect(html).toContain('Read Aloud');
     expect(html.indexOf('English Dictionary')).toBeLessThan(html.indexOf('Synonyms'));
-    expect(html.indexOf('Synonyms')).toBeLessThan(html.indexOf('Korean Dictionary'));
-    expect(html).not.toContain('Medical Dictionary');
-    expect(html).toContain('Designed by Masstransferase &amp; developed using CODEX · Version 0.14.1');
+    expect(html.indexOf('Synonyms')).toBeLessThan(html.indexOf('Medical Dictionary'));
+    expect(html.indexOf('Medical Dictionary')).toBeLessThan(html.indexOf('Korean Dictionary'));
+    expect(html).toContain('Designed by Masstransferase &amp; developed using CODEX · Version 1.0.0');
   });
 
   it('renders Start Page as the introduction without discarding a stored result', () => {

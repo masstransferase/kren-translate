@@ -19,6 +19,7 @@ export class GoogleCloudTranslationProvider implements TranslationProvider {
     request: TranslationRequest,
     signal: AbortSignal
   ): Promise<TranslationResult> {
+    signal.throwIfAborted();
     // Reserve before the request. A failed/ambiguous request remains counted so
     // the local safety limit can never undercount what Google may have processed.
     await this.reserveUsage(countCloudTranslationCharacters(request.text));
@@ -62,7 +63,7 @@ export class GoogleCloudTranslationProvider implements TranslationProvider {
         ? detectedSourceLanguage
         : request.sourceLanguage,
       targetLanguage: request.targetLanguage,
-      translatedText: decodeHtmlEntities(translated.trim()),
+      translatedText: decodeGoogleTranslationHtmlEntities(translated.trim()),
       createdAt: new Date().toISOString()
     };
   }
@@ -89,10 +90,12 @@ export function buildGoogleCloudTranslationRequestBody(request: TranslationReque
   return body;
 }
 
-function decodeHtmlEntities(value: string): string {
+export function decodeGoogleTranslationHtmlEntities(value: string): string {
   return value.replace(/&(?:#(\d+)|#x([\da-f]+)|amp|lt|gt|quot|#39);/giu, (match, decimal, hex) => {
-    if (decimal) return String.fromCodePoint(Number.parseInt(decimal, 10));
-    if (hex) return String.fromCodePoint(Number.parseInt(hex, 16));
+    if (decimal || hex) {
+      const codePoint = Number.parseInt(decimal ?? hex, decimal ? 10 : 16);
+      return isValidUnicodeScalar(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
     const named: Record<string, string> = {
       '&amp;': '&',
       '&lt;': '<',
@@ -102,4 +105,9 @@ function decodeHtmlEntities(value: string): string {
     };
     return named[match.toLowerCase()] ?? match;
   });
+}
+
+function isValidUnicodeScalar(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0 && value <= 0x10FFFF &&
+    (value < 0xD800 || value > 0xDFFF);
 }

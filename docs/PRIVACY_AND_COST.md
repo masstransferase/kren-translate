@@ -12,7 +12,7 @@ KREN does not add surrounding file text, filenames, workspace contents, editor h
 
 ## Provider destination
 
-Dictionary operations go only to their named dictionary API. Translation goes only to the configured Google Cloud Translation or Gemini provider. Explanation and rewriting go only to the explicitly configured Gemini, OpenAI, or Anthropic provider. KREN never silently falls back across companies.
+Dictionary operations go only to their named dictionary API. Medical Dictionary sends only the submitted English term to Merriam-Webster's Medical Dictionary endpoint and never invokes translation fallback. Translation goes only to the configured Google Cloud Translation or Gemini provider. Explanation and rewriting go only to the explicitly configured Gemini, OpenAI, or Anthropic provider. KREN never silently falls back across companies.
 
 For Explain Meaning or Nuance and Rewrite Text, the alternate Gemini profile may use its explicitly configured same-provider fallback model after an unavailable model response, bounded temporary-failure retries, or unusable structured output. The fallback has an independent thinking-level setting, and the result identifies fallback use. OpenAI and Anthropic retries remain on the same model and provider.
 

@@ -16,9 +16,9 @@ Grammar Check runs through the Harper engine bundled inside KREN. The selected o
 
 ## Merriam-Webster
 
-English Dictionary and Synonyms searches send the exact submitted English word or short expression to the respective Merriam-Webster Collegiate Dictionary or Collegiate Thesaurus API.
+English Dictionary, Synonyms, and Medical Dictionary searches send the exact submitted English word or short expression to the respective Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, or Medical Dictionary API. Medical Dictionary provides terminology definitions only and never invokes Cloud Translation fallback.
 
-Every user must obtain and enter their own Merriam-Webster keys. KREN includes no developer-owned or shared keys and does not copy credentials into GitHub, the VSIX, documentation, logs, telemetry, settings, or project files. Keys remain in the user's local VS Code Secret Storage. Requests go directly from that KREN installation to Merriam-Webster; KREN operates no credential relay or proxy.
+This private local build accepts only user-owned Merriam-Webster keys issued for the selected references. KREN includes no developer-owned or shared keys and does not copy credentials into GitHub, the VSIX, documentation, logs, telemetry, settings, or project files. Keys remain in the user's local VS Code Secret Storage. Requests go directly from that KREN installation to Merriam-Webster; KREN operates no credential relay or proxy and does not bypass provider account or reference limits.
 
 If an API response contains only spelling/stem suggestions, KREN may make one follow-up request using the first API-provided suggestion. If Collegiate Dictionary returns no entry for a multi-word expression, KREN may send that same expression to Google Cloud Translation. Single-word misses and provider errors do not trigger this fallback.
 
@@ -78,7 +78,7 @@ KREN never silently falls back between Gemini, OpenAI, and Anthropic. OpenAI and
 
 ## Native VS Code agent tools
 
-KREN contributes five Language Model Tools. Before invocation, VS Code confirmation identifies the provider and displays the exact text KREN will submit. Tool results contain the provider result and no additional workspace data.
+KREN contributes six Language Model Tools, including Medical Dictionary. Before invocation, VS Code confirmation identifies the provider and displays the exact text KREN will submit. Tool results contain the provider result and no additional workspace data.
 
 KREN does not bundle an MCP server and does not export provider credentials to Claude Code or Codex.
 

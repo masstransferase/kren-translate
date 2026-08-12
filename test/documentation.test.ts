@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const guide = readFileSync('docs/USER_GUIDE.md', 'utf8');
+const manifestVersion = JSON.parse(readFileSync('package.json', 'utf8')).version as string;
 const skippedDirectories = new Set(['.git', '.vscode-test', 'coverage', 'dist', 'node_modules']);
 
 function filesWithExtension(directory: string, extension: string): string[] {
@@ -33,6 +34,16 @@ const publicSurfaceFiles = [
 ];
 
 describe('KREN User Guide', () => {
+  // The guide ships inside the VSIX, so a stale version on it is delivered to every
+  // user. This shipped with "KREN 1.0.4" on the 1.1.0 release and reached a public
+  // pull request before an automated reviewer caught it. A hand-maintained version
+  // string in a shipped document rots on every release unless something asserts it.
+  it('states the version in package.json', () => {
+    const stated = /This guide applies to KREN ([0-9]+\.[0-9]+\.[0-9]+)\./.exec(guide);
+    expect(stated, 'The guide must state which version it applies to.').not.toBeNull();
+    expect(stated?.[1]).toBe(manifestVersion);
+  });
+
   it('retains every essential manual section', () => {
     for (const heading of [
       'Requirements',
@@ -62,6 +73,7 @@ describe('KREN User Guide', () => {
       'No Node.js, npm, Python, GPU, or API key is required',
       'Merriam-Webster Collegiate API key',
       'Merriam-Webster Collegiate Thesaurus API key',
+      'Merriam-Webster Medical Dictionary API key',
       'Korean Basic Dictionary Open API key',
       'Google Cloud Translation Basic v2',
       'Gemini, OpenAI API, or Anthropic API key',
@@ -74,7 +86,7 @@ describe('KREN User Guide', () => {
     ]) {
       expect(guide).toContain(requirement);
     }
-    expect(guide).toContain('Every user must obtain and enter their own API keys');
+    expect(guide).toContain('KREN includes no shared credentials');
     expect(guide).toContain('KREN includes no shared credentials');
     expect(guide).toContain('KREN makes no service-tier claim');
     expect(guide).toContain('Gemini API users to be at least 18');
@@ -82,7 +94,7 @@ describe('KREN User Guide', () => {
     expect(guide).toContain('Delete all stored API keys');
     expect(guide).toContain('https://ai.google.dev/gemini-api/docs/available-regions');
     expect(guide).not.toMatch(/Free API|Paid Gemini/iu);
-    expect(guide).not.toContain('Medical Dictionary');
+    expect(guide).toContain('Medical Dictionary');
   });
 
   it('omits private preview history from the public changelog', () => {
@@ -96,14 +108,15 @@ describe('KREN User Guide', () => {
     expect(guide).not.toContain('??');
   });
 
-  it('keeps retired Medical Dictionary and Gemini tier labels out of public surfaces', () => {
+  it('keeps the local Medical Dictionary documented without Gemini tier labels', () => {
     for (const file of publicSurfaceFiles) {
       const content = readFileSync(file, 'utf8');
-      expect(content, file).not.toContain('Medical Dictionary');
       expect(content, file).not.toMatch(
         /Free API|(?:free[- ]?tier|paid|unpaid)\s+Gemini|Gemini\s+(?:free[- ]?tier|paid|unpaid)|paid profile/iu
       );
     }
+    expect(readFileSync('README.md', 'utf8')).toContain('Medical Dictionary');
+    expect(readFileSync('PRIVACY.md', 'utf8')).toContain('Medical Dictionary');
   });
 
   it('keeps public documentation on KREN branding without em or en dashes', () => {

@@ -8,6 +8,7 @@ export class ProviderError extends Error {
       | 'setAnthropicKey'
       | 'setGoogleCloudTranslationKey'
       | 'setMerriamWebsterCollegiateKey'
+      | 'setMerriamWebsterMedicalKey'
       | 'setMerriamWebsterThesaurusKey'
       | 'setDictionaryKey'
       | 'configureGeminiModel'
