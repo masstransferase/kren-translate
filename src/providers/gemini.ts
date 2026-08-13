@@ -23,6 +23,19 @@ import {
   REWRITE_VARIANT_IDS,
   REWRITE_VARIANT_LIST
 } from '../rewriteVariants.js';
+import {
+  REWRITE_DOMAINS,
+  REWRITE_ENGLISH_VARIETIES,
+  REWRITE_FORMALITIES,
+  REWRITE_FUNCTIONS,
+  REWRITE_LENGTHS,
+  REWRITE_MODALITIES,
+  REWRITE_PERSPECTIVES,
+  REWRITE_RHETORICAL_MODES,
+  REWRITE_STANCES,
+  REWRITE_VOICES,
+  rewriteAxisInstruction
+} from '../rewriteAxes.js';
 
 interface GeminiPayload {
   candidates?: Array<{
@@ -287,20 +300,35 @@ export function rewriteSystemInstruction(request: RewriteRequest): string {
   const preservation = [
     'Rewrite only the exact text supplied by the user.',
     languageInstruction,
-    'Preserve intentional mixed-language terms, names, quotations, code, and necessary domain terminology.',
     'Preserve its factual meaning, claims, qualifications, numbers, citations, and necessary domain terminology.',
+    'Preserve intentional mixed-language terms, names, quotations, code, and necessary domain terminology.',
     'Correct grammar and awkward phrasing, but do not add facts, evidence, promises, certainty, examples, or document context.',
     'Never intensify a claim beyond the evidence or qualifications present in the supplied text.',
     'Return JSON only. Every variant must be complete and usable on its own.'
   ];
-  preservation.push(rewriteDomainInstruction(request.domain));
-  preservation.push(`Only when detectedLanguage is English, ${rewriteEnglishVarietyInstruction(request.englishVariety).replace(/^Use/u, 'use')}`);
-  preservation.push('When detectedLanguage is not English, ignore the English-variety setting and use natural conventions for the detected language.');
-  preservation.push(rewriteToneInstruction(request.tone));
-  preservation.push(rewriteRhetoricalModeInstruction(request.rhetoricalMode ?? 'preserveOriginal'));
-  if (request.preserveFormatting !== false) {
+  if (request.preserveFormatting !== false && request.modality === REWRITE_MODALITIES[0].id) {
     preservation.push('Preserve Markdown, LaTeX commands, citations, links, placeholders, code identifiers, filenames, inline code, and fenced code blocks exactly unless grammar inside ordinary prose requires a change.');
   }
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_FUNCTIONS, request.function));
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_DOMAINS, request.domain));
+  const englishVarietyInstruction = rewriteAxisInstruction(
+    REWRITE_ENGLISH_VARIETIES,
+    request.englishVariety
+  );
+  if (englishVarietyInstruction) {
+    preservation.push(`Only when detectedLanguage is English, ${englishVarietyInstruction.replace(/^Use/u, 'use')}`);
+  }
+  preservation.push('When detectedLanguage is not English, ignore the English-variety setting and use natural conventions for the detected language.');
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_FORMALITIES, request.formality));
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_VOICES, request.voice));
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_STANCES, request.stance));
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_PERSPECTIVES, request.perspective));
+  pushInstruction(
+    preservation,
+    rewriteAxisInstruction(REWRITE_RHETORICAL_MODES, request.rhetoricalMode)
+  );
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_MODALITIES, request.modality));
+  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_LENGTHS, request.length));
   const jargonFree = [
     'Write clear, natural, human-like prose in the detected language.',
     'Remove buzzwords, cliches, corporate jargon, and unnecessary specialist jargon.',
@@ -453,6 +481,18 @@ export function normalizeGeminiRewriteResult(
       'structuredOutput'
     );
   }
+  for (const variant of variants as RewriteVariant[]) {
+    const violation = rewriteOutputViolation(variant.text, request, sourceLanguage);
+    if (violation) {
+      throw new ProviderError(
+        `${providerName} returned a rewrite that did not satisfy the requested ${violation}. Try again.`,
+        undefined,
+        true,
+        undefined,
+        'structuredOutput'
+      );
+    }
+  }
   return {
     kind: 'rewrite',
     providerId,
@@ -461,11 +501,71 @@ export function normalizeGeminiRewriteResult(
     targetLanguage: sourceLanguage,
     createdAt,
     englishVariety: request.englishVariety,
+    modality: request.modality,
+    function: request.function,
     domain: request.domain,
-    tone: request.tone,
-    rhetoricalMode: request.rhetoricalMode ?? 'preserveOriginal',
+    formality: request.formality,
+    voice: request.voice,
+    stance: request.stance,
+    length: request.length,
+    perspective: request.perspective,
+    rhetoricalMode: request.rhetoricalMode,
     variants: variants as RewriteVariant[]
   };
+}
+
+const SPOKEN_ABBREVIATIONS = ['e.g.', 'i.e.', 'Fig.', 'vs.', 'etc.', 'et al.', 'cf.'] as const;
+const SPOKEN_VISUAL_DEIXIS = [
+  'shown above',
+  'shown below',
+  'see above',
+  'see below',
+  'described above',
+  'described below',
+  'listed above',
+  'listed below',
+  'the figure above',
+  'the table below',
+  'as above',
+  'the latter'
+] as const;
+
+export function rewriteOutputViolation(
+  text: string,
+  request: RewriteRequest,
+  sourceLanguage = request.sourceLanguage
+): 'spoken modality' | 'length' | 'perspective' | undefined {
+  if (request.modality === REWRITE_MODALITIES[1].id) {
+    if (/[();–—]/u.test(text)) return 'spoken modality';
+    if (SPOKEN_ABBREVIATIONS.some((abbreviation) => text.includes(abbreviation))) {
+      return 'spoken modality';
+    }
+    if (/\d[%&]/u.test(text)) return 'spoken modality';
+    const lower = text.toLocaleLowerCase('en-US');
+    if (SPOKEN_VISUAL_DEIXIS.some((phrase) => lower.includes(phrase))) {
+      return 'spoken modality';
+    }
+  }
+  if (request.length === REWRITE_LENGTHS[1].id && text.length >= request.text.length) {
+    return 'length';
+  }
+  if (request.length === REWRITE_LENGTHS[2].id && text.length <= request.text.length) {
+    return 'length';
+  }
+  if (isEnglishLanguageCode(sourceLanguage)) {
+    const firstPerson = /\b(?:I|me|my|mine|myself|we|us|our|ours|ourselves)\b/iu;
+    if (request.perspective === REWRITE_PERSPECTIVES[1].id && !firstPerson.test(text)) {
+      return 'perspective';
+    }
+    if (request.perspective === REWRITE_PERSPECTIVES[2].id && firstPerson.test(text)) {
+      return 'perspective';
+    }
+  }
+  return undefined;
+}
+
+function pushInstruction(instructions: string[], instruction: string | undefined): void {
+  if (instruction) instructions.push(instruction);
 }
 
 function languageModelProviderName(providerId: string): string {
@@ -476,92 +576,6 @@ function languageModelProviderName(providerId: string): string {
 
 function rewriteOperationVariant(operation: RewriteRequest['operation']): RewriteVariantId | undefined {
   return REWRITE_VARIANT_LIST.find((variant) => variant.operation === operation)?.id;
-}
-
-function rewriteDomainInstruction(domain: RewriteRequest['domain']): string {
-  if (domain === 'academic') {
-    return 'Use disciplined academic prose, field-appropriate terminology, and appropriately qualified claims. Do not make the text more certain than the source.';
-  }
-  if (domain === 'technical') {
-    return 'Use precise technical prose and preserve necessary technical terms, identifiers, units, and distinctions.';
-  }
-  if (domain === 'business') {
-    return 'Use clear, professional business prose that makes actions and decisions easy to understand without adding commitments.';
-  }
-  if (domain === 'email') {
-    return 'Make the wording suitable for a natural professional email. Do not invent a greeting, sign-off, recipient, or relationship that is absent from the source.';
-  }
-  return 'Use general-purpose prose in the source language without imposing a specialized domain style.';
-}
-
-function rewriteEnglishVarietyInstruction(
-  variety: RewriteRequest['englishVariety']
-): string {
-  if (variety === 'british') {
-    return 'Use standard British English spelling, punctuation, vocabulary, idiom, and usage consistently.';
-  }
-  if (variety === 'australian') {
-    return 'Use standard Australian English spelling, punctuation, vocabulary, idiom, and usage consistently.';
-  }
-  if (variety === 'canadian') {
-    return 'Use standard Canadian English spelling, punctuation, vocabulary, idiom, and usage consistently.';
-  }
-  if (variety === 'indian') {
-    return 'Use standard Indian English spelling, punctuation, vocabulary, idiom, and usage consistently while avoiding stereotypes or exaggerated regionalisms.';
-  }
-  if (variety === 'international') {
-    return 'Use clear internationally accessible English. Prefer region-neutral wording and avoid culture-specific idioms when a natural neutral alternative exists.';
-  }
-  return 'Use standard American English spelling, punctuation, vocabulary, idiom, and usage consistently.';
-}
-
-function rewriteToneInstruction(tone: RewriteRequest['tone']): string {
-  if (tone === 'plainLanguage') {
-    return 'Prefer familiar words, direct syntax, and reasonably short sentences. Retain specialized terminology only when replacing it would reduce accuracy.';
-  }
-  if (tone === 'preserveVoice') {
-    return 'Preserve the writer\'s recognizable voice, formality, cadence, emphasis, and personality as far as the requested variant allows.';
-  }
-  if (tone === 'professional') {
-    return 'Use a polished, professional tone that is clear and credible without sounding stiff or promotional.';
-  }
-  if (tone === 'warm') {
-    return 'Use a warm, approachable, and respectful tone without adding sentiment or familiarity absent from the source.';
-  }
-  if (tone === 'assertive') {
-    return 'Use a confident, assertive tone, but do not strengthen claims, certainty, authority, or commitments beyond the source.';
-  }
-  if (tone === 'cautious') {
-    return 'Use a careful, appropriately qualified tone. Preserve uncertainty and avoid implying conclusions stronger than the source supports.';
-  }
-  if (tone === 'diplomatic') {
-    return 'Use a tactful, constructive, and respectful tone while keeping the message and necessary disagreements clear.';
-  }
-  if (tone === 'formal') {
-    return 'Use formal, precise wording and complete sentence structure without becoming ornate or bureaucratic.';
-  }
-  if (tone === 'direct') {
-    return 'Use direct, economical wording that states the point clearly without becoming abrupt or changing the source claim.';
-  }
-  return 'Use a neutral, natural, professional tone.';
-}
-
-function rewriteRhetoricalModeInstruction(
-  mode: NonNullable<RewriteRequest['rhetoricalMode']>
-): string {
-  if (mode === 'explain') {
-    return 'Rhetorical mode: explain. Make the supplied point easier to understand using only information already present; do not invent examples or background.';
-  }
-  if (mode === 'persuade') {
-    return 'Rhetorical mode: persuade. Organize the supplied claims persuasively, but introduce no new evidence, benefits, urgency, certainty, or promises.';
-  }
-  if (mode === 'recommend') {
-    return 'Rhetorical mode: recommend. Frame the supplied position as a clear recommendation without inventing reasons, authority, obligations, or implementation details.';
-  }
-  if (mode === 'constructivelyChallenge') {
-    return 'Rhetorical mode: constructively challenge. Express the supplied concern or disagreement clearly, respectfully, and specifically without inventing criticism or becoming combative.';
-  }
-  return 'Rhetorical mode: preserve the original communicative intent. Do not turn an observation into an explanation, persuasion, recommendation, or challenge.';
 }
 
 function rewriteVariantId(value: unknown): RewriteVariantId | undefined {

@@ -1,10 +1,20 @@
 import { readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { REWRITE_AXIS_SETTINGS } from '../src/rewriteAxes.js';
+import {
+  USER_DICTIONARY_CAPTURE_MODES,
+  USER_DICTIONARY_PROVIDERS
+} from '../src/userDictionary/contract.js';
+import {
+  USER_DICTIONARY_EXAMPLE_COUNTS,
+  USER_DICTIONARY_THINKING_OR_EFFORTS
+} from '../src/userDictionary/settings.js';
 
 interface MenuItem {
   command?: string;
   submenu?: string;
   when?: string;
+  group?: string;
 }
 
 interface Manifest {
@@ -21,7 +31,7 @@ interface Manifest {
     virtualWorkspaces: { supported: boolean };
   };
   contributes: {
-    commands: Array<{ command: string; title: string; shortTitle?: string }>;
+    commands: Array<{ command: string; title: string; shortTitle?: string; enablement?: string }>;
     submenus: Array<{ id: string; label: string }>;
     menus: Record<string, MenuItem[]>;
     keybindings: Array<{ command: string; key: string; when: string }>;
@@ -30,6 +40,7 @@ interface Manifest {
         default?: unknown;
         scope?: string;
         description?: string;
+        enum?: unknown[];
         enumDescriptions?: string[];
       }>;
     };
@@ -83,6 +94,63 @@ describe('VS Code menu contributions', () => {
       .toBe('standard');
     expect(manifest.contributes.configuration.properties['kren.rewrite.englishVariety']?.default)
       .toBe('followGrammar');
+  });
+
+  it('keeps every rewrite configuration enum in exact axis-array order', () => {
+    for (const axis of REWRITE_AXIS_SETTINGS) {
+      expect(
+        manifest.contributes.configuration.properties[`kren.${axis.key}`]?.enum,
+        `${axis.key} drifted from its TypeScript source of truth`
+      ).toEqual(axis.values.map((option) => option.id));
+      expect(
+        manifest.contributes.configuration.properties[`kren.${axis.key}`]?.default,
+        `${axis.key} default is not the first axis value`
+      ).toBe(axis.values[0].id);
+    }
+  });
+
+  it('keeps every User Dictionary configuration enum in exact source-array order', () => {
+    const properties = manifest.contributes.configuration.properties;
+    expect(properties['kren.userDictionary.defaultCaptureMode']?.enum)
+      .toEqual([...USER_DICTIONARY_CAPTURE_MODES]);
+    expect(properties['kren.userDictionary.provider']?.enum)
+      .toEqual([...USER_DICTIONARY_PROVIDERS]);
+    expect(properties['kren.userDictionary.thinkingOrEffort']?.enum)
+      .toEqual(USER_DICTIONARY_THINKING_OR_EFFORTS.map((option) => option.id));
+    expect(properties['kren.userDictionary.numberOfExamples']?.enum)
+      .toEqual(USER_DICTIONARY_EXAMPLE_COUNTS.map((option) => option.id));
+  });
+
+  it('makes both User Dictionary commands unavailable while the feature is disabled', () => {
+    const commands = manifest.contributes.commands.filter((command) =>
+      command.command === 'kren.addToUserDictionary' ||
+      command.command === 'kren.openUserDictionary'
+    );
+    expect(commands).toHaveLength(2);
+    expect(commands.every((command) =>
+      command.enablement === 'config.kren.userDictionary.enabled'
+    )).toBe(true);
+    const editorItems = manifest.contributes.menus['editor/context'] ?? [];
+    expect(editorItems.filter((item) =>
+      item.command === 'kren.addToUserDictionary' ||
+      item.command === 'kren.openUserDictionary'
+    )).toEqual([
+      {
+        command: 'kren.addToUserDictionary',
+        when: 'editorHasSelection && config.kren.userDictionary.enabled',
+        group: 'kren_userDictionary@10'
+      },
+      {
+        command: 'kren.openUserDictionary',
+        when: 'config.kren.userDictionary.enabled',
+        group: 'kren_userDictionary@20'
+      }
+    ]);
+  });
+
+  it('does not contribute a stored rewrite mode setting', () => {
+    expect(manifest.contributes.configuration.properties)
+      .not.toHaveProperty('kren.rewrite.mode');
   });
 
   it('groups dictionaries in the requested order', () => {

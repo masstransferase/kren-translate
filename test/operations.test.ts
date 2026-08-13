@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isEnglishDictionaryQuery,
   KREN_SECRET_KEYS,
+  MERRIAM_WEBSTER_KEY_LIMIT,
   MERRIAM_WEBSTER_SECRET_KEYS,
   runKrenOperation,
   storeMerriamWebsterKey,
@@ -24,26 +25,36 @@ describe('Merriam-Webster key limit', () => {
     };
   }
 
-  it('refuses a third Merriam-Webster key before secret storage holds it', async () => {
+  // Written against MERRIAM_WEBSTER_KEY_LIMIT rather than the literal 2, because the two
+  // channels now carry different limits: 3 privately for development, 2 in the published
+  // build. A literal here would pass in exactly one of the two trees, and this file is
+  // copied into both. The produced tree's limit is asserted separately, in
+  // buildPublicTree.test.ts.
+  it('refuses one key beyond the configured Merriam-Webster limit', async () => {
     const { values, storage } = memorySecretStorage();
-    expect(await storeMerriamWebsterKey(
-      storage,
-      KREN_SECRET_KEYS.merriamWebsterCollegiate,
-      'configured-collegiate'
-    )).toBe(true);
-    expect(await storeMerriamWebsterKey(
-      storage,
-      KREN_SECRET_KEYS.merriamWebsterMedical,
-      'configured-medical'
-    )).toBe(true);
+    const fillable = MERRIAM_WEBSTER_SECRET_KEYS.slice(0, MERRIAM_WEBSTER_KEY_LIMIT);
+    // Widened deliberately. MERRIAM_WEBSTER_SECRET_KEYS is a three-element tuple and the
+    // limit is a literal type, so indexing it directly is a compile error at 3 and legal
+    // at 2. That would typecheck in the published tree and fail in the private one, from
+    // one shared file.
+    const allKeys = MERRIAM_WEBSTER_SECRET_KEYS as readonly string[];
+    const beyond = allKeys[MERRIAM_WEBSTER_KEY_LIMIT] as
+      | typeof MERRIAM_WEBSTER_SECRET_KEYS[number]
+      | undefined;
 
-    expect(await storeMerriamWebsterKey(
-      storage,
-      KREN_SECRET_KEYS.merriamWebsterThesaurus,
-      'configured-thesaurus'
-    )).toBe(false);
-    expect(MERRIAM_WEBSTER_SECRET_KEYS.filter((key) => values.has(key))).toHaveLength(2);
-    expect(values.has(KREN_SECRET_KEYS.merriamWebsterThesaurus)).toBe(false);
+    for (const key of fillable) {
+      expect(await storeMerriamWebsterKey(storage, key, `configured-${key}`)).toBe(true);
+    }
+    expect(MERRIAM_WEBSTER_SECRET_KEYS.filter((key) => values.has(key)))
+      .toHaveLength(MERRIAM_WEBSTER_KEY_LIMIT);
+
+    // Only meaningful while the limit is below the number of reference works. At the
+    // development limit of 3 there is no fourth key to refuse, and the storage cap is
+    // then the reference-work count itself.
+    if (beyond) {
+      expect(await storeMerriamWebsterKey(storage, beyond, 'configured-beyond')).toBe(false);
+      expect(values.has(beyond)).toBe(false);
+    }
   });
 
   it('allows add, remove, and add-different without a restart', async () => {
@@ -255,7 +266,12 @@ describe('English dictionary query validation', () => {
           'gemini.alternateThinkingLevel': 'high',
           'grammar.dialect': 'british',
           'rewrite.domain': 'academic',
-          'rewrite.tone': 'preserveVoice'
+          'rewrite.modality': 'spoken',
+          'rewrite.function': 'proposal',
+          'rewrite.formality': 'formal',
+          'rewrite.voice': 'objective',
+          'rewrite.stance': 'cautious',
+          'rewrite.rhetoricalMode': 'explain'
         };
         return (settings[key] ?? fallback) as T;
       },
@@ -279,10 +295,26 @@ describe('English dictionary query validation', () => {
     expect(requestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('disciplined academic prose');
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('British English');
-    expect(requestBody.systemInstruction.parts[0]?.text).toContain("writer's recognizable voice");
+    expect(requestBody.systemInstruction.parts[0]?.text).toContain('suitable for a proposal');
+    expect(requestBody.systemInstruction.parts[0]?.text).toContain('formal, precise wording');
+    expect(requestBody.systemInstruction.parts[0]?.text).toContain('objective voice');
+    expect(requestBody.systemInstruction.parts[0]?.text).toContain('qualified stance');
+    expect(requestBody.systemInstruction.parts[0]?.text).toContain('Rhetorical mode: explain');
+    expect(requestBody.systemInstruction.parts[0]?.text).toContain('Write for spoken delivery');
+    expect(requestBody.systemInstruction.parts[0]?.text).not.toContain(
+      'Preserve Markdown, LaTeX commands'
+    );
     expect(consentProfile).toBe('pro');
     expect(result.kind).toBe('rewrite');
-    expect(result).toMatchObject({ englishVariety: 'british' });
+    expect(result).toMatchObject({
+      englishVariety: 'british',
+      modality: 'spoken',
+      function: 'proposal',
+      formality: 'formal',
+      voice: 'objective',
+      stance: 'cautious',
+      rhetoricalMode: 'explain'
+    });
   });
 
   it('falls back from Pro 3.1 to Pro 2.5 only after transient retries are exhausted', async () => {

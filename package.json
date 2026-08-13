@@ -2,7 +2,7 @@
   "name": "kren-translate",
   "displayName": "KREN: Dictionary, Translate & Rewrite",
   "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, multilingual rewriting, and read aloud inside VS Code.",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "private": true,
   "publisher": "masstransferase",
   "license": "MIT",
@@ -65,6 +65,18 @@
         "command": "kren.translateSelection",
         "title": "Translate Selection",
         "category": "KREN"
+      },
+      {
+        "command": "kren.addToUserDictionary",
+        "title": "Add to User Dictionary",
+        "category": "KREN",
+        "enablement": "config.kren.userDictionary.enabled"
+      },
+      {
+        "command": "kren.openUserDictionary",
+        "title": "Open User Dictionary",
+        "category": "KREN",
+        "enablement": "config.kren.userDictionary.enabled"
       },
       {
         "command": "kren.dictionarySearchSelection",
@@ -382,6 +394,16 @@
           "command": "kren.readAloudSelection",
           "when": "editorHasSelection && isWindows",
           "group": "kren@60"
+        },
+        {
+          "command": "kren.addToUserDictionary",
+          "when": "editorHasSelection && config.kren.userDictionary.enabled",
+          "group": "kren_userDictionary@10"
+        },
+        {
+          "command": "kren.openUserDictionary",
+          "when": "config.kren.userDictionary.enabled",
+          "group": "kren_userDictionary@20"
         }
       ],
       "kren.dictionaryMenu": [
@@ -591,6 +613,98 @@
     "configuration": {
       "title": "KREN Translate",
       "properties": {
+        "kren.userDictionary.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the local User Dictionary commands and interface. No provider request or local entry write is possible while disabled."
+        },
+        "kren.userDictionary.defaultCaptureMode": {
+          "type": "string",
+          "enum": [
+            "llmOnly",
+            "merriamWebsterAndLlm"
+          ],
+          "enumDescriptions": [
+            "Generate an editable draft with the selected language-model provider.",
+            "Run an independent live Merriam-Webster lookup and language-model generation."
+          ],
+          "default": "llmOnly",
+          "description": "Capture mode used by Add to User Dictionary."
+        },
+        "kren.userDictionary.fallbackOnMerriamWebsterNoMatch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the independent LLM-only draft after Merriam-Webster returns a genuine no-match. Authentication, quota, network, and provider failures never trigger this fallback."
+        },
+        "kren.userDictionary.provider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "openai",
+            "anthropic"
+          ],
+          "enumDescriptions": [
+            "Use the Gemini Developer API and the existing default Gemini credential.",
+            "Use the OpenAI API and the existing OpenAI credential.",
+            "Use the Anthropic Claude API and the existing Anthropic credential."
+          ],
+          "default": "gemini",
+          "description": "Dedicated language-model provider for User Dictionary generation."
+        },
+        "kren.userDictionary.model": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Editable model identifier used only for User Dictionary generation."
+        },
+        "kren.userDictionary.thinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Thinking level or effort sent when supported by the selected User Dictionary provider and model."
+        },
+        "kren.userDictionary.entryLanguage": {
+          "type": "string",
+          "default": "auto",
+          "description": "Use auto to detect the expression language, or enter a BCP-47 language tag for saved entries."
+        },
+        "kren.userDictionary.includePronunciation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Request pronunciation when appropriate."
+        },
+        "kren.userDictionary.includeSynonyms": {
+          "type": "boolean",
+          "default": true,
+          "description": "Request synonyms, antonyms, and related expressions."
+        },
+        "kren.userDictionary.includeUsageNotes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Request short usage notes when they prevent misunderstanding."
+        },
+        "kren.userDictionary.numberOfExamples": {
+          "type": "number",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "default": 2,
+          "description": "Maximum number of generated examples retained for each sense."
+        },
+        "kren.userDictionary.includeTechnicalMeanings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Request established technical meanings when genuinely applicable."
+        },
         "kren.results.openAtStartup": {
           "type": "boolean",
           "default": false,
@@ -880,21 +994,63 @@
           "default": "all",
           "description": "Preferred Rewrite Text action in the KREN clipboard Quick Pick. All four rewrite choices remain available."
         },
+        "kren.rewrite.modality": {
+          "type": "string",
+          "enum": [
+            "written",
+            "spoken"
+          ],
+          "enumDescriptions": [
+            "Write text for reading on a page or screen.",
+            "Write text for spoken delivery and suppress formatting preservation."
+          ],
+          "default": "written",
+          "description": "Destination modality applied to Rewrite Text requests."
+        },
+        "kren.rewrite.function": {
+          "type": "string",
+          "enum": [
+            "general",
+            "proposal",
+            "manuscript",
+            "report",
+            "presentation",
+            "letter",
+            "email"
+          ],
+          "enumDescriptions": [
+            "Preserve a general-purpose document function.",
+            "Use wording suitable for a proposal.",
+            "Use wording suitable for a manuscript.",
+            "Use wording suitable for a report.",
+            "Use wording suitable for a presentation.",
+            "Use wording suitable for a letter without inventing letter furniture.",
+            "Use wording suitable for an email without inventing greetings or sign-offs."
+          ],
+          "default": "general",
+          "description": "Document or channel function applied to Rewrite Text requests."
+        },
         "kren.rewrite.domain": {
           "type": "string",
           "enum": [
             "general",
-            "academic",
-            "technical",
             "business",
-            "email"
+            "academic",
+            "scientific",
+            "technical",
+            "regulatory",
+            "medical",
+            "legal"
           ],
           "enumDescriptions": [
             "General-purpose English without a specialized domain style.",
-            "Disciplined academic prose with appropriate qualification and terminology.",
-            "Precise technical prose that preserves necessary specialist terminology.",
             "Clear professional business prose focused on actions and decisions.",
-            "Natural professional email wording without invented greetings or sign-offs."
+            "Disciplined academic prose with appropriate qualification and terminology.",
+            "Precise scientific prose that preserves units and evidentiary qualifications.",
+            "Precise technical prose that preserves necessary specialist terminology.",
+            "Precise regulatory prose that preserves defined terms and obligations.",
+            "Precise medical prose that preserves clinical qualifications and terminology.",
+            "Precise legal prose that preserves defined terms, qualifications, and legal effect."
           ],
           "default": "general",
           "description": "Domain preset applied to Rewrite Text requests."
@@ -922,34 +1078,98 @@
           "default": "followGrammar",
           "description": "English spelling, punctuation, vocabulary, idiom, and usage applied only when Rewrite Text detects or is assigned English."
         },
-        "kren.rewrite.tone": {
+        "kren.rewrite.formality": {
           "type": "string",
           "enum": [
-            "preserveVoice",
-            "neutral",
-            "professional",
-            "warm",
-            "assertive",
-            "cautious",
-            "diplomatic",
+            "preserve",
+            "ceremonial",
             "formal",
-            "direct",
-            "plainLanguage"
+            "neutral",
+            "informal",
+            "casual"
           ],
           "enumDescriptions": [
-            "Preserve the writer's recognizable voice, formality, cadence, and personality.",
-            "Use a neutral, natural, professional tone.",
-            "Use polished, credible professional wording without becoming stiff.",
-            "Use approachable and respectful wording without inventing familiarity.",
-            "Use confident wording without strengthening claims or certainty.",
-            "Use careful qualifications and avoid unsupported certainty.",
-            "State the message tactfully and constructively.",
+            "Preserve the source's level of formality.",
+            "Use ceremonial, dignified formality without becoming archaic.",
             "Use formal, precise wording without becoming ornate.",
-            "State the point clearly and economically without becoming abrupt.",
-            "Prefer familiar words, direct syntax, and reasonably short sentences."
+            "Use a neutral, natural level of formality.",
+            "Use natural informal wording without invented familiarity.",
+            "Use relaxed, conversational wording without becoming careless."
           ],
-          "default": "preserveVoice",
-          "description": "Tone preset applied to Rewrite Text requests."
+          "default": "preserve",
+          "description": "Formality applied to Rewrite Text requests."
+        },
+        "kren.rewrite.voice": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "authoritative",
+            "objective",
+            "analytical",
+            "instructional"
+          ],
+          "enumDescriptions": [
+            "Preserve the writer's recognizable voice.",
+            "Use an authoritative voice without inventing authority.",
+            "Use an objective voice that preserves uncertainty.",
+            "Use an analytical voice without adding analysis or evidence.",
+            "Use an instructional voice without inventing steps."
+          ],
+          "default": "preserve",
+          "description": "Rhetorical voice applied to Rewrite Text requests."
+        },
+        "kren.rewrite.stance": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "neutral",
+            "warm",
+            "diplomatic",
+            "cautious",
+            "assertive",
+            "direct"
+          ],
+          "enumDescriptions": [
+            "Preserve the source's interpersonal stance.",
+            "Use a neutral interpersonal stance.",
+            "Use an approachable and respectful stance without invented familiarity.",
+            "State the message tactfully and constructively.",
+            "Use careful qualifications and avoid unsupported certainty.",
+            "Use confident wording without strengthening claims or certainty.",
+            "State the point clearly and economically without becoming abrupt."
+          ],
+          "default": "preserve",
+          "description": "Interpersonal stance applied to Rewrite Text requests."
+        },
+        "kren.rewrite.length": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "compress",
+            "expand"
+          ],
+          "enumDescriptions": [
+            "Preserve the source's level of detail.",
+            "Make every rewrite shorter while retaining every important point.",
+            "Make every rewrite longer using only supplied information."
+          ],
+          "default": "preserve",
+          "description": "Length constraint applied to the finished Rewrite Text output."
+        },
+        "kren.rewrite.perspective": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "first person",
+            "impersonal"
+          ],
+          "enumDescriptions": [
+            "Preserve the source's perspective.",
+            "Use first-person perspective without inventing experience or authority.",
+            "Use impersonal perspective while preserving meaningful agency."
+          ],
+          "default": "preserve",
+          "description": "Perspective applied to Rewrite Text requests."
         },
         "kren.rewrite.rhetoricalMode": {
           "type": "string",

@@ -12,6 +12,11 @@ import type {
 
 export type MerriamWebsterReference = 'collegiate' | 'medical' | 'thesaurus';
 
+export interface MerriamWebsterLookupWithMetadata {
+  result: DictionaryResult | ThesaurusResult;
+  entryId?: string;
+}
+
 const MERRIAM_WEBSTER_REFERENCES: Record<MerriamWebsterReference, {
   providerId: string;
   credentialAction: 'setMerriamWebsterCollegiateKey' |
@@ -46,8 +51,16 @@ export class MerriamWebsterProvider {
     request: DictionaryRequest,
     signal: AbortSignal
   ): Promise<DictionaryResult | ThesaurusResult | undefined> {
+    return (await this.lookupWithMetadata(request, signal))?.result;
+  }
+
+  public async lookupWithMetadata(
+    request: DictionaryRequest,
+    signal: AbortSignal
+  ): Promise<MerriamWebsterLookupWithMetadata | undefined> {
     if (this.reference === 'thesaurus') {
-      return new MerriamWebsterThesaurusProvider(this.apiKey).lookup(request, signal);
+      const result = await new MerriamWebsterThesaurusProvider(this.apiKey).lookup(request, signal);
+      return result ? { result } : undefined;
     }
     return this.fetchAndNormalize(request.text, request, signal, true);
   }
@@ -57,7 +70,7 @@ export class MerriamWebsterProvider {
     request: DictionaryRequest,
     signal: AbortSignal,
     followSuggestion: boolean
-  ): Promise<DictionaryResult | undefined> {
+  ): Promise<MerriamWebsterLookupWithMetadata | undefined> {
     const url = new URL(
       `https://www.dictionaryapi.com/api/v3/references/${this.reference}/json/${encodeURIComponent(query)}`
     );
@@ -74,11 +87,19 @@ export class MerriamWebsterProvider {
     const payload = (await response.json().catch(() => undefined)) as unknown;
     if (!response.ok) {
       const action = MERRIAM_WEBSTER_REFERENCES[this.reference].credentialAction;
-      throw new ProviderError(`Merriam-Webster request failed (${response.status}).`, action);
+      throw new ProviderError(
+        `Merriam-Webster request failed (${response.status}).`,
+        action,
+        false,
+        response.status
+      );
     }
 
     const result = parseMerriamWebsterResponse(payload, request, this.id);
-    if (result) return result;
+    if (result) {
+      const entryId = firstMerriamWebsterEntryId(payload, request.text);
+      return { result, ...(entryId ? { entryId } : {}) };
+    }
 
     const suggestion = followSuggestion ? firstSuggestion(payload, request.text) : undefined;
     if (!suggestion) return undefined;
@@ -86,10 +107,22 @@ export class MerriamWebsterProvider {
     if (!suggested) return undefined;
     return {
       ...suggested,
-      sourceText: request.text,
-      note: `No exact entry was returned for “${request.text}”; showing Merriam-Webster's suggestion “${suggestion}”.`
+      result: {
+        ...suggested.result,
+        sourceText: request.text,
+        note: `No exact entry was returned for “${request.text}”; showing Merriam-Webster's suggestion “${suggestion}”.`
+      }
     };
   }
+}
+
+function firstMerriamWebsterEntryId(payload: unknown, query: string): string | undefined {
+  if (!Array.isArray(payload)) return undefined;
+  const records = payload.filter(isRecord);
+  const matching = records.filter((record) => recordMatchesQuery(record, query));
+  const candidates = matching.length > 0 ? matching : records;
+  const selected = candidates.find((record) => normalizeSection(record) !== undefined);
+  return stringValue(recordValue(selected?.meta)?.id);
 }
 
 export function parseMerriamWebsterResponse(

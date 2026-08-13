@@ -29,15 +29,40 @@ import type {
   RewriteDomain,
   RewriteEnglishVariety,
   RewriteEnglishVarietySetting,
+  RewriteFormality,
+  RewriteFunction,
+  RewriteLength,
+  RewriteModality,
   RewriteOperation,
+  RewritePerspective,
   RewriteRequest,
   RewriteRhetoricalMode,
-  RewriteTone,
+  RewriteStance,
+  RewriteVoice,
   SelectionAnalysis,
   TranslationProvider,
   TranslationProviderId,
   TranslationRequest
 } from './types.js';
+import { REWRITE_AXIS_DEFAULTS } from './rewriteAxes.js';
+import {
+  attachUserDictionaryMerriamWebsterReference,
+  captureUserDictionaryDraft,
+  HttpUserDictionaryProviderTransport,
+  type UserDictionaryCaptureResult
+} from './userDictionary/capture.js';
+import {
+  isUserDictionaryCaptureMode,
+  isUserDictionaryProvider,
+  type UserDictionaryEntryV1,
+  type UserDictionaryProvider
+} from './userDictionary/contract.js';
+import {
+  isUserDictionaryExampleCount,
+  isUserDictionaryThinkingOrEffort,
+  USER_DICTIONARY_CAPTURE_DEFAULTS,
+  type UserDictionaryCaptureSettings
+} from './userDictionary/settings.js';
 
 export const KREN_SECRET_KEYS = {
   gemini: 'kren.gemini.apiKey',
@@ -59,8 +84,30 @@ export const MERRIAM_WEBSTER_SECRET_KEYS = [
 
 export type MerriamWebsterSecretKey = typeof MERRIAM_WEBSTER_SECRET_KEYS[number];
 
+// How many Merriam-Webster keys may be stored at once.
+//
+// **The published value is 2. This 3 is a private development build only**, decided by
+// the owner on 2026-08-13, and the publish transform in tools/public-tree-rules.json
+// rewrites it to 2 for the public tree. A test on the produced tree asserts that, so the
+// two channels cannot silently converge on the wrong number.
+//
+// Two is what Merriam-Webster's terms allow. Section 2 requires that you do not use more
+// than two reference works, and the registration page issues at most two keys per
+// account, so a third key implies a second account. Raising the limit does not make
+// three reference works compliant; it only lets a developer exercise all three code
+// paths on one machine without swapping credentials between runs.
+//
+// Consequences, stated so nobody has to rediscover them:
+//   - A private build configured with three keys is outside the terms. Do not use it to
+//     serve real lookups beyond development.
+//   - The same enablement is planned for the KREN Office private build, and carries the
+//     same restriction.
+//   - This must never reach a public channel. That is what the transform and its test
+//     exist for.
+export const MERRIAM_WEBSTER_KEY_LIMIT = 2;
+
 export const MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE =
-  'Merriam-Webster issues two API keys per account. Remove one before adding another.';
+  `Merriam-Webster issues two API keys per account. KREN stores at most ${MERRIAM_WEBSTER_KEY_LIMIT}. Remove one before adding another.`;
 
 export interface MerriamWebsterSecretStorage {
   get(key: MerriamWebsterSecretKey): PromiseLike<string | undefined>;
@@ -81,7 +128,7 @@ export async function canStoreMerriamWebsterKey(
     MERRIAM_WEBSTER_SECRET_KEYS.map((candidate) => storage.get(candidate))
   );
   const targetIndex = MERRIAM_WEBSTER_SECRET_KEYS.indexOf(key);
-  return Boolean(stored[targetIndex]) || stored.filter(Boolean).length < 2;
+  return Boolean(stored[targetIndex]) || stored.filter(Boolean).length < MERRIAM_WEBSTER_KEY_LIMIT;
 }
 
 export function storeMerriamWebsterKey(
@@ -261,9 +308,10 @@ async function rewriteText(
   }
   const configuredEnglishVariety = runtime.getSetting<RewriteEnglishVarietySetting>(
     'rewrite.englishVariety',
-    'followGrammar'
+    REWRITE_AXIS_DEFAULTS.englishVariety
   );
-  const englishVariety: RewriteEnglishVariety = configuredEnglishVariety === 'followGrammar'
+  const englishVariety: RewriteEnglishVariety =
+    configuredEnglishVariety === REWRITE_AXIS_DEFAULTS.englishVariety
     ? runtime.getSetting<GrammarDialect>('grammar.dialect', 'american')
     : configuredEnglishVariety;
   const request: RewriteRequest = {
@@ -273,11 +321,32 @@ async function rewriteText(
     kind: 'translation',
     operation,
     englishVariety,
-    domain: runtime.getSetting<RewriteDomain>('rewrite.domain', 'general'),
-    tone: runtime.getSetting<RewriteTone>('rewrite.tone', 'preserveVoice'),
+    modality: runtime.getSetting<RewriteModality>(
+      'rewrite.modality',
+      REWRITE_AXIS_DEFAULTS.modality
+    ),
+    function: runtime.getSetting<RewriteFunction>(
+      'rewrite.function',
+      REWRITE_AXIS_DEFAULTS.function
+    ),
+    domain: runtime.getSetting<RewriteDomain>(
+      'rewrite.domain',
+      REWRITE_AXIS_DEFAULTS.domain
+    ),
+    formality: runtime.getSetting<RewriteFormality>(
+      'rewrite.formality',
+      REWRITE_AXIS_DEFAULTS.formality
+    ),
+    voice: runtime.getSetting<RewriteVoice>('rewrite.voice', REWRITE_AXIS_DEFAULTS.voice),
+    stance: runtime.getSetting<RewriteStance>('rewrite.stance', REWRITE_AXIS_DEFAULTS.stance),
+    length: runtime.getSetting<RewriteLength>('rewrite.length', REWRITE_AXIS_DEFAULTS.length),
+    perspective: runtime.getSetting<RewritePerspective>(
+      'rewrite.perspective',
+      REWRITE_AXIS_DEFAULTS.perspective
+    ),
     rhetoricalMode: runtime.getSetting<RewriteRhetoricalMode>(
       'rewrite.rhetoricalMode',
-      'preserveOriginal'
+      REWRITE_AXIS_DEFAULTS.rhetoricalMode
     ),
     preserveFormatting: runtime.getSetting<boolean>('rewrite.preserveFormatting', true),
     includeChangeNotes: runtime.getSetting<boolean>('rewrite.includeChangeNotes', false)
@@ -474,6 +543,233 @@ async function lookupMerriamWebster(
     'Merriam-Webster returned no entry for this expression. Set your Google Cloud Translation API key to use the multi-word fallback.'
   );
   return provider.translate(request, signal);
+}
+
+export async function runUserDictionaryCapture(
+  runtime: KrenRuntime,
+  expression: string,
+  signal: AbortSignal,
+  captureModeOverride?: UserDictionaryCaptureSettings['captureMode']
+): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1> {
+  if (!runtime.getSetting<boolean>('userDictionary.enabled', false)) {
+    throw new Error('Enable User Dictionary in KREN Settings before adding an entry.');
+  }
+  const maxCharacters = runtime.getSetting<number>('translation.maxCharacters', 5000);
+  if (expression.length > maxCharacters) {
+    throw new Error(
+      `The selected expression has ${expression.length} characters; the configured maximum is ${maxCharacters}.`
+    );
+  }
+  const configuredSettings = readUserDictionaryCaptureSettings(runtime);
+  const settings = captureModeOverride
+    ? { ...configuredSettings, captureMode: captureModeOverride }
+    : configuredSettings;
+  const secretKey = KREN_SECRET_KEYS[settings.provider];
+  const [apiKey, merriamWebsterApiKey] = await Promise.all([
+    runtime.getSecret(secretKey),
+    settings.captureMode === 'merriamWebsterAndLlm'
+      ? runtime.getSecret(KREN_SECRET_KEYS.merriamWebsterCollegiate)
+      : Promise.resolve(undefined)
+  ]);
+  if (!apiKey) {
+    const providerName = settings.provider === 'gemini'
+      ? 'Gemini'
+      : settings.provider === 'openai' ? 'OpenAI' : 'Anthropic';
+    const action = settings.provider === 'gemini'
+      ? 'setGeminiKey' as const
+      : settings.provider === 'openai'
+        ? 'setOpenAIKey' as const
+        : 'setAnthropicKey' as const;
+    throw new ProviderError(
+      `Set your ${providerName} API key before adding a User Dictionary entry.`,
+      action
+    );
+  }
+  if (settings.captureMode === 'merriamWebsterAndLlm' && !merriamWebsterApiKey) {
+    throw new ProviderError(
+      'Set your Merriam-Webster Collegiate API key before using Merriam-Webster + LLM capture.',
+      'setMerriamWebsterCollegiateKey'
+    );
+  }
+  await beforeLanguageModelRequest(runtime, settings.provider);
+  const attempts = settings.provider === 'gemini'
+    ? languageModelRetries(runtime, 'gemini.retry')
+    : languageModelRetries(runtime, 'languageModel.retry');
+  const languageModelTransport = new HttpUserDictionaryProviderTransport({
+    provider: settings.provider,
+    apiKey,
+    model: settings.model,
+    thinkingOrEffort: settings.thinkingOrEffort,
+    maxAttempts: attempts
+  });
+  const generateLanguageModelCapture = (submittedExpression: string) =>
+    captureUserDictionaryDraft(
+      submittedExpression,
+      settings,
+      languageModelTransport,
+      signal,
+      { maxMalformedAttempts: attempts }
+    );
+  const languageModelCapture = generateLanguageModelCapture(expression);
+  if (settings.captureMode === 'llmOnly') {
+    return languageModelCapture;
+  }
+
+  const referenceWork = 'collegiate' as const;
+  const merriamWebsterLookup = new MerriamWebsterProvider(
+    merriamWebsterApiKey!,
+    referenceWork
+  ).lookupWithMetadata({
+    text: expression,
+    sourceLanguage: 'en',
+    targetLanguage: 'en',
+    kind: 'dictionary',
+    operation: 'translate'
+  }, signal);
+  const [languageModelOutcome, merriamWebsterOutcome] = await Promise.allSettled([
+    languageModelCapture,
+    merriamWebsterLookup
+  ]);
+  const aborted = [languageModelOutcome, merriamWebsterOutcome].find(
+    (outcome) => outcome.status === 'rejected' && isAbortError(outcome.reason)
+  );
+  if (aborted?.status === 'rejected') throw aborted.reason;
+  if (languageModelOutcome.status === 'rejected') throw languageModelOutcome.reason;
+
+  if (merriamWebsterOutcome.status === 'rejected') {
+    return {
+      expression,
+      captureMode: 'merriamWebsterAndLlm',
+      draft: languageModelOutcome.value,
+      merriamWebster: {
+        referenceWork,
+        lookupTerm: expression,
+        failure: merriamWebsterCaptureFailure(merriamWebsterOutcome.reason)
+      },
+      fallbackUsed: false
+    };
+  }
+  if (!merriamWebsterOutcome.value) {
+    const draft = attachUserDictionaryMerriamWebsterReference(
+      languageModelOutcome.value,
+      { referenceWork, lookupTerm: expression, matchStatus: 'noMatch' }
+    );
+    return {
+      expression,
+      captureMode: 'merriamWebsterAndLlm',
+      ...(settings.fallbackOnMerriamWebsterNoMatch ? { draft } : {}),
+      merriamWebster: { referenceWork, lookupTerm: expression, noMatch: true },
+      fallbackUsed: settings.fallbackOnMerriamWebsterNoMatch
+    };
+  }
+  const lookup = merriamWebsterOutcome.value;
+  if (lookup.result.kind !== 'dictionary') {
+    throw new Error('KREN received an invalid User Dictionary reference result. Nothing was saved.');
+  }
+  const draft = attachUserDictionaryMerriamWebsterReference(
+    languageModelOutcome.value,
+    {
+      referenceWork,
+      lookupTerm: expression,
+      ...(lookup.entryId ? { entryId: lookup.entryId } : {}),
+      matchStatus: 'matched'
+    }
+  );
+  return {
+    expression,
+    captureMode: 'merriamWebsterAndLlm',
+    draft,
+    merriamWebster: {
+      referenceWork,
+      lookupTerm: expression,
+      result: lookup.result,
+      ...(lookup.entryId ? { entryId: lookup.entryId } : {})
+    },
+    fallbackUsed: false
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function merriamWebsterCaptureFailure(error: unknown): string {
+  if (!(error instanceof ProviderError)) {
+    return 'Merriam-Webster provider failure. The independent personal draft remains available.';
+  }
+  if (error.status === 401 || error.status === 403) {
+    return 'Merriam-Webster authentication failure. Check the selected reference-work key.';
+  }
+  if (error.status === 429) {
+    return 'Merriam-Webster quota failure. The provider rejected the lookup limit.';
+  }
+  if (error.status === undefined && error.message === 'Merriam-Webster could not be reached.') {
+    return 'Merriam-Webster network failure. The provider could not be reached.';
+  }
+  return `Merriam-Webster provider failure${error.status ? ` (${error.status})` : ''}.`;
+}
+
+function readUserDictionaryCaptureSettings(runtime: KrenRuntime): UserDictionaryCaptureSettings {
+  const captureModeValue = runtime.getSetting<unknown>(
+    'userDictionary.defaultCaptureMode',
+    USER_DICTIONARY_CAPTURE_DEFAULTS.captureMode
+  );
+  const providerValue = runtime.getSetting<unknown>(
+    'userDictionary.provider',
+    USER_DICTIONARY_CAPTURE_DEFAULTS.provider
+  );
+  const thinkingValue = runtime.getSetting<unknown>(
+    'userDictionary.thinkingOrEffort',
+    USER_DICTIONARY_CAPTURE_DEFAULTS.thinkingOrEffort
+  );
+  const examplesValue = runtime.getSetting<unknown>(
+    'userDictionary.numberOfExamples',
+    USER_DICTIONARY_CAPTURE_DEFAULTS.numberOfExamples
+  );
+  const entryLanguage = runtime.getSetting<string>(
+    'userDictionary.entryLanguage',
+    USER_DICTIONARY_CAPTURE_DEFAULTS.entryLanguage
+  ).trim();
+  const model = runtime.getSetting<string>(
+    'userDictionary.model',
+    USER_DICTIONARY_CAPTURE_DEFAULTS.model
+  ).trim();
+  if (!isUserDictionaryCaptureMode(captureModeValue) ||
+      !isUserDictionaryProvider(providerValue) ||
+      !isUserDictionaryThinkingOrEffort(thinkingValue) ||
+      !isUserDictionaryExampleCount(examplesValue) ||
+      (entryLanguage !== 'auto' && !isPlausibleLanguageCode(entryLanguage)) ||
+      !/^models\/[\w.:-]+$|^[\w.:-]+$/u.test(model)) {
+    throw new Error('KREN User Dictionary settings contain an invalid value.');
+  }
+  return {
+    captureMode: captureModeValue,
+    fallbackOnMerriamWebsterNoMatch: runtime.getSetting<boolean>(
+      'userDictionary.fallbackOnMerriamWebsterNoMatch',
+      USER_DICTIONARY_CAPTURE_DEFAULTS.fallbackOnMerriamWebsterNoMatch
+    ),
+    provider: providerValue as UserDictionaryProvider,
+    model,
+    thinkingOrEffort: thinkingValue,
+    entryLanguage,
+    includePronunciation: runtime.getSetting<boolean>(
+      'userDictionary.includePronunciation',
+      USER_DICTIONARY_CAPTURE_DEFAULTS.includePronunciation
+    ),
+    includeSynonyms: runtime.getSetting<boolean>(
+      'userDictionary.includeSynonyms',
+      USER_DICTIONARY_CAPTURE_DEFAULTS.includeSynonyms
+    ),
+    includeUsageNotes: runtime.getSetting<boolean>(
+      'userDictionary.includeUsageNotes',
+      USER_DICTIONARY_CAPTURE_DEFAULTS.includeUsageNotes
+    ),
+    numberOfExamples: examplesValue,
+    includeTechnicalMeanings: runtime.getSetting<boolean>(
+      'userDictionary.includeTechnicalMeanings',
+      USER_DICTIONARY_CAPTURE_DEFAULTS.includeTechnicalMeanings
+    )
+  };
 }
 
 async function lookupKoreanDictionary(

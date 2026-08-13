@@ -64,7 +64,14 @@ describe('language-model request privacy', () => {
       operation: 'rewrite',
       englishVariety: 'american',
       domain: 'technical',
-      tone: 'preserveVoice',
+      modality: 'written',
+      function: 'general',
+      formality: 'preserve',
+      voice: 'preserve',
+      stance: 'preserve',
+      length: 'preserve',
+      perspective: 'preserve',
+      rhetoricalMode: 'preserveOriginal',
       preserveFormatting: true,
       includeChangeNotes: true
     };

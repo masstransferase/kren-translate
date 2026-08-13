@@ -10,6 +10,17 @@ import {
 } from '../src/providers/gemini.js';
 import type { RewriteRequest, TranslationRequest } from '../src/types.js';
 
+const defaultRewriteAxes = {
+  modality: 'written',
+  function: 'general',
+  formality: 'preserve',
+  voice: 'preserve',
+  stance: 'preserve',
+  length: 'preserve',
+  perspective: 'preserve',
+  rhetoricalMode: 'preserveOriginal'
+} as const;
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('Gemini privacy boundary', () => {
@@ -88,7 +99,8 @@ describe('Gemini privacy boundary', () => {
       operation: 'rewrite',
       englishVariety: 'british',
       domain: 'technical',
-      tone: 'cautious',
+      ...defaultRewriteAxes,
+      stance: 'cautious',
       rhetoricalMode: 'recommend'
     };
 
@@ -105,7 +117,7 @@ describe('Gemini privacy boundary', () => {
     expect(body.systemInstruction.parts[0]?.text).toContain('Jargon-Free');
     expect(body.systemInstruction.parts[0]?.text).toContain('no em dashes or en dashes');
     expect(body.systemInstruction.parts[0]?.text).toContain('precise technical prose');
-    expect(body.systemInstruction.parts[0]?.text).toContain('appropriately qualified tone');
+    expect(body.systemInstruction.parts[0]?.text).toContain('appropriately qualified stance');
     expect(body.systemInstruction.parts[0]?.text).toContain('Rhetorical mode: recommend');
     expect(body.systemInstruction.parts[0]?.text).toContain('Never intensify a claim');
   });
@@ -119,7 +131,9 @@ describe('Gemini privacy boundary', () => {
       operation: 'rewriteNatural',
       englishVariety: 'british',
       domain: 'general',
-      tone: 'neutral'
+      ...defaultRewriteAxes,
+      formality: 'neutral',
+      stance: 'neutral'
     };
     const body = buildGeminiRewriteRequestBody(request);
     expect(body.systemInstruction.parts[0]?.text).toContain(
@@ -146,7 +160,9 @@ describe('Gemini privacy boundary', () => {
       operation: 'rewrite',
       englishVariety: 'american',
       domain: 'general',
-      tone: 'neutral'
+      ...defaultRewriteAxes,
+      formality: 'neutral',
+      stance: 'neutral'
     };
 
     const body = buildGeminiRewriteRequestBody(
@@ -166,7 +182,9 @@ describe('Gemini privacy boundary', () => {
       operation: 'rewrite',
       englishVariety: 'international',
       domain: 'general',
-      tone: 'neutral',
+      ...defaultRewriteAxes,
+      formality: 'neutral',
+      stance: 'neutral',
       rhetoricalMode: 'constructivelyChallenge'
     };
 
@@ -224,7 +242,9 @@ describe('Gemini privacy boundary', () => {
       operation: 'rewrite',
       englishVariety: 'canadian',
       domain: 'general',
-      tone: 'plainLanguage',
+      ...defaultRewriteAxes,
+      formality: 'neutral',
+      stance: 'direct',
       includeChangeNotes: true
     };
     const body = buildGeminiRewriteRequestBody(request);
@@ -248,7 +268,9 @@ describe('Gemini privacy boundary', () => {
       operation: 'rewriteConcise',
       englishVariety: 'australian',
       domain: 'business',
-      tone: 'plainLanguage'
+      ...defaultRewriteAxes,
+      formality: 'neutral',
+      stance: 'direct'
     };
     const body = buildGeminiRewriteRequestBody(request);
     expect(body.systemInstruction.parts[0]?.text).toContain('"id":"concise"');
@@ -258,7 +280,8 @@ describe('Gemini privacy boundary', () => {
     }, request, 'gemini');
     expect(result.variants.map((variant) => variant.id)).toEqual(['concise']);
     expect(result.domain).toBe('business');
-    expect(result.tone).toBe('plainLanguage');
+    expect(result.formality).toBe('neutral');
+    expect(result.stance).toBe('direct');
   });
 
   it.each([
@@ -273,7 +296,7 @@ describe('Gemini privacy boundary', () => {
       operation,
       englishVariety: 'indian',
       domain: 'general',
-      tone: 'preserveVoice'
+      ...defaultRewriteAxes
     };
     const result = normalizeGeminiRewriteResult({
       variants: [{ id: expectedId, text: 'Rewritten text.' }]

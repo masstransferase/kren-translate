@@ -10,6 +10,19 @@ import type {
   ThesaurusResult,
   ThesaurusWord
 } from './types.js';
+import {
+  REWRITE_DOMAINS,
+  REWRITE_ENGLISH_VARIETIES,
+  REWRITE_FORMALITIES,
+  REWRITE_FUNCTIONS,
+  REWRITE_LENGTHS,
+  REWRITE_MODALITIES,
+  REWRITE_PERSPECTIVES,
+  REWRITE_RHETORICAL_MODES,
+  REWRITE_STANCES,
+  REWRITE_VOICES,
+  rewriteAxisLabel
+} from './rewriteAxes.js';
 
 const providerNames: Record<string, string> = {
   harper: 'Harper (offline)',
@@ -225,9 +238,15 @@ export function resultDetails(result: KrenResult): string {
     if (isEnglishLanguageCode(result.sourceLanguage)) {
       lines.push(`English: ${rewriteEnglishVarietyLabel(result.englishVariety)}`);
     }
+    lines.push(`Modality: ${rewriteAxisLabel(REWRITE_MODALITIES, result.modality)}`);
+    lines.push(`Function: ${rewriteAxisLabel(REWRITE_FUNCTIONS, result.function)}`);
     lines.push(`Domain: ${rewriteDomainLabel(result.domain)}`);
-    lines.push(`Tone: ${rewriteToneLabel(result.tone)}`);
-    lines.push(`Mode: ${rewriteRhetoricalModeLabel(result.rhetoricalMode)}`, '');
+    lines.push(`Formality: ${rewriteAxisLabel(REWRITE_FORMALITIES, result.formality)}`);
+    lines.push(`Voice: ${rewriteAxisLabel(REWRITE_VOICES, result.voice)}`);
+    lines.push(`Stance: ${rewriteAxisLabel(REWRITE_STANCES, result.stance)}`);
+    lines.push(`Length: ${rewriteAxisLabel(REWRITE_LENGTHS, result.length)}`);
+    lines.push(`Perspective: ${rewriteAxisLabel(REWRITE_PERSPECTIVES, result.perspective)}`);
+    lines.push(`Intent: ${rewriteRhetoricalModeLabel(result.rhetoricalMode)}`, '');
     result.variants.forEach((variant, index) => {
       if (index > 0) lines.push('');
       lines.push(variant.label, '-'.repeat(variant.label.length), variant.text);
@@ -288,9 +307,15 @@ function renderRewriteMarkdown(markdown: vscode.MarkdownString, result: RewriteR
     (isEnglishLanguageCode(result.sourceLanguage)
       ? `English: ${escapeMarkdown(rewriteEnglishVarietyLabel(result.englishVariety))}; `
       : '') +
+    `Modality: ${escapeMarkdown(rewriteAxisLabel(REWRITE_MODALITIES, result.modality))}; ` +
+    `Function: ${escapeMarkdown(rewriteAxisLabel(REWRITE_FUNCTIONS, result.function))}; ` +
     `Domain: ${escapeMarkdown(rewriteDomainLabel(result.domain))}; ` +
-    `Tone: ${escapeMarkdown(rewriteToneLabel(result.tone))}; ` +
-    `Mode: ${escapeMarkdown(rewriteRhetoricalModeLabel(result.rhetoricalMode))}_\n\n`
+    `Formality: ${escapeMarkdown(rewriteAxisLabel(REWRITE_FORMALITIES, result.formality))}; ` +
+    `Voice: ${escapeMarkdown(rewriteAxisLabel(REWRITE_VOICES, result.voice))}; ` +
+    `Stance: ${escapeMarkdown(rewriteAxisLabel(REWRITE_STANCES, result.stance))}; ` +
+    `Length: ${escapeMarkdown(rewriteAxisLabel(REWRITE_LENGTHS, result.length))}; ` +
+    `Perspective: ${escapeMarkdown(rewriteAxisLabel(REWRITE_PERSPECTIVES, result.perspective))}; ` +
+    `Intent: ${escapeMarkdown(rewriteRhetoricalModeLabel(result.rhetoricalMode))}_\n\n`
   );
   result.variants.forEach((variant) => {
     markdown.appendMarkdown(`### ${escapeMarkdown(variant.label)}\n\n`);
@@ -302,41 +327,15 @@ function renderRewriteMarkdown(markdown: vscode.MarkdownString, result: RewriteR
 }
 
 function rewriteDomainLabel(value: RewriteResult['domain']): string {
-  if (value === 'academic') return 'Academic';
-  if (value === 'technical') return 'Technical';
-  if (value === 'business') return 'Business';
-  if (value === 'email') return 'Email';
-  return 'General';
+  return rewriteAxisLabel(REWRITE_DOMAINS, value);
 }
 
 function rewriteEnglishVarietyLabel(value: RewriteResult['englishVariety']): string {
-  if (value === 'british') return 'British English';
-  if (value === 'australian') return 'Australian English';
-  if (value === 'canadian') return 'Canadian English';
-  if (value === 'indian') return 'Indian English';
-  if (value === 'international') return 'International English';
-  return 'American English';
-}
-
-function rewriteToneLabel(value: RewriteResult['tone']): string {
-  if (value === 'plainLanguage') return 'Plain Language';
-  if (value === 'preserveVoice') return 'Preserve My Voice';
-  if (value === 'professional') return 'Professional';
-  if (value === 'warm') return 'Warm';
-  if (value === 'assertive') return 'Assertive';
-  if (value === 'cautious') return 'Cautious';
-  if (value === 'diplomatic') return 'Diplomatic';
-  if (value === 'formal') return 'Formal';
-  if (value === 'direct') return 'Direct';
-  return 'Neutral';
+  return rewriteAxisLabel(REWRITE_ENGLISH_VARIETIES, value);
 }
 
 function rewriteRhetoricalModeLabel(value: RewriteResult['rhetoricalMode']): string {
-  if (value === 'explain') return 'Explain';
-  if (value === 'persuade') return 'Persuade';
-  if (value === 'recommend') return 'Recommend';
-  if (value === 'constructivelyChallenge') return 'Constructively Challenge';
-  return 'Preserve Original';
+  return rewriteAxisLabel(REWRITE_RHETORICAL_MODES, value);
 }
 
 function renderThesaurus(markdown: vscode.MarkdownString, result: ThesaurusResult): void {

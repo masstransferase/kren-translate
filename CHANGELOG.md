@@ -4,6 +4,30 @@ This changelog describes the private local KREN build.
 
 ## Unreleased
 
+## 1.3.0
+
+Both channels. The public build carries the same version with the Merriam-Webster key limit at two, which is what Merriam-Webster's terms allow; the private build allows three for development only.
+
+- Completes the User Dictionary. Entries can be searched across term, aliases, meanings, tags, and collections, and filtered by language, collection, entry type, capture mode, and whether a Merriam-Webster reference is attached.
+- Adds purge, which always previews before it confirms and then deletes exactly the entries the preview listed rather than recalculating ages at confirm time. Removing everything requires typing the confirmation, which no age-based option can reach.
+- Adds import and export in JSON and Markdown. JSON round-trips losslessly and is the backup format; Markdown is human-readable and lossy by design, and the interface says so. Import previews entry count, duplicates, and invalid records, and never overwrites without an explicit decision. The file being imported is never modified.
+- Discloses the exact storage path in Settings, with recovery guidance for a corrupt store. A storage error now renders as a storage error and never as an empty dictionary.
+- Adds the Merriam-Webster capture mode, which runs a live lookup and a language-model generation as two independent operations, shown separately and attributed. The dictionary text never enters the model prompt and the model output never enters the dictionary request.
+- Replaces the four rewrite presets with thirteen: Plain English, Manuscript, Grant Proposal, Instruction, Technical document, Legal document, Regulatory document, Professional email, Casual email, Professional presentation, Research presentation, Teaching presentation, and Investor presentation.
+- Reduces the speech controls to a speaker icon and a filled square, and adds read-aloud to User Dictionary entry details using the existing speech settings.
+- Folds every settings group to a summary line and moves User Dictionary next to Dictionary.
+- Warns that an expression is already in the User Dictionary before spending a provider call on it, and drops the redundant language code from the entry list.
+- Fixes the third Merriam-Webster key being refused in the private build despite the raised limit. The panel was comparing against its own copy of the number.
+
+## 1.2.0
+
+Private only. Public KREN remains at 1.1.0, which is why this is 1.2.0 rather than another 1.1.0: two channels must never carry the same version number with different contents.
+
+- Replaces the four flat rewrite style settings with ten axes: modality, function, English variety, domain, formality, voice, stance, length, perspective, and rhetorical mode. Every axis that can preserve the original leads with `preserve`, so a fresh install is unchanged.
+- Removes `kren.rewrite.tone` and migrates all ten of its values onto the new axes. Migration runs once and is idempotent.
+- Adds four rewrite modes, Manuscript, Upward email, Presentation, and Plain English, and groups the settings panel so each group collapses to a summary line. A mode is a named point in axis space and stores nothing, so the label is computed and reverts to Custom when any axis changes.
+- Adds the User Dictionary in its LLM Only capture mode, off by default. Select an expression, review an editable draft, and save it. Entries are stored locally in VS Code global storage and can be listed, edited, and deleted. Only the selected expression and KREN's bounded instruction are sent to the provider.
+
 ## 1.1.0
 
 - Adds the Merriam-Webster Medical Dictionary alongside the Collegiate Dictionary and Collegiate Thesaurus. Merriam-Webster issues two API keys per account, so KREN offers all three reference works and each user configures any two. Adding a third key is refused at entry, and the unconfigured reference work stays visible with the reason rather than being hidden.

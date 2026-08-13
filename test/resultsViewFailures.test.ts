@@ -17,6 +17,8 @@ vi.mock('vscode', () => ({
 }));
 
 import { KrenResultsViewProvider } from '../src/resultsView.js';
+import { REWRITE_MODES, rewriteModeSettingEntries } from '../src/rewriteModes.js';
+import { userDictionaryEntry } from './userDictionaryFixtures.js';
 
 type MessageListener = (message: unknown) => void;
 
@@ -33,10 +35,32 @@ function createHarness(overrides: Record<string, unknown> = {}) {
     readAloudText: vi.fn(async () => undefined),
     stopReadAloud: vi.fn(),
     clear: vi.fn(),
+    loadUserDictionary: vi.fn(async () => []),
+    saveUserDictionaryEntry: vi.fn(),
+    deleteUserDictionaryEntry: vi.fn(async () => []),
+    deleteUserDictionaryEntries: vi.fn(async () => []),
+    previewUserDictionaryPurge: vi.fn(),
+    confirmUserDictionaryPurge: vi.fn(),
+    previewUserDictionaryImport: vi.fn(),
+    applyUserDictionaryImport: vi.fn(async () => []),
+    exportUserDictionary: vi.fn(async () => undefined),
+    regenerateUserDictionaryEntry: vi.fn(),
     updateSetting: vi.fn(async () => undefined),
     runCommand: vi.fn(async () => undefined),
     log: vi.fn(),
     settings: vi.fn(() => ({
+      userDictionaryEnabled: true,
+      userDictionaryCaptureMode: 'llmOnly',
+      userDictionaryFallbackOnMerriamWebsterNoMatch: false,
+      userDictionaryProvider: 'gemini',
+      userDictionaryModel: 'gemini-3.5-flash',
+      userDictionaryThinkingOrEffort: 'low',
+      userDictionaryEntryLanguage: 'auto',
+      userDictionaryIncludePronunciation: true,
+      userDictionaryIncludeSynonyms: true,
+      userDictionaryIncludeUsageNotes: true,
+      userDictionaryNumberOfExamples: 2,
+      userDictionaryIncludeTechnicalMeanings: true,
       openResultsAtStartup: false,
       translationProvider: 'googleCloudTranslation',
       translationTargetLanguage: 'ko',
@@ -65,8 +89,14 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       alternateFallbackThinkingLevel: 'low',
       preferredRewriteVariant: 'natural',
       quickMenuRewriteVariant: 'all',
+      rewriteModality: 'written',
+      rewriteFunction: 'general',
       rewriteDomain: 'general',
-      rewriteTone: 'preserveVoice',
+      rewriteFormality: 'preserve',
+      rewriteVoice: 'preserve',
+      rewriteStance: 'preserve',
+      rewriteLength: 'preserve',
+      rewritePerspective: 'preserve',
       rewriteRhetoricalMode: 'preserveOriginal',
       preserveFormatting: true,
       includeChangeNotes: false,
@@ -143,6 +173,7 @@ describe('results webview failure reporting', () => {
     // scan-secrets, correctly: this file is copied into the public tree, and the
     // scanner cannot tell a test fixture from a real credential. Nor should it try.
     const fakeGoogleKey = ['AIza', 'SyC1234567890abcdefghijklmnopqrstuvw'].join('');
+    const fakeBearerToken = ['abcdefghijklmnop', 'qrstuvwxyz012345'].join('');
 
     const cases: Array<{ thrown: string; redacted: string[]; kept: string[] }> = [
       {
@@ -156,8 +187,11 @@ describe('results webview failure reporting', () => {
         kept: ['internationalization', 'contradistinction']
       },
       {
-        thrown: 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345 rejected',
-        redacted: ['abcdefghijklmnopqrstuvwxyz012345'],
+        // Assembled for the same reason as the key above. A literal bearer token in a
+        // file that is copied into the public tree reads as a credential to anyone
+        // scanning the repository, whether or not it ever was one.
+        thrown: `Authorization: Bearer ${fakeBearerToken} rejected`,
+        redacted: [fakeBearerToken],
         kept: ['Bearer', 'rejected']
       }
     ];
@@ -223,7 +257,13 @@ describe('results webview failure reporting', () => {
       createdAt: '1970-01-01T00:00:00.000Z',
       englishVariety: 'american',
       domain: 'general',
-      tone: 'neutral',
+      modality: 'written',
+      function: 'general',
+      formality: 'neutral',
+      voice: 'preserve',
+      stance: 'neutral',
+      length: 'preserve',
+      perspective: 'preserve',
       rhetoricalMode: 'preserveOriginal',
       variants: [{ id: 'natural', label: 'Natural', text: 'Spoken text.' }]
     }, 'Source text.', false);
@@ -234,6 +274,54 @@ describe('results webview failure reporting', () => {
     expect(showErrorMessage).toHaveBeenCalledWith(expect.stringContaining(failure.message));
     expect(harness.actions.log).toHaveBeenCalledWith(
       expect.stringContaining('[panel read aloud failed]')
+    );
+  });
+
+  it('marks Read Aloud modality as inferred and lets the user pin it', async () => {
+    const harness = createHarness();
+    harness.provider.setResult({
+      kind: 'rewrite',
+      providerId: 'gemini',
+      sourceText: 'Source text.',
+      sourceLanguage: 'en',
+      targetLanguage: 'en',
+      createdAt: '1970-01-01T00:00:00.000Z',
+      englishVariety: 'american',
+      domain: 'general',
+      modality: 'written',
+      function: 'general',
+      formality: 'preserve',
+      voice: 'preserve',
+      stance: 'preserve',
+      length: 'preserve',
+      perspective: 'preserve',
+      rhetoricalMode: 'preserveOriginal',
+      variants: [{ id: 'natural', label: 'Natural', text: 'Spoken text.' }]
+    }, 'Source text.', false);
+
+    harness.dispatch({ command: 'readVariant', variantId: 'natural' });
+    await settleMessages();
+    expect(harness.webview.html).toContain('Modality (inferred)');
+    expect(harness.webview.html).toContain('data-command="pinInferredModality"');
+    expect(harness.webview.html).toContain(
+      'data-setting="rewrite.preserveFormatting" checked disabled'
+    );
+    expect(harness.actions.readAloudText).toHaveBeenCalledWith('Spoken text.');
+
+    harness.dispatch({ command: 'pinInferredModality' });
+    await settleMessages();
+    expect(harness.actions.updateSetting).toHaveBeenCalledWith('rewrite.modality', 'spoken');
+    expect(harness.webview.html).not.toContain('Modality (inferred)');
+  });
+
+  it.each(REWRITE_MODES)('applies every $label axis through the existing setting path', async (mode) => {
+    const harness = createHarness();
+
+    harness.dispatch({ command: 'applyRewriteMode', modeId: mode.id });
+    await vi.waitFor(() => expect(harness.actions.updateSetting).toHaveBeenCalledTimes(8));
+
+    expect(harness.actions.updateSetting.mock.calls).toEqual(
+      rewriteModeSettingEntries(mode.id).map(({ key, value }) => [key, value])
     );
   });
 
@@ -254,4 +342,163 @@ describe('results webview failure reporting', () => {
 
     expect(showErrorMessage).not.toHaveBeenCalled();
   });
+
+  it('opens User Dictionary without clearing the most recent ordinary result', async () => {
+    const harness = createHarness();
+    harness.provider.setResult({
+      kind: 'translation',
+      providerId: 'gemini',
+      sourceText: 'ordinary source',
+      sourceLanguage: 'en',
+      targetLanguage: 'ko',
+      createdAt: '1970-01-01T00:00:00.000Z',
+      translatedText: 'ordinary result'
+    }, 'ordinary source', false);
+
+    await harness.provider.showUserDictionary();
+    expect(harness.webview.html).toContain('User Dictionary');
+
+    harness.dispatch({ command: 'showResult' });
+    await settleMessages();
+    expect(harness.webview.html).toContain('ordinary source');
+    expect(harness.webview.html).toContain('ordinary result');
+  });
+
+  it('renders a storage failure as an error and never as an empty dictionary', async () => {
+    const harness = createHarness({
+      loadUserDictionary: vi.fn(async () => {
+        throw new Error('The local store could not be read.');
+      })
+    });
+
+    await expect(harness.provider.showUserDictionary()).rejects.toThrow(
+      'The local store could not be read.'
+    );
+    expect(harness.webview.html).toContain('User Dictionary storage error');
+    expect(harness.webview.html).not.toContain('Your User Dictionary is empty.');
+  });
+
+  it('uses multi-select only for deletion and export', async () => {
+    const first = userDictionaryEntry({ id: 'first' });
+    const second = userDictionaryEntry({
+      id: 'second',
+      term: 'second',
+      normalizedTerm: 'second'
+    });
+    const deleteUserDictionaryEntries = vi.fn(async () => [second]);
+    const exportUserDictionary = vi.fn(async () => undefined);
+    const regenerateUserDictionaryEntry = vi.fn();
+    const harness = createHarness({
+      loadUserDictionary: vi.fn(async () => [first, second]),
+      deleteUserDictionaryEntries,
+      exportUserDictionary,
+      regenerateUserDictionaryEntry
+    });
+    await harness.provider.showUserDictionary();
+
+    harness.dispatch({ command: 'selectUserDictionaryEntries', entryIds: ['first'] });
+    await settleMessages();
+    harness.dispatch({ command: 'exportUserDictionary', format: 'json', selectedOnly: true });
+    await settleMessages();
+    expect(exportUserDictionary).toHaveBeenCalledWith('json', ['first']);
+
+    harness.dispatch({ command: 'deleteSelectedUserDictionaryEntries' });
+    await settleMessages();
+    expect(deleteUserDictionaryEntries).toHaveBeenCalledWith(['first']);
+    expect(regenerateUserDictionaryEntry).not.toHaveBeenCalled();
+  });
+
+  it('previews imports before passing an explicit duplicate decision to storage', async () => {
+    const entry = userDictionaryEntry();
+    const preview = {
+      currentEntryCount: 1,
+      entryCount: 1,
+      validEntryCount: 1,
+      duplicateCount: 1,
+      invalidRecordCount: 0,
+      proposedAddCount: 0,
+      storeDuplicateCount: 1,
+      duplicates: [{
+        recordIndex: 0,
+        entryId: 'incoming',
+        duplicateEntryId: entry.id,
+        source: 'store' as const
+      }],
+      invalidRecords: [],
+      entries: [entry]
+    };
+    const applyUserDictionaryImport = vi.fn(async () => [entry]);
+    const harness = createHarness({
+      loadUserDictionary: vi.fn(async () => [entry]),
+      previewUserDictionaryImport: vi.fn(async () => preview),
+      applyUserDictionaryImport
+    });
+
+    harness.dispatch({ command: 'previewUserDictionaryImport' });
+    await settleMessages();
+    expect(harness.webview.html).toContain('Import preview');
+    expect(applyUserDictionaryImport).not.toHaveBeenCalled();
+
+    const decision = { mode: 'merge' as const, duplicateStrategy: 'keepExisting' as const };
+    harness.dispatch({ command: 'applyUserDictionaryImport', importDecision: decision });
+    await settleMessages();
+    expect(applyUserDictionaryImport).toHaveBeenCalledWith(preview, decision);
+  });
+
+  it('cancels an editable draft without calling storage', async () => {
+    const harness = createHarness();
+    await harness.provider.showUserDictionaryDraft(userDictionaryEntry({
+      id: 'unsaved-draft',
+      merriamWebsterReference: undefined
+    }));
+    expect(harness.webview.html).toContain('Nothing is stored until Save');
+
+    harness.dispatch({ command: 'cancelUserDictionaryDraft' });
+    await settleMessages();
+
+    expect(harness.actions.saveUserDictionaryEntry).not.toHaveBeenCalled();
+    expect(harness.webview.html).not.toContain('Nothing is stored until Save');
+  });
+
+  it('offers Open existing and Update existing after an explicit duplicate save', async () => {
+    const existing = userDictionaryEntry({ id: 'existing-entry' });
+    const draft = userDictionaryEntry({ id: 'duplicate-draft', merriamWebsterReference: undefined });
+    const saveUserDictionaryEntry = vi.fn(async () => ({
+      kind: 'duplicate' as const,
+      existing,
+      entries: [existing]
+    }));
+    const harness = createHarness({ saveUserDictionaryEntry });
+    await harness.provider.showUserDictionaryDraft(draft);
+
+    harness.dispatch({ command: 'saveUserDictionaryDraft', entry: editableDraft(draft) });
+    await settleMessages();
+
+    expect(saveUserDictionaryEntry).toHaveBeenCalledTimes(1);
+    expect(harness.webview.html).toContain('Open existing');
+    expect(harness.webview.html).toContain('Update existing');
+    expect(harness.webview.html).toContain('This expression is already in your User Dictionary');
+  });
 });
+
+function editableDraft(entry: ReturnType<typeof userDictionaryEntry>) {
+  return {
+    term: entry.term,
+    language: entry.language,
+    entryType: entry.entryType,
+    collection: entry.collection,
+    domains: entry.domains,
+    tags: entry.tags,
+    pronunciation: entry.pronunciation?.display ?? '',
+    senses: entry.senses.map((sense) => ({
+      partOfSpeech: sense.partOfSpeech ?? '',
+      definition: sense.definition,
+      usageNote: sense.usageNote ?? '',
+      synonyms: sense.synonyms,
+      antonyms: sense.antonyms,
+      relatedTerms: sense.relatedTerms,
+      examples: sense.examples
+    })),
+    aliases: entry.aliases
+  };
+}

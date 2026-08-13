@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
 import { registerKrenChatTools } from './chatTools.js';
 import {
@@ -20,6 +21,7 @@ import {
   KREN_SECRET_KEYS,
   MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE,
   runKrenOperation,
+  runUserDictionaryCapture,
   storeMerriamWebsterKey,
   type KrenOperation,
   type KrenRuntime
@@ -38,6 +40,12 @@ import {
   REWRITE_VARIANT_LIST,
   type QuickMenuRewriteVariantId
 } from './rewriteVariants.js';
+import {
+  isRewriteAxisSetting,
+  migrateLegacyRewriteSettings,
+  REWRITE_AXIS_DEFAULTS,
+  type RewriteConfigurationTarget
+} from './rewriteAxes.js';
 import { KoreanDictionaryProvider } from './providers/koreanDictionary.js';
 import {
   DEFAULT_PRO_MODELS,
@@ -69,6 +77,22 @@ import {
   normalizeCustomWord
 } from './providers/harperGrammar.js';
 import { GrammarCodeActions, type GrammarDiagnosticState } from './grammarCodeActions.js';
+import {
+  normalizeUserDictionaryTerm,
+  exportUserDictionaryJson,
+  exportUserDictionaryMarkdown,
+  requiresRemoveAllConfirmation,
+  UserDictionaryService,
+  UserDictionaryStorage,
+  type UserDictionaryCaptureMode,
+  type UserDictionaryCaptureResult,
+  type UserDictionaryEntryV1,
+  type UserDictionaryExportFormat,
+  type UserDictionaryImportDecision,
+  type UserDictionaryImportPreview,
+  type UserDictionaryPurgePreview,
+  type UserDictionaryPurgeSelection
+} from './userDictionary/index.js';
 
 const GEMINI_KEY = KREN_SECRET_KEYS.gemini;
 const GEMINI_PRO_KEY = KREN_SECRET_KEYS.geminiPro;
@@ -111,6 +135,8 @@ let readAloudSession = 0;
 let automaticGrammarTimer: NodeJS.Timeout | undefined;
 let activeExtensionContext: vscode.ExtensionContext;
 let storedSecretKeys = new Set<string>();
+let userDictionaryService: UserDictionaryService;
+let userDictionaryStoragePath = '';
 
 // The extension identity is publisher-dependent: "local.kren-translate" when sideloaded
 // from the private tree, "masstransferase.kren-translate" once published. Hard-coding it
@@ -135,6 +161,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   cloudTranslationUsage = new FileCloudTranslationUsage(
     path.join(context.globalStorageUri.fsPath, 'cloud-translation-usage.json')
   );
+  const userDictionaryStorage = new UserDictionaryStorage(
+    path.join(context.globalStorageUri.fsPath, 'user-dictionary')
+  );
+  userDictionaryStoragePath = userDictionaryStorage.filePath;
+  userDictionaryService = new UserDictionaryService(userDictionaryStorage);
   try {
     await cloudTranslationUsage.initialize(
       context.globalState.get<CloudTranslationUsageState>(LEGACY_CLOUD_USAGE_KEY)
@@ -153,6 +184,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await migrateTranslationProviderToCloud(context);
   await migrateDeprecatedGeminiFallback(context);
   await migrateTranslationTargetToAutomatic(context);
+  await migrateRewriteAxes();
   registerKrenChatTools(context, extensionRuntime(context));
   resultsView = new KrenResultsViewProvider({
     copy: copyLastResult,
@@ -170,6 +202,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       grammarCodeActions.clear();
       resultsView.clear();
     },
+    loadUserDictionary: () => userDictionaryService.list(),
+    saveUserDictionaryEntry: (entry, replaceId) =>
+      userDictionaryService.save(entry, replaceId),
+    deleteUserDictionaryEntry: (id) => deleteUserDictionaryEntry(id),
+    deleteUserDictionaryEntries: (ids) => deleteUserDictionaryEntries(ids),
+    previewUserDictionaryPurge: (selection) => userDictionaryService.previewPurge(selection),
+    confirmUserDictionaryPurge: (preview) => confirmUserDictionaryPurge(preview),
+    previewUserDictionaryImport: () => previewUserDictionaryImport(),
+    applyUserDictionaryImport: (preview, decision) =>
+      userDictionaryService.applyImport(preview, decision),
+    exportUserDictionary: (format, entryIds) =>
+      exportUserDictionary(format, entryIds),
+    regenerateUserDictionaryEntry: (expression, captureMode) =>
+      regenerateUserDictionaryDraft(context, expression, captureMode),
     updateSetting: updatePanelSetting,
     runCommand: runPanelCommand,
     log: (message) => outputChannel.appendLine(message),
@@ -281,6 +327,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kren.replaceLastResult', replaceLastResult),
     vscode.commands.registerCommand('kren.showDetails', showDetails),
     vscode.commands.registerCommand('kren.showResults', () => resultsView.reveal()),
+    vscode.commands.registerCommand('kren.addToUserDictionary', () =>
+      executeAddToUserDictionary(context)
+    ),
+    vscode.commands.registerCommand('kren.openUserDictionary', () =>
+      openUserDictionary()
+    ),
     vscode.commands.registerCommand('kren.hideSecondarySidebar', () =>
       vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar')
     ),
@@ -426,6 +478,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 function readPanelSettings(): KrenPanelSettings {
   const config = vscode.workspace.getConfiguration('kren');
   return {
+    userDictionaryEnabled: config.get<boolean>('userDictionary.enabled', false),
+    userDictionaryCaptureMode: config.get<KrenPanelSettings['userDictionaryCaptureMode']>(
+      'userDictionary.defaultCaptureMode',
+      'llmOnly'
+    ),
+    userDictionaryFallbackOnMerriamWebsterNoMatch: config.get<boolean>(
+      'userDictionary.fallbackOnMerriamWebsterNoMatch',
+      false
+    ),
+    userDictionaryProvider: config.get<KrenPanelSettings['userDictionaryProvider']>(
+      'userDictionary.provider',
+      'gemini'
+    ),
+    userDictionaryModel: config.get<string>(
+      'userDictionary.model',
+      'gemini-3.5-flash'
+    ),
+    userDictionaryThinkingOrEffort: config.get<KrenPanelSettings['userDictionaryThinkingOrEffort']>(
+      'userDictionary.thinkingOrEffort',
+      'low'
+    ),
+    userDictionaryEntryLanguage: config.get<string>('userDictionary.entryLanguage', 'auto'),
+    userDictionaryIncludePronunciation: config.get<boolean>(
+      'userDictionary.includePronunciation',
+      true
+    ),
+    userDictionaryIncludeSynonyms: config.get<boolean>(
+      'userDictionary.includeSynonyms',
+      true
+    ),
+    userDictionaryIncludeUsageNotes: config.get<boolean>(
+      'userDictionary.includeUsageNotes',
+      true
+    ),
+    userDictionaryNumberOfExamples: config.get<KrenPanelSettings['userDictionaryNumberOfExamples']>(
+      'userDictionary.numberOfExamples',
+      2
+    ),
+    userDictionaryIncludeTechnicalMeanings: config.get<boolean>(
+      'userDictionary.includeTechnicalMeanings',
+      true
+    ),
+    userDictionaryStoragePath,
     openResultsAtStartup: config.get<boolean>('results.openAtStartup', false),
     translationProvider: config.get<'googleCloudTranslation' | 'gemini'>(
       'translationProvider',
@@ -459,9 +554,17 @@ function readPanelSettings(): KrenPanelSettings {
       'gemini'
     ),
     rewriteSourceLanguage: config.get<string>('rewrite.sourceLanguage', 'auto'),
+    rewriteModality: config.get<KrenPanelSettings['rewriteModality']>(
+      'rewrite.modality',
+      REWRITE_AXIS_DEFAULTS.modality
+    ),
+    rewriteFunction: config.get<KrenPanelSettings['rewriteFunction']>(
+      'rewrite.function',
+      REWRITE_AXIS_DEFAULTS.function
+    ),
     rewriteEnglishVariety: config.get<KrenPanelSettings['rewriteEnglishVariety']>(
       'rewrite.englishVariety',
-      'followGrammar'
+      REWRITE_AXIS_DEFAULTS.englishVariety
     ),
     geminiModel: config.get<string>('gemini.model', 'gemini-3.5-flash'),
     geminiThinkingLevel: config.get<KrenPanelSettings['geminiThinkingLevel']>(
@@ -501,14 +604,33 @@ function readPanelSettings(): KrenPanelSettings {
       'rewrite.quickMenuVariant',
       ALL_REWRITE_VARIANTS_ID
     ),
-    rewriteDomain: config.get<KrenPanelSettings['rewriteDomain']>('rewrite.domain', 'general'),
-    rewriteTone: config.get<KrenPanelSettings['rewriteTone']>(
-      'rewrite.tone',
-      'preserveVoice'
+    rewriteDomain: config.get<KrenPanelSettings['rewriteDomain']>(
+      'rewrite.domain',
+      REWRITE_AXIS_DEFAULTS.domain
+    ),
+    rewriteFormality: config.get<KrenPanelSettings['rewriteFormality']>(
+      'rewrite.formality',
+      REWRITE_AXIS_DEFAULTS.formality
+    ),
+    rewriteVoice: config.get<KrenPanelSettings['rewriteVoice']>(
+      'rewrite.voice',
+      REWRITE_AXIS_DEFAULTS.voice
+    ),
+    rewriteStance: config.get<KrenPanelSettings['rewriteStance']>(
+      'rewrite.stance',
+      REWRITE_AXIS_DEFAULTS.stance
+    ),
+    rewriteLength: config.get<KrenPanelSettings['rewriteLength']>(
+      'rewrite.length',
+      REWRITE_AXIS_DEFAULTS.length
+    ),
+    rewritePerspective: config.get<KrenPanelSettings['rewritePerspective']>(
+      'rewrite.perspective',
+      REWRITE_AXIS_DEFAULTS.perspective
     ),
     rewriteRhetoricalMode: config.get<KrenPanelSettings['rewriteRhetoricalMode']>(
       'rewrite.rhetoricalMode',
-      'preserveOriginal'
+      REWRITE_AXIS_DEFAULTS.rhetoricalMode
     ),
     preserveFormatting: config.get<boolean>('rewrite.preserveFormatting', true),
     includeChangeNotes: config.get<boolean>('rewrite.includeChangeNotes', false),
@@ -581,6 +703,35 @@ function validatedPanelSetting(
   key: KrenPanelSettingKey,
   value: string | number | boolean
 ): string | number | boolean | undefined {
+  if (key === 'userDictionary.defaultCaptureMode') {
+    return value === 'llmOnly' || value === 'merriamWebsterAndLlm' ? value : undefined;
+  }
+  if (key === 'userDictionary.provider') {
+    return value === 'gemini' || value === 'openai' || value === 'anthropic'
+      ? value
+      : undefined;
+  }
+  if (key === 'userDictionary.thinkingOrEffort') {
+    return typeof value === 'string' &&
+      ['auto', 'none', 'minimal', 'low', 'medium', 'high'].includes(value)
+      ? value
+      : undefined;
+  }
+  if (key === 'userDictionary.numberOfExamples') {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return [0, 1, 2, 3].includes(numeric) ? numeric : undefined;
+  }
+  if (key === 'userDictionary.entryLanguage') {
+    return typeof value === 'string' &&
+      (value.trim() === 'auto' || isPlausibleLanguageCode(value.trim()))
+      ? value.trim()
+      : undefined;
+  }
+  if (key === 'userDictionary.model') {
+    return typeof value === 'string' && /^models\/[\w.:-]+$|^[\w.:-]+$/u.test(value.trim())
+      ? value.trim()
+      : undefined;
+  }
   if (key === 'translationProvider') {
     return value === 'googleCloudTranslation' || value === 'gemini' ? value : undefined;
   }
@@ -652,32 +803,12 @@ function validatedPanelSetting(
   if (key === 'rewrite.quickMenuVariant') {
     return value === ALL_REWRITE_VARIANTS_ID || isRewriteVariantId(value) ? value : undefined;
   }
-  if (key === 'rewrite.domain') {
-    return value === 'general' || value === 'academic' || value === 'technical' ||
-      value === 'business' || value === 'email' ? value : undefined;
-  }
-  if (key === 'rewrite.englishVariety') {
-    return typeof value === 'string' && [
-      'followGrammar', 'american', 'british', 'australian', 'canadian', 'indian',
-      'international'
-    ].includes(value) ? value : undefined;
-  }
+  if (key.startsWith('rewrite.') && isRewriteAxisSetting(key, value)) return value;
   if (key === 'rewrite.sourceLanguage') {
     return typeof value === 'string' &&
       (value.trim() === 'auto' || isPlausibleLanguageCode(value.trim()))
       ? value.trim()
       : undefined;
-  }
-  if (key === 'rewrite.tone') {
-    return typeof value === 'string' && [
-      'preserveVoice', 'neutral', 'professional', 'warm', 'assertive', 'cautious',
-      'diplomatic', 'formal', 'direct', 'plainLanguage'
-    ].includes(value) ? value : undefined;
-  }
-  if (key === 'rewrite.rhetoricalMode') {
-    return typeof value === 'string' && [
-      'preserveOriginal', 'explain', 'persuade', 'recommend', 'constructivelyChallenge'
-    ].includes(value) ? value : undefined;
   }
   if (key === 'gemini.retry.maxAttempts' || key === 'languageModel.retry.maxAttempts') {
     const numeric = typeof value === 'number' ? value : Number(value);
@@ -860,6 +991,19 @@ async function migrateTranslationProviderToCloud(
     );
   }
   await context.globalState.update(CLOUD_DEFAULT_MIGRATION, true);
+}
+
+async function migrateRewriteAxes(): Promise<void> {
+  const config = vscode.workspace.getConfiguration('kren');
+  const targets: Record<RewriteConfigurationTarget, vscode.ConfigurationTarget> = {
+    global: vscode.ConfigurationTarget.Global,
+    workspace: vscode.ConfigurationTarget.Workspace,
+    workspaceFolder: vscode.ConfigurationTarget.WorkspaceFolder
+  };
+  await migrateLegacyRewriteSettings({
+    inspect: <T>(key: string) => config.inspect<T>(key),
+    update: (key, value, target) => config.update(key, value, targets[target])
+  });
 }
 
 function refreshReadAloudVoices(): Promise<void> {
@@ -1513,6 +1657,242 @@ async function executeLookup(
   }
 }
 
+async function executeAddToUserDictionary(context: vscode.ExtensionContext): Promise<void> {
+  if (!vscode.workspace.getConfiguration('kren').get<boolean>('userDictionary.enabled', false)) {
+    await vscode.window.showInformationMessage(
+      'Enable User Dictionary in KREN Settings before adding an entry.'
+    );
+    return;
+  }
+  const editor = vscode.window.activeTextEditor;
+  const selections = editor?.selections.filter((selection) => !selection.isEmpty) ?? [];
+  if (!editor || selections.length !== 1 || !selections[0]) {
+    const selected = await vscode.window.showInformationMessage(
+      'Select one word or phrase to add to User Dictionary.',
+      'Open User Dictionary'
+    );
+    if (selected === 'Open User Dictionary') await openUserDictionary();
+    return;
+  }
+  const expression = editor.document.getText(selections[0]);
+  const maximum = vscode.workspace.getConfiguration('kren').get<number>(
+    'translation.maxCharacters',
+    5000
+  );
+  if (expression.length > maximum) {
+    await vscode.window.showWarningMessage(
+      `The selected expression has ${expression.length} characters; the configured maximum is ${maximum}.`
+    );
+    return;
+  }
+  // Pre-flight duplicate check, before any provider request. The save path already
+  // refuses a duplicate, but only after a generation has been paid for and waited on.
+  //
+  // Matched on the normalized term alone, deliberately. The authoritative key is language
+  // plus term, and the language is auto-detected during generation, so it does not exist
+  // yet. That makes this a warning rather than a refusal: the same spelling in another
+  // language is a legitimate separate entry, so Add anyway has to remain available.
+  try {
+    const existing = (await userDictionaryService.list()).filter(
+      (entry) => entry.normalizedTerm === normalizeUserDictionaryTerm(expression)
+    );
+    if (existing.length > 0) {
+      const choice = await vscode.window.showInformationMessage(
+        'This expression is already in your User Dictionary.',
+        'Open existing',
+        'Add anyway'
+      );
+      if (choice === 'Open existing') {
+        await openUserDictionary();
+        return;
+      }
+      if (choice !== 'Add anyway') return;
+    }
+  } catch {
+    // A dictionary that cannot be read is reported by the save path, which fails closed
+    // and preserves the file. Blocking the capture here would turn a readable-store
+    // problem into an unusable feature, so fall through and let the real gate speak.
+  }
+
+  try {
+    const draft = await generateUserDictionaryDraft(context, expression);
+    await resultsView.showUserDictionaryDraft(draft);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      await vscode.window.showInformationMessage(
+        'User Dictionary generation was cancelled. Nothing was saved.'
+      );
+      return;
+    }
+    await resultsView.showUserDictionaryGenerationFailure();
+    await showLookupError(error, () => executeAddToUserDictionary(context));
+  }
+}
+
+async function generateUserDictionaryDraft(
+  context: vscode.ExtensionContext,
+  expression: string,
+  captureMode?: UserDictionaryCaptureMode
+): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1> {
+  return vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Window,
+      title: 'KREN: generating an editable User Dictionary draft…',
+      cancellable: true
+    },
+    async (_progress, token) => {
+      const controller = new AbortController();
+      const timeoutMs = vscode.workspace.getConfiguration('kren').get<number>(
+        'request.timeoutMs',
+        45000
+      );
+      const cancellation = token.onCancellationRequested(() => controller.abort());
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await runUserDictionaryCapture(
+          extensionRuntime(context),
+          expression,
+          controller.signal,
+          captureMode
+        );
+      } finally {
+        clearTimeout(timeout);
+        cancellation.dispose();
+      }
+    }
+  );
+}
+
+async function regenerateUserDictionaryDraft(
+  context: vscode.ExtensionContext,
+  expression: string,
+  captureMode: UserDictionaryCaptureMode
+): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1 | undefined> {
+  const confirmed = await vscode.window.showWarningMessage(
+    'Regenerate this User Dictionary draft and discard its unsaved edits?',
+    { modal: true },
+    'Regenerate'
+  );
+  return confirmed === 'Regenerate'
+    ? generateUserDictionaryDraft(context, expression, captureMode)
+    : undefined;
+}
+
+async function openUserDictionary(): Promise<void> {
+  if (!vscode.workspace.getConfiguration('kren').get<boolean>('userDictionary.enabled', false)) {
+    await vscode.window.showInformationMessage(
+      'Enable User Dictionary in KREN Settings before opening it.'
+    );
+    return;
+  }
+  try {
+    await resultsView.showUserDictionary();
+  } catch (error) {
+    await showLookupError(error);
+  }
+}
+
+async function deleteUserDictionaryEntry(id: string): Promise<UserDictionaryEntryV1[]> {
+  const confirmed = await vscode.window.showWarningMessage(
+    'Delete this User Dictionary entry?',
+    { modal: true },
+    'Delete'
+  );
+  if (confirmed !== 'Delete') return userDictionaryService.list();
+  return userDictionaryService.delete(id);
+}
+
+async function deleteUserDictionaryEntries(
+  ids: readonly string[]
+): Promise<UserDictionaryEntryV1[] | undefined> {
+  if (ids.length === 0) return userDictionaryService.list();
+  const confirmed = await vscode.window.showWarningMessage(
+    `Delete the ${ids.length} selected User Dictionary entries?`,
+    { modal: true },
+    'Delete selected entries'
+  );
+  return confirmed === 'Delete selected entries'
+    ? userDictionaryService.deleteMany(ids)
+    : undefined;
+}
+
+async function confirmUserDictionaryPurge(
+  preview: UserDictionaryPurgePreview
+): Promise<UserDictionaryEntryV1[] | undefined> {
+  if (preview.count === 0) return undefined;
+  if (requiresRemoveAllConfirmation(preview.selection)) {
+    const typed = await vscode.window.showInputBox({
+      title: 'Remove every User Dictionary entry',
+      prompt: `This removes all ${preview.count} previewed entries. Type REMOVE ALL to continue.`,
+      placeHolder: 'REMOVE ALL',
+      ignoreFocusOut: true,
+      validateInput: (value) => value === 'REMOVE ALL'
+        ? undefined
+        : 'Type REMOVE ALL exactly. Age-based purge confirmation cannot satisfy this step.'
+    });
+    if (typed !== 'REMOVE ALL') return undefined;
+  } else {
+    const confirmed = await vscode.window.showWarningMessage(
+      `Delete exactly the ${preview.count} entries listed in the purge preview?`,
+      { modal: true },
+      'Delete previewed entries'
+    );
+    if (confirmed !== 'Delete previewed entries') return undefined;
+  }
+  return userDictionaryService.confirmPurge(preview);
+}
+
+async function previewUserDictionaryImport(): Promise<UserDictionaryImportPreview | undefined> {
+  const selected = await vscode.window.showOpenDialog({
+    canSelectFiles: true,
+    canSelectFolders: false,
+    canSelectMany: false,
+    title: 'Preview User Dictionary import',
+    filters: {
+      'User Dictionary backups': ['json', 'md', 'markdown']
+    }
+  });
+  const source = selected?.[0];
+  if (!source) return undefined;
+  const extension = path.extname(source.fsPath).toLocaleLowerCase('und');
+  const format: UserDictionaryExportFormat = extension === '.md' || extension === '.markdown'
+    ? 'markdown'
+    : 'json';
+  const content = await readFile(source.fsPath, 'utf8');
+  return userDictionaryService.previewImport(content, format);
+}
+
+async function exportUserDictionary(
+  format: UserDictionaryExportFormat,
+  entryIds?: readonly string[]
+): Promise<void> {
+  const entries = await userDictionaryService.list();
+  const requested = entryIds ? new Set(entryIds) : undefined;
+  const selected = entryIds
+    ? entries.filter((entry) => requested?.has(entry.id))
+    : entries;
+  const extension = format === 'json' ? 'json' : 'md';
+  const destination = await vscode.window.showSaveDialog({
+    title: format === 'json'
+      ? 'Export lossless User Dictionary JSON'
+      : 'Export human-readable, lossy User Dictionary Markdown',
+    saveLabel: 'Export',
+    filters: format === 'json'
+      ? { 'JSON backup': ['json'] }
+      : { 'Markdown document': ['md'] },
+    defaultUri: vscode.Uri.file(`kren-user-dictionary.${extension}`)
+  });
+  if (!destination) return;
+  const store = { schemaVersion: 1 as const, entries: selected };
+  const content = format === 'json'
+    ? exportUserDictionaryJson(store)
+    : exportUserDictionaryMarkdown(store);
+  await writeFile(destination.fsPath, content, 'utf8');
+  await vscode.window.showInformationMessage(
+    `Exported ${selected.length} User Dictionary entr${selected.length === 1 ? 'y' : 'ies'} as ${format === 'json' ? 'lossless JSON' : 'lossy Markdown'}.`
+  );
+}
+
 async function executeClipboardLookup(context: vscode.ExtensionContext): Promise<void> {
   const rawText = await vscode.env.clipboard.readText();
   const config = vscode.workspace.getConfiguration('kren');
@@ -1538,7 +1918,9 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
     left.id === preferredRewrite ? -1 : right.id === preferredRewrite ? 1 : 0
   );
   const pickerItems: Array<
-    { label: string; operation: KrenOperation } | { label: string; command: string }
+    { label: string; operation: KrenOperation } |
+    { label: string; command: string } |
+    { label: string; userDictionaryCapture: true }
   > = [
       { label: '$(book) English Dictionary Search', operation: 'englishDictionary' as const },
       { label: '$(symbol-keyword) Synonyms Search', operation: 'synonyms' as const },
@@ -1547,6 +1929,12 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
       { label: '$(globe) Translate', operation: 'translate' as const },
       { label: '$(comment-discussion) Explain Meaning or Nuance', operation: 'explain' as const },
       { label: '$(checklist) Grammar Check (offline)', operation: 'grammar' as const },
+      ...(config.get<boolean>('userDictionary.enabled', false)
+        ? [{
+          label: '$(notebook) Add Clipboard Expression to User Dictionary',
+          userDictionaryCapture: true as const
+        }]
+        : []),
       ...rewriteItems,
       { label: '$(settings-gear) Configure Rewrite Gemini Profile', command: 'kren.configureRewriteGeminiProfile' as const },
       { label: '$(settings-gear) Configure Languages', command: 'kren.configureLanguages' as const },
@@ -1562,6 +1950,31 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
     }
   );
   if (!selected) return;
+  if ('userDictionaryCapture' in selected) {
+    if (!rawText.trim()) {
+      await vscode.window.showInformationMessage('Copy a word or phrase first.');
+      return;
+    }
+    if (rawText.length > maxCharacters) {
+      await vscode.window.showWarningMessage(
+        `The clipboard has ${rawText.length} characters; the configured maximum is ${maxCharacters}.`
+      );
+      return;
+    }
+    try {
+      const draft = await generateUserDictionaryDraft(context, rawText);
+      await resultsView.showUserDictionaryDraft(draft);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        await vscode.window.showInformationMessage(
+          'User Dictionary generation was cancelled. Nothing was saved.'
+        );
+        return;
+      }
+      await showLookupError(error, () => executeClipboardLookup(context));
+    }
+    return;
+  }
   if (!('operation' in selected)) {
     await vscode.commands.executeCommand(selected.command);
     return;

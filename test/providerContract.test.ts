@@ -36,7 +36,14 @@ describe('normalized language-model contract', () => {
       operation: 'rewrite',
       englishVariety: 'british',
       domain: 'business',
-      tone: 'plainLanguage'
+      modality: 'written',
+      function: 'general',
+      formality: 'neutral',
+      voice: 'preserve',
+      stance: 'direct',
+      length: 'preserve',
+      perspective: 'preserve',
+      rhetoricalMode: 'preserveOriginal'
     };
     const variants = [
       { id: 'natural', text: 'Use our combined strengths.' },
