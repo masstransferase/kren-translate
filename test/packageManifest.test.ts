@@ -47,6 +47,7 @@ interface Manifest {
     languageModelTools: Array<{ name: string; modelDescription: string }>;
     viewsContainers: Record<string, Array<{ id: string; title: string }>>;
   };
+  scripts: Record<string, string>;
 }
 
 const manifest = JSON.parse(
@@ -231,6 +232,16 @@ describe('VS Code menu contributions', () => {
     expect(tool?.modelDescription).toContain('Gemini');
     expect(tool?.modelDescription).toContain('OpenAI API');
     expect(tool?.modelDescription).toContain('Anthropic Claude API');
+  });
+
+  // A VSIX built on 2026-08-13 shipped a dist/extension.js that predated the last two
+  // features, because `vsce package` was run directly instead of through `npm run
+  // package` and nothing made it compile first. vsce runs vscode:prepublish on every
+  // invocation, so defining it there is what closes the hole; this test is what stops
+  // the script being moved back into a wrapper that is easy to bypass.
+  it('compiles on every vsce invocation rather than only through the package script', () => {
+    expect(manifest.scripts['vscode:prepublish']).toBe('npm run compile');
+    expect(manifest.scripts.package).not.toContain('npm run compile');
   });
 
   it('does not classify user-supplied Gemini credentials as free or paid', () => {
