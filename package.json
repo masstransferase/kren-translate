@@ -2,7 +2,7 @@
   "name": "kren-translate",
   "displayName": "KREN: Dictionary, Translate & Rewrite",
   "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, multilingual rewriting, and read aloud inside VS Code.",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "private": true,
   "publisher": "masstransferase",
   "license": "MIT",
@@ -188,8 +188,8 @@
         "category": "KREN"
       },
       {
-        "command": "kren.hideSecondarySidebar",
-        "title": "Hide Secondary Sidebar",
+        "command": "kren.hideResults",
+        "title": "Hide KREN",
         "category": "KREN"
       },
       {

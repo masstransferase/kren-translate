@@ -318,6 +318,23 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     return started;
   }
 
+  // The symmetric partner to reveal(). KREN's view is gated behind kren.resultsEnabled, so
+  // clearing that context removes KREN from the Secondary Sidebar and leaves everything
+  // else living there, Chat, Claude Code, Codex, exactly as it was.
+  //
+  // This deliberately does not run workbench.action.closeAuxiliaryBar, which is what the
+  // hide command used to do. That closes the entire panel, so hiding KREN took every
+  // other extension's view down with it, and reopening the panel from one of those
+  // brought KREN straight back because it had never actually been hidden. An extension
+  // should hide itself and leave the workbench layout alone.
+  public async hide(): Promise<void> {
+    await vscode.commands.executeCommand(
+      'setContext',
+      KrenResultsViewProvider.enabledContext,
+      false
+    );
+  }
+
   public async reveal(): Promise<void> {
     await vscode.commands.executeCommand(
       'setContext',

@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { showErrorMessage, showInformationMessage, showWarningMessage, writeText } = vi.hoisted(() => ({
+const {
+  executeCommand, showErrorMessage, showInformationMessage, showWarningMessage, writeText
+} = vi.hoisted(() => ({
+  executeCommand: vi.fn(async (..._args: unknown[]) => undefined),
   showErrorMessage: vi.fn(async (_message: string) => undefined),
   showInformationMessage: vi.fn(async (_message: string) => undefined),
   showWarningMessage: vi.fn(async (_message: string) => undefined),
@@ -8,7 +12,7 @@ const { showErrorMessage, showInformationMessage, showWarningMessage, writeText 
 }));
 
 vi.mock('vscode', () => ({
-  commands: { executeCommand: vi.fn(async () => undefined) },
+  commands: { executeCommand },
   env: { clipboard: { writeText }, remoteName: undefined },
   Uri: {
     joinPath: (base: { path?: string }, ...parts: string[]) => ({
@@ -575,3 +579,50 @@ function editableDraft(entry: ReturnType<typeof userDictionaryEntry>) {
     aliases: entry.aliases
   };
 }
+
+// The hide command used to run workbench.action.closeAuxiliaryBar, which closes the whole
+// Secondary Sidebar. Chat, Claude Code, and Codex live there too, so hiding KREN took all
+// of them down, and reopening the panel from one of those brought KREN back because it had
+// never been hidden. Reported by the owner on 2026-08-14.
+//
+// Asserted in both directions: the context is cleared, and the workbench command is not
+// called. Only the first half would still pass if someone added the close back alongside
+// it, which is exactly the shape of an accidental restoration.
+describe('hiding KREN', () => {
+  it('clears its own context and leaves the Secondary Sidebar alone', async () => {
+    executeCommand.mockClear();
+    const harness = createHarness();
+
+    await harness.provider.hide();
+
+    expect(executeCommand).toHaveBeenCalledWith('setContext', 'kren.resultsEnabled', false);
+    const commandNames = executeCommand.mock.calls.map((call) => call[0]);
+    expect(commandNames).not.toContain('workbench.action.closeAuxiliaryBar');
+  });
+
+  it('reveals by setting the same context true, so the two are symmetric', async () => {
+    executeCommand.mockClear();
+    const harness = createHarness();
+
+    await harness.provider.reveal();
+
+    expect(executeCommand).toHaveBeenCalledWith('setContext', 'kren.resultsEnabled', true);
+  });
+});
+
+// The command identifier changed in 1.3.3. A hand-written keybinding on the old name
+// would otherwise break silently, so the old identifier stays registered as an alias. It
+// runs the new behaviour on purpose: someone who bound it wanted KREN out of the way, not
+// the Secondary Sidebar closed. Asserted here as a contract on the manifest, since the
+// alias must not be contributed and so must not appear in the Command Palette.
+describe('the retired hide identifier', () => {
+  it('is no longer contributed, so it stays out of the Command Palette', () => {
+    const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      contributes: { commands: Array<{ command: string; title: string }> };
+    };
+    const contributed = manifest.contributes.commands.map((command) => command.command);
+
+    expect(contributed).toContain('kren.hideResults');
+    expect(contributed).not.toContain('kren.hideSecondarySidebar');
+  });
+});
