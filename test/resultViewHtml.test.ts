@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MERRIAM_WEBSTER_KEY_LIMIT, MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE } from '../src/operations.js';
+import { REWRITE_RHETORICAL_MODES } from '../src/rewriteAxes.js';
 
 // The settings groups in the order the owner asked for on 2026-08-13. Order is a
 // requirement here, not an accident of where each block was appended, and it is the kind
@@ -130,7 +131,7 @@ describe('KREN rich result view', () => {
       stance: 'preserve',
       length: 'preserve',
       perspective: 'preserve',
-      rhetoricalMode: 'preserveOriginal',
+      rhetoricalMode: 'preserve',
       variants: [
         { id: 'natural', label: 'Natural', text: 'Work together more effectively.' }
       ]
@@ -843,7 +844,7 @@ describe('KREN rich result view', () => {
       settings: {
         ...settings,
         rewriteDomain: 'general',
-        rewriteRhetoricalMode: 'preserveOriginal'
+        rewriteRhetoricalMode: 'preserve'
       },
       proModels
     });
@@ -903,5 +904,31 @@ describe('KREN rich result view', () => {
     expect(html).toContain('<option value="manuscript" selected>Manuscript</option>');
     expect(html).toContain('<option value="custom" disabled>Custom</option>');
     expect(html).toContain("command: 'applyRewriteMode'");
+  });
+
+  // The panel names the safest rhetorical mode twice in prose, in the Rewrite help
+  // paragraph and in the setting description. Neither is generated from the axis array,
+  // so when `preserveOriginal` was renamed to `preserve` in 1.3.0 both kept advertising
+  // "Preserve Original", a value that no longer existed under that name. The same defect
+  // as always: one rule, two copies, agreeing with each other and with nothing else.
+  //
+  // Asserted against the label rather than a literal, so renaming it again fails here
+  // until the prose is updated too.
+  it('names the current rhetorical-mode default in prose, not a retired label', () => {
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      brandImageUri,
+      activeScreen: 'settings',
+      settings,
+      proModels
+    });
+    const defaultLabel = REWRITE_RHETORICAL_MODES[0].label;
+
+    expect(html).toContain(`<option value="${REWRITE_RHETORICAL_MODES[0].id}" selected>${defaultLabel}</option>`);
+    expect(html).toContain(`Controls what the rewrite is trying to accomplish. ${defaultLabel} is the safest default.`);
+    for (const option of REWRITE_RHETORICAL_MODES.slice(1)) {
+      expect(html).not.toContain(`${defaultLabel} ${option.label}`);
+    }
   });
 });

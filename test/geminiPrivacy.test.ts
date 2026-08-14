@@ -18,7 +18,7 @@ const defaultRewriteAxes = {
   stance: 'preserve',
   length: 'preserve',
   perspective: 'preserve',
-  rhetoricalMode: 'preserveOriginal'
+  rhetoricalMode: 'preserve'
 } as const;
 
 afterEach(() => vi.restoreAllMocks());

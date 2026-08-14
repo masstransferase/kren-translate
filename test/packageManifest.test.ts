@@ -1,6 +1,9 @@
 import { readFileSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { REWRITE_AXIS_SETTINGS } from '../src/rewriteAxes.js';
+import {
+  REWRITE_AXIS_SETTINGS,
+  REWRITE_RHETORICAL_MODES
+} from '../src/rewriteAxes.js';
 import {
   USER_DICTIONARY_CAPTURE_MODES,
   USER_DICTIONARY_PROVIDERS
@@ -108,6 +111,17 @@ describe('VS Code menu contributions', () => {
         `${axis.key} default is not the first axis value`
       ).toBe(axis.values[0].id);
     }
+  });
+
+  it('derives the rhetorical-mode manifest values from its axis array', () => {
+    const rhetoricalMode = manifest.contributes.configuration.properties[
+      'kren.rewrite.rhetoricalMode'
+    ];
+    expect(rhetoricalMode?.enum).toEqual(
+      REWRITE_RHETORICAL_MODES.map((option) => option.id)
+    );
+    expect(rhetoricalMode?.default).toBe(REWRITE_RHETORICAL_MODES[0].id);
+    expect(rhetoricalMode?.enumDescriptions).toHaveLength(REWRITE_RHETORICAL_MODES.length);
   });
 
   it('keeps every User Dictionary configuration enum in exact source-array order', () => {

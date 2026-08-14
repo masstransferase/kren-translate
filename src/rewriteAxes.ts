@@ -67,7 +67,7 @@ export const REWRITE_FORMALITIES = [
 ] as const satisfies readonly RewriteAxisOption[];
 
 export const REWRITE_VOICES = [
-  { id: 'preserve', label: 'Preserve', instruction: "Preserve the writer's recognizable voice, formality, cadence, emphasis, and personality as far as the requested variant allows." },
+  { id: 'preserve', label: 'Preserve', instruction: "Preserve the writer's recognizable voice, cadence, emphasis, and personality as far as the requested variant allows." },
   { id: 'authoritative', label: 'Authoritative', instruction: 'Use an authoritative voice while preserving the source\'s actual authority, evidence, certainty, and commitments.' },
   { id: 'objective', label: 'Objective', instruction: 'Use an objective voice that distinguishes observations from interpretations and preserves uncertainty.' },
   { id: 'analytical', label: 'Analytical', instruction: 'Use an analytical voice that makes the supplied reasoning and distinctions clear without adding analysis or evidence.' },
@@ -97,7 +97,7 @@ export const REWRITE_PERSPECTIVES = [
 ] as const satisfies readonly RewriteAxisOption[];
 
 export const REWRITE_RHETORICAL_MODES = [
-  { id: 'preserveOriginal', label: 'Preserve Original', instruction: 'Rhetorical mode: preserve the original communicative intent. Do not turn an observation into an explanation, persuasion, recommendation, or challenge.' },
+  { id: 'preserve', label: 'Preserve', instruction: 'Rhetorical mode: preserve the original communicative intent. Do not turn an observation into an explanation, persuasion, recommendation, or challenge.' },
   { id: 'explain', label: 'Explain', instruction: 'Rhetorical mode: explain. Make the supplied point easier to understand using only information already present; do not invent examples or background.' },
   { id: 'persuade', label: 'Persuade', instruction: 'Rhetorical mode: persuade. Organize the supplied claims persuasively, but introduce no new evidence, benefits, urgency, certainty, or promises.' },
   { id: 'recommend', label: 'Recommend', instruction: 'Rhetorical mode: recommend. Frame the supplied position as a clear recommendation without inventing reasons, authority, obligations, or implementation details.' },
@@ -260,6 +260,12 @@ const MIGRATION_TARGETS = [
   { target: 'workspaceFolder', property: 'workspaceFolderValue' }
 ] as const;
 
+// The rhetorical-mode default was named preserveOriginal until 1.3.0, while the same
+// leave-it-alone value on five other axes was named preserve. Written as a plain literal
+// on purpose: a migration whose trigger value cannot be found by searching for it is a
+// migration nobody will find when they need to remove it.
+const LEGACY_RHETORICAL_MODE = 'preserveOriginal';
+
 export async function migrateLegacyRewriteSettings(
   configuration: RewriteMigrationConfiguration
 ): Promise<void> {
@@ -269,6 +275,9 @@ export async function migrateLegacyRewriteSettings(
   const voice = configuration.inspect<RewriteVoice>('rewrite.voice');
   const stance = configuration.inspect<RewriteStance>('rewrite.stance');
   const rewriteFunction = configuration.inspect<RewriteFunction>('rewrite.function');
+  const rhetoricalMode = configuration.inspect<string>(
+    'rewrite.rhetoricalMode'
+  );
 
   for (const { target, property } of MIGRATION_TARGETS) {
     const legacyTone = tone?.[property];
@@ -293,6 +302,10 @@ export async function migrateLegacyRewriteSettings(
         await configuration.update('rewrite.function', 'email', target);
       }
       await configuration.update('rewrite.domain', 'business', target);
+    }
+
+    if (rhetoricalMode?.[property] === LEGACY_RHETORICAL_MODE) {
+      await configuration.update('rewrite.rhetoricalMode', 'preserve', target);
     }
   }
 }

@@ -3,6 +3,11 @@ import {
   rewriteOutputViolation,
   rewriteSystemInstruction
 } from '../src/providers/gemini.js';
+import {
+  REWRITE_FORMALITIES,
+  rewriteAxisInstruction
+} from '../src/rewriteAxes.js';
+import { REWRITE_MODES } from '../src/rewriteModes.js';
 import type { RewriteRequest } from '../src/types.js';
 
 const legacyDefaultInstructionLines = [
@@ -16,7 +21,7 @@ const legacyDefaultInstructionLines = [
   'Use general-purpose prose in the source language without imposing a specialized domain style.',
   'Only when detectedLanguage is English, use standard American English spelling, punctuation, vocabulary, idiom, and usage consistently.',
   'When detectedLanguage is not English, ignore the English-variety setting and use natural conventions for the detected language.',
-  "Preserve the writer's recognizable voice, formality, cadence, emphasis, and personality as far as the requested variant allows.",
+  "Preserve the writer's recognizable voice, cadence, emphasis, and personality as far as the requested variant allows.",
   'Rhetorical mode: preserve the original communicative intent. Do not turn an observation into an explanation, persuasion, recommendation, or challenge.',
   'Preserve Markdown, LaTeX commands, citations, links, placeholders, code identifiers, filenames, inline code, and fenced code blocks exactly unless grammar inside ordinary prose requires a change.',
   'Produce exactly three meaning-preserving variants:',
@@ -43,7 +48,7 @@ const defaultRequest = {
   stance: 'preserve',
   length: 'preserve',
   perspective: 'preserve',
-  rhetoricalMode: 'preserveOriginal',
+  rhetoricalMode: 'preserve',
   preserveFormatting: true,
   includeChangeNotes: false
 } as RewriteRequest;
@@ -53,6 +58,25 @@ function request(overrides: Partial<RewriteRequest>): RewriteRequest {
 }
 
 describe('rewrite prompt defaults', () => {
+  it.each(REWRITE_MODES)(
+    '$label emits at most the Formality axis instruction about formality',
+    (mode) => {
+      const promptLines = rewriteSystemInstruction(request(mode.axes)).split('\n');
+      const formalityInstruction = rewriteAxisInstruction(
+        REWRITE_FORMALITIES,
+        mode.axes.formality
+      );
+      const formalityLines = promptLines.filter((line) =>
+        line === formalityInstruction || /\bformality\b/iu.test(line)
+      );
+
+      expect(formalityLines).toHaveLength(formalityInstruction ? 1 : 0);
+      if (formalityInstruction) {
+        expect(formalityLines[0]).toBe(formalityInstruction);
+      }
+    }
+  );
+
   it('keeps the legacy set of instruction sentences on a fresh install', () => {
     expect(rewriteSystemInstruction(defaultRequest).split('\n').sort())
       .toEqual([...legacyDefaultInstructionLines].sort());

@@ -1174,7 +1174,7 @@
         "kren.rewrite.rhetoricalMode": {
           "type": "string",
           "enum": [
-            "preserveOriginal",
+            "preserve",
             "explain",
             "persuade",
             "recommend",
@@ -1187,7 +1187,7 @@
             "Frame the supplied position as a clear recommendation without inventing reasons or obligations.",
             "Express the supplied concern or disagreement clearly and respectfully."
           ],
-          "default": "preserveOriginal",
+          "default": "preserve",
           "description": "Rhetorical goal applied to Rewrite Text requests."
         },
         "kren.rewrite.preserveFormatting": {

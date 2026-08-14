@@ -71,7 +71,7 @@ describe('language-model request privacy', () => {
       stance: 'preserve',
       length: 'preserve',
       perspective: 'preserve',
-      rhetoricalMode: 'preserveOriginal',
+      rhetoricalMode: 'preserve',
       preserveFormatting: true,
       includeChangeNotes: true
     };

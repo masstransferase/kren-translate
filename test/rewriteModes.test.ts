@@ -42,7 +42,7 @@ const baseRequest = {
   kind: 'translation',
   operation: 'rewrite',
   englishVariety: 'american',
-  rhetoricalMode: 'preserveOriginal',
+  rhetoricalMode: 'preserve',
   preserveFormatting: true,
   includeChangeNotes: false
 } as const;

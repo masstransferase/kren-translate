@@ -24,7 +24,7 @@ const rewriteRequest: RewriteRequest = {
   stance: 'neutral',
   length: 'preserve',
   perspective: 'preserve',
-  rhetoricalMode: 'preserveOriginal'
+  rhetoricalMode: 'preserve'
 };
 
 describe('rewrite variant definitions', () => {

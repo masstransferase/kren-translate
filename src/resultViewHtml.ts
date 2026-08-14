@@ -907,7 +907,7 @@ function renderManual(
     <p>Translation detects input automatically. The default Auto English-Korean target sends English to Korean and Korean to English; a fixed output language remains available. Google Translate powers Cloud Translation API results, which display the required linked attribution and an available disclaimer. Explanation can use a selected language or English/Korean bilingual output. Gemini, OpenAI, and Anthropic are selected independently for Explain and Rewrite. Gemini also offers independently selected Default or Alternate profiles for Explain and Rewrite. KREN never silently sends text to a different company, and model discovery or connection tests send no selected document text.</p>
 
     <h3>Rewrite Text</h3>
-    <p>Rewrite Text detects and preserves the source language; it does not translate. For short or mixed-language text, select the source language manually in Settings. Choose Natural, Concise, Jargon-Free, or all three. Modality, function, domain, formality, voice, stance, length, perspective, and rhetorical mode apply across languages. English variety applies only to English. Preserve is the safest register and shape default, and Preserve Original is the safest intent default. Spoken modality suppresses formatting protection without changing the stored formatting setting. Formatting protection for Written covers Markdown, LaTeX, citations, links, placeholders, filenames, and code. AI output can still be wrong; verify facts, numbers, citations, terminology, language, and intended style before replacement.</p>
+    <p>Rewrite Text detects and preserves the source language; it does not translate. For short or mixed-language text, select the source language manually in Settings. Choose Natural, Concise, Jargon-Free, or all three. Modality, function, domain, formality, voice, stance, length, perspective, and rhetorical mode apply across languages. English variety applies only to English. Preserve is the safest default for register, shape, and intent alike. Spoken modality suppresses formatting protection without changing the stored formatting setting. Formatting protection for Written covers Markdown, LaTeX, citations, links, placeholders, filenames, and code. AI output can still be wrong; verify facts, numbers, citations, terminology, language, and intended style before replacement.</p>
     <p>Rewrite and Explain depend on remote model availability. Repeating a request often resolves a temporary provider or network failure. High thinking or effort settings can take substantially longer; Auto or Low is usually sufficient for routine editing.</p>
 
     <h3>Copy and replacement safety</h3>
@@ -1244,7 +1244,7 @@ function renderSettings(
         settingsSummary([
           ['Rhetorical mode', rewriteAxisLabel(REWRITE_RHETORICAL_MODES, settings.rewriteRhetoricalMode), settings.rewriteRhetoricalMode === REWRITE_RHETORICAL_MODES[0].id]
         ]),
-        selectSetting('Rhetorical mode', 'Controls what the rewrite is trying to accomplish. Preserve Original is the safest default.', 'rewrite.rhetoricalMode', settings.rewriteRhetoricalMode, rewriteAxisOptions(REWRITE_RHETORICAL_MODES)),
+        selectSetting('Rhetorical mode', 'Controls what the rewrite is trying to accomplish. Preserve is the safest default.', 'rewrite.rhetoricalMode', settings.rewriteRhetoricalMode, rewriteAxisOptions(REWRITE_RHETORICAL_MODES)),
         activeRewriteSettingsGroup
       )}
       ${rewriteSettingsGroup(

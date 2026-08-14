@@ -12,6 +12,7 @@ import {
   isRewriteStance,
   isRewriteVoice,
   migrateLegacyRewriteSettings,
+  REWRITE_AXIS_DEFAULTS,
   REWRITE_AXIS_SETTINGS,
   REWRITE_DOMAINS,
   REWRITE_ENGLISH_VARIETIES,
@@ -29,6 +30,11 @@ import {
 } from '../src/rewriteAxes.js';
 
 type TargetSettings = Record<RewriteConfigurationTarget, Record<string, string>>;
+
+const permittedAxisInstructionCrossReferences: readonly string[] = [
+  // A future failure is a prompt to think, rather than a reason to add an entry.
+];
+const legacyRhetoricalMode = 'preserveOriginal';
 
 function migrationConfiguration(initial: Partial<TargetSettings>): {
   configuration: RewriteMigrationConfiguration;
@@ -83,6 +89,65 @@ describe('rewrite axis definitions', () => {
     }
   });
 
+  it('keeps every default derived from the first option without renaming active defaults', () => {
+    expect(REWRITE_AXIS_DEFAULTS).toEqual({
+      modality: REWRITE_MODALITIES[0].id,
+      function: REWRITE_FUNCTIONS[0].id,
+      englishVariety: REWRITE_ENGLISH_VARIETIES[0].id,
+      domain: REWRITE_DOMAINS[0].id,
+      formality: REWRITE_FORMALITIES[0].id,
+      voice: REWRITE_VOICES[0].id,
+      stance: REWRITE_STANCES[0].id,
+      length: REWRITE_LENGTHS[0].id,
+      perspective: REWRITE_PERSPECTIVES[0].id,
+      rhetoricalMode: REWRITE_RHETORICAL_MODES[0].id
+    });
+    expect({
+      modality: REWRITE_AXIS_DEFAULTS.modality,
+      function: REWRITE_AXIS_DEFAULTS.function,
+      domain: REWRITE_AXIS_DEFAULTS.domain,
+      englishVariety: REWRITE_AXIS_DEFAULTS.englishVariety
+    }).toEqual({
+      modality: 'written',
+      function: 'general',
+      domain: 'general',
+      englishVariety: 'followGrammar'
+    });
+  });
+
+  it('accepts preserve and rejects the retired rhetorical-mode value', () => {
+    expect(isRewriteRhetoricalMode(REWRITE_RHETORICAL_MODES[0].id)).toBe(true);
+    expect(isRewriteRhetoricalMode(legacyRhetoricalMode)).toBe(false);
+  });
+
+  it('keeps every axis instruction independent from the other axes', () => {
+    const violations: string[] = [];
+    for (const axis of REWRITE_AXIS_SETTINGS) {
+      for (const option of axis.values) {
+        const instruction = 'instruction' in option ? option.instruction : undefined;
+        if (!instruction) continue;
+        const normalizedInstruction = instruction.toLocaleLowerCase('en-US')
+          .replaceAll('-', ' ');
+        for (const referencedAxis of REWRITE_AXIS_SETTINGS) {
+          if (referencedAxis.key === axis.key) continue;
+          const axisName = referencedAxis.key.slice('rewrite.'.length)
+            .replace(/([a-z])([A-Z])/gu, '$1 $2')
+            .toLocaleLowerCase('en-US');
+          const pattern = new RegExp(`\\b${axisName.replace(' ', '\\s+')}\\b`, 'u');
+          if (pattern.test(normalizedInstruction)) {
+            violations.push(`${axis.key}:${option.id}->${referencedAxis.key}`);
+          }
+        }
+      }
+    }
+
+    expect(
+      violations.filter((violation) =>
+        !permittedAxisInstructionCrossReferences.includes(violation)
+      )
+    ).toEqual([]);
+  });
+
   it.each([
     ['preserveVoice', { formality: 'preserve', voice: 'preserve', stance: 'preserve' }],
     ['formal', { formality: 'formal' }],
@@ -121,6 +186,40 @@ describe('rewrite axis definitions', () => {
     for (const target of ['global', 'workspace', 'workspaceFolder'] as const) {
       expect(settings[target]['rewrite.function']).toBe('email');
       expect(settings[target]['rewrite.domain']).toBe('business');
+    }
+  });
+
+  it('migrates the legacy rhetorical mode at every setting target and remains idempotent', async () => {
+    const { configuration, settings } = migrationConfiguration({
+      global: { 'rewrite.rhetoricalMode': legacyRhetoricalMode },
+      workspace: { 'rewrite.rhetoricalMode': legacyRhetoricalMode },
+      workspaceFolder: { 'rewrite.rhetoricalMode': legacyRhetoricalMode }
+    });
+    await migrateLegacyRewriteSettings(configuration);
+    const afterFirst = structuredClone(settings);
+    await migrateLegacyRewriteSettings(configuration);
+
+    expect(settings).toEqual(afterFirst);
+    for (const target of ['global', 'workspace', 'workspaceFolder'] as const) {
+      expect(settings[target]['rewrite.rhetoricalMode']).toBe(
+        REWRITE_RHETORICAL_MODES[0].id
+      );
+    }
+  });
+
+  it('leaves a non-legacy rhetorical mode untouched across repeated migrations', async () => {
+    const { configuration, settings } = migrationConfiguration({
+      global: { 'rewrite.rhetoricalMode': 'explain' },
+      workspace: { 'rewrite.rhetoricalMode': 'explain' },
+      workspaceFolder: { 'rewrite.rhetoricalMode': 'explain' }
+    });
+    await migrateLegacyRewriteSettings(configuration);
+    const afterFirst = structuredClone(settings);
+    await migrateLegacyRewriteSettings(configuration);
+
+    expect(settings).toEqual(afterFirst);
+    for (const target of ['global', 'workspace', 'workspaceFolder'] as const) {
+      expect(settings[target]['rewrite.rhetoricalMode']).toBe('explain');
     }
   });
 

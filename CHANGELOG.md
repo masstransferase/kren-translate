@@ -18,6 +18,8 @@ Both channels. The public build carries the same version with the Merriam-Webste
 - Folds every settings group to a summary line and moves User Dictionary next to Dictionary.
 - Warns that an expression is already in the User Dictionary before spending a provider call on it, and drops the redundant language code from the entry list.
 - Fixes the third Merriam-Webster key being refused in the private build despite the raised limit. The panel was comparing against its own copy of the number.
+- Stops the Voice axis from governing formality. Voice `Preserve` previously asked to preserve the writer's formality as well, which contradicted the Formality axis whenever it was set to anything other than Preserve. Plain English, Professional email, and Casual email each sent both instructions. Formality is now governed only by the Formality axis.
+- Renames the rhetorical-mode default from `Preserve Original` to `Preserve`, matching the five other axes whose leave-it-alone value is named that. An existing stored `preserveOriginal` migrates automatically at every configuration scope.
 
 ## 1.2.0
 

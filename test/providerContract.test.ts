@@ -43,7 +43,7 @@ describe('normalized language-model contract', () => {
       stance: 'direct',
       length: 'preserve',
       perspective: 'preserve',
-      rhetoricalMode: 'preserveOriginal'
+      rhetoricalMode: 'preserve'
     };
     const variants = [
       { id: 'natural', text: 'Use our combined strengths.' },

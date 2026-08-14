@@ -97,7 +97,7 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       rewriteStance: 'preserve',
       rewriteLength: 'preserve',
       rewritePerspective: 'preserve',
-      rewriteRhetoricalMode: 'preserveOriginal',
+      rewriteRhetoricalMode: 'preserve',
       preserveFormatting: true,
       includeChangeNotes: false,
       multiWordTranslationFallback: true,
@@ -264,7 +264,7 @@ describe('results webview failure reporting', () => {
       stance: 'neutral',
       length: 'preserve',
       perspective: 'preserve',
-      rhetoricalMode: 'preserveOriginal',
+      rhetoricalMode: 'preserve',
       variants: [{ id: 'natural', label: 'Natural', text: 'Spoken text.' }]
     }, 'Source text.', false);
 
@@ -295,7 +295,7 @@ describe('results webview failure reporting', () => {
       stance: 'preserve',
       length: 'preserve',
       perspective: 'preserve',
-      rhetoricalMode: 'preserveOriginal',
+      rhetoricalMode: 'preserve',
       variants: [{ id: 'natural', label: 'Natural', text: 'Spoken text.' }]
     }, 'Source text.', false);
 
