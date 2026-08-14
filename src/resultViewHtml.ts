@@ -561,12 +561,16 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       // Confirming on the control the user just pressed also puts the feedback where they
       // are already looking, instead of in the corner of the window.
       if (target.hasAttribute('data-copy-confirm')) {
-        const original = target.getAttribute('data-copy-label') ?? target.textContent;
+        // Both getAttribute and textContent are nullable, and setAttribute stringifies
+        // null to the literal "null", so a button whose label failed to read would restore
+        // itself as the word null rather than its own text. Coalesced to an empty string
+        // and restored from the stored attribute, which is written before the swap.
+        const original = target.getAttribute('data-copy-label') ?? target.textContent ?? '';
         target.setAttribute('data-copy-label', original);
         target.textContent = 'Result copied';
         window.clearTimeout(Number(target.getAttribute('data-copy-timer')) || 0);
         target.setAttribute('data-copy-timer', String(window.setTimeout(() => {
-          target.textContent = target.getAttribute('data-copy-label') || original;
+          target.textContent = target.getAttribute('data-copy-label') ?? original;
         }, 1800)));
       }
       if (command) vscode.postMessage({

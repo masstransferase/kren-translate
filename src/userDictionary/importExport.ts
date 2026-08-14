@@ -131,16 +131,18 @@ function rejectOversizedImport(entryCount: number, maximum: number): void {
 export function previewUserDictionaryImportDocument(
   content: string,
   format: UserDictionaryExportFormat,
-  currentStore: UserDictionaryStoreV1
+  currentStore: UserDictionaryStoreV1,
+  maxEntries: number = USER_DICTIONARY_MAX_IMPORT_ENTRIES
 ): UserDictionaryImportPreview {
   return format === 'json'
-    ? previewUserDictionaryImport(content, currentStore)
-    : previewUserDictionaryMarkdownImport(content, currentStore);
+    ? previewUserDictionaryImport(content, currentStore, maxEntries)
+    : previewUserDictionaryMarkdownImport(content, currentStore, maxEntries);
 }
 
 export function previewUserDictionaryMarkdownImport(
   content: string,
-  currentStore: UserDictionaryStoreV1
+  currentStore: UserDictionaryStoreV1,
+  maxEntries: number = USER_DICTIONARY_MAX_IMPORT_ENTRIES
 ): UserDictionaryImportPreview {
   rejectUnexpectedImportContent(content);
   const sections = content.split(/^## Entry \d+\s*$/gmu).slice(1);
@@ -148,13 +150,18 @@ export function previewUserDictionaryMarkdownImport(
     if (/^# KREN User Dictionary\s*$/mu.test(content)) {
       return previewUserDictionaryImport(
         JSON.stringify({ schemaVersion: 1, entries: [] }),
-        currentStore
+        currentStore,
+        maxEntries
       );
     }
     throw new UserDictionaryImportError('Markdown import contains no KREN entry sections.');
   }
   const entries = sections.map((section, index) => markdownEntry(section, index));
-  return previewUserDictionaryImport(JSON.stringify({ schemaVersion: 1, entries }), currentStore);
+  return previewUserDictionaryImport(
+    JSON.stringify({ schemaVersion: 1, entries }),
+    currentStore,
+    maxEntries
+  );
 }
 
 export function previewUserDictionaryImport(

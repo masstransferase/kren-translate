@@ -1,4 +1,4 @@
-﻿# KREN User Guide
+# KREN User Guide
 
 KREN is a selection-first language workbench for VS Code. It operates only on text you explicitly select, copy, or submit to a confirmed VS Code language-model tool. Passive hovering, ordinary typing, and opening a file do not call remote providers.
 

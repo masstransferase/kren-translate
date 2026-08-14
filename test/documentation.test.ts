@@ -108,6 +108,19 @@ describe('KREN User Guide', () => {
     expect(guide).not.toContain('??');
   });
 
+  // A byte-order mark reached USER_GUIDE.md on 2026-08-14 from a PowerShell
+  // Set-Content -Encoding utf8, which writes one in Windows PowerShell 5.1. It is
+  // invisible in an editor and surfaces only as a noisy diff and the occasional renderer
+  // printing a stray character before the first heading. Checked across every public
+  // document, because the tool that produced it will be reached for again.
+  it('starts no public document with a byte-order mark', () => {
+    const withMark = publicSurfaceFiles.filter((file) =>
+      readFileSync(file, 'utf8').charCodeAt(0) === 0xFEFF
+    );
+
+    expect(withMark, `byte-order mark found in: ${withMark.join(', ')}`).toEqual([]);
+  });
+
   it('keeps the local Medical Dictionary documented without Gemini tier labels', () => {
     for (const file of publicSurfaceFiles) {
       const content = readFileSync(file, 'utf8');

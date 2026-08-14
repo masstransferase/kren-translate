@@ -700,6 +700,13 @@
           "default": 2,
           "description": "Maximum number of generated examples retained for each sense."
         },
+        "kren.userDictionary.maxImportEntries": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 100000,
+          "default": 5000,
+          "description": "Maximum number of entries accepted from a single User Dictionary import. A larger file is refused with its entry count rather than accepted slowly."
+        },
         "kren.userDictionary.includeTechnicalMeanings": {
           "type": "boolean",
           "default": true,
