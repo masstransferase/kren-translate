@@ -77,6 +77,7 @@ import {
   normalizeCustomWord
 } from './providers/harperGrammar.js';
 import { GrammarCodeActions, type GrammarDiagnosticState } from './grammarCodeActions.js';
+import { USER_DICTIONARY_MAX_IMPORT_ENTRIES } from './userDictionary/importExport.js';
 import {
   normalizeUserDictionaryTerm,
   exportUserDictionaryJson,
@@ -1871,7 +1872,14 @@ async function previewUserDictionaryImport(): Promise<UserDictionaryImportPrevie
     ? 'markdown'
     : 'json';
   const content = await readFile(source.fsPath, 'utf8');
-  return userDictionaryService.previewImport(content, format);
+  return userDictionaryService.previewImport(
+    content,
+    format,
+    vscode.workspace.getConfiguration('kren').get<number>(
+      'userDictionary.maxImportEntries',
+      USER_DICTIONARY_MAX_IMPORT_ENTRIES
+    )
+  );
 }
 
 async function exportUserDictionary(
@@ -2219,9 +2227,12 @@ async function copyLastResult(): Promise<void> {
   await copyTextResult(resultText(lastResult.result));
 }
 
+// No confirmation is raised here. The panel's copy buttons confirm themselves by changing
+// their own label, which puts the feedback on the control the user just pressed. The
+// notification this replaces was awaited inside the serial webview message queue, so
+// leaving it on screen froze the entire panel until it was dismissed.
 export async function copyTextResult(text: string): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  notify('information', 'KREN result copied.');
 }
 
 async function replaceLastResult(): Promise<void> {

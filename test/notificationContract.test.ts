@@ -98,7 +98,10 @@ describe('notification timing contract', () => {
 
   it('keeps representative notification text byte-identical', () => {
     const source = records.map((record) => record.source).join('\n');
-    expect(source).toContain("'KREN result copied.'");
+    // "KREN result copied." was deliberately removed in 1.3.2: the copy buttons confirm
+    // themselves, so copying raises nothing at all. Asserting its absence keeps a future
+    // change from quietly restoring the notification that froze the panel.
+    expect(source).not.toContain("'KREN result copied.'");
     expect(source).toContain("'The original selection changed, so KREN did not replace it.'");
     expect(source).toContain("'KREN has no result to copy yet.'");
     expect(source).toContain("'Choose at least one grammar correction first.'");

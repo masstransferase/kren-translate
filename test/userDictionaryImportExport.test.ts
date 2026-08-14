@@ -6,6 +6,7 @@ import {
   importUserDictionaryMarkdown,
   importUserDictionaryJson,
   previewUserDictionaryImport,
+  USER_DICTIONARY_MAX_IMPORT_ENTRIES,
   UserDictionaryImportError
 } from '../src/userDictionary/importExport.js';
 import { normalizeUserDictionaryTerm } from '../src/userDictionary/normalization.js';
@@ -230,5 +231,52 @@ describe('User Dictionary JSON import and export', () => {
     }
     expect(failure).toBeInstanceOf(UserDictionaryImportError);
     expect((failure as Error).message).not.toContain(definition);
+  });
+});
+
+// Recorded as a non-blocking finding in the 1.3.0 publication review: import had no
+// ceiling, and a 16.9 MB document holding 20,000 entries was accepted in 1.28 seconds.
+// Not a security bound, because the file comes from a file dialog and there is no
+// attacker who is not also the operator. A usability bound, because picking the wrong
+// file should produce a readable refusal rather than a panel that stops responding.
+describe('import entry ceiling', () => {
+  const empty = { schemaVersion: 1 as const, entries: [] };
+
+  function documentWith(count: number): string {
+    const template = userDictionaryEntry();
+    return JSON.stringify({
+      schemaVersion: 1,
+      entries: Array.from({ length: count }, (_, index) => ({
+        ...template,
+        id: `entry-${index}`,
+        term: `term ${index}`,
+        normalizedTerm: `term ${index}`
+      }))
+    });
+  }
+
+  it('accepts a document exactly at the ceiling', () => {
+    const preview = previewUserDictionaryImport(documentWith(3), empty, 3);
+    expect(preview.entryCount).toBe(3);
+  });
+
+  it('refuses one entry past the ceiling, naming both numbers', () => {
+    expect(() => previewUserDictionaryImport(documentWith(4), empty, 3))
+      .toThrow(/Import holds 4 entries; the maximum is 3\./u);
+  });
+
+  it('defaults to 5,000 entries', () => {
+    expect(USER_DICTIONARY_MAX_IMPORT_ENTRIES).toBe(5_000);
+  });
+
+  // The refusal must come before the content walk, so an oversized file is rejected on
+  // its count rather than after scanning every string it contains.
+  it('refuses on count before inspecting content', () => {
+    const hostile = JSON.stringify({
+      schemaVersion: 1,
+      entries: Array.from({ length: 4 }, () => ({ note: '<script>alert(1)</script>' }))
+    });
+    expect(() => previewUserDictionaryImport(hostile, empty, 3))
+      .toThrow(/Import holds 4 entries/u);
   });
 });

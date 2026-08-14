@@ -4,6 +4,7 @@ import {
   REWRITE_AXIS_SETTINGS,
   REWRITE_RHETORICAL_MODES
 } from '../src/rewriteAxes.js';
+import { USER_DICTIONARY_MAX_IMPORT_ENTRIES } from '../src/userDictionary/importExport.js';
 import {
   USER_DICTIONARY_CAPTURE_MODES,
   USER_DICTIONARY_PROVIDERS
@@ -134,6 +135,18 @@ describe('VS Code menu contributions', () => {
       .toEqual(USER_DICTIONARY_THINKING_OR_EFFORTS.map((option) => option.id));
     expect(properties['kren.userDictionary.numberOfExamples']?.enum)
       .toEqual(USER_DICTIONARY_EXAMPLE_COUNTS.map((option) => option.id));
+  });
+
+  // The refusal message names this setting, so a message promising a knob that does not
+  // exist is worse than no knob. The default is asserted against the constant rather than
+  // the literal 5000, which is the rule everywhere else here.
+  it('derives the import ceiling default from its constant', () => {
+    const ceiling = manifest.contributes.configuration.properties[
+      'kren.userDictionary.maxImportEntries'
+    ];
+    expect(ceiling, 'the message names a setting the manifest does not declare')
+      .toBeDefined();
+    expect(ceiling?.default).toBe(USER_DICTIONARY_MAX_IMPORT_ENTRIES);
   });
 
   it('makes both User Dictionary commands unavailable while the feature is disabled', () => {

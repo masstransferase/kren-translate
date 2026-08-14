@@ -555,6 +555,24 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
         vscode.postMessage({ command, grammarChoices });
         return;
       }
+      // A copy button confirms itself by changing its own label, rather than raising a
+      // notification. The notification it replaces was worse than noisy: it was awaited
+      // inside the serial message queue, so leaving it on screen froze the whole panel.
+      // Confirming on the control the user just pressed also puts the feedback where they
+      // are already looking, instead of in the corner of the window.
+      if (target.hasAttribute('data-copy-confirm')) {
+        // Both getAttribute and textContent are nullable, and setAttribute stringifies
+        // null to the literal "null", so a button whose label failed to read would restore
+        // itself as the word null rather than its own text. Coalesced to an empty string
+        // and restored from the stored attribute, which is written before the swap.
+        const original = target.getAttribute('data-copy-label') ?? target.textContent ?? '';
+        target.setAttribute('data-copy-label', original);
+        target.textContent = 'Result copied';
+        window.clearTimeout(Number(target.getAttribute('data-copy-timer')) || 0);
+        target.setAttribute('data-copy-timer', String(window.setTimeout(() => {
+          target.textContent = target.getAttribute('data-copy-label') ?? original;
+        }, 1800)));
+      }
       if (command) vscode.postMessage({
         command,
         variantId: target.getAttribute('data-variant-id') || undefined,
@@ -747,7 +765,7 @@ function renderPopulatedView(
     ? '<button class="secondary" data-command="details">Open full details</button>'
     : result.kind === 'grammar'
       ? grammarActions(result, allowReplace)
-    : `<button data-command="copy">Copy result</button>
+    : `<button data-command="copy" data-copy-confirm>Copy result</button>
        <button class="secondary" data-command="details">Open full details</button>
        ${allowReplace && result.kind === 'translation' ? '<button class="secondary" data-command="replace">Replace selection</button>' : ''}`;
   const resultTitle = result.kind === 'rewrite'
@@ -993,10 +1011,10 @@ function renderGrammar(result: GrammarResult): string {
 
 function grammarActions(result: GrammarResult, allowReplace: boolean): string {
   if (!result.issues.some((issue) => issue.suggestions.length > 0)) {
-    return '<button data-command="copy">Copy checked text</button><button class="secondary" data-command="details">Open full details</button>';
+    return '<button data-command="copy" data-copy-confirm>Copy checked text</button><button class="secondary" data-command="details">Open full details</button>';
   }
   return `${allowReplace ? '<button data-command="applyGrammar" data-grammar-action disabled>Apply selected corrections</button>' : ''}
-    <button class="secondary" data-command="copyGrammar" data-grammar-action disabled>Copy selected corrections</button>
+    <button class="secondary" data-command="copyGrammar" data-grammar-action data-copy-confirm disabled>Copy selected corrections</button>
     <button class="secondary" data-command="details">Open full details</button>`;
 }
 
@@ -1076,7 +1094,7 @@ function renderRewrite(
     <p class="rewrite-text">${escapeHtml(variant.text)}</p>
     ${variant.changeNote ? `<p class="change-note"><strong>What changed:</strong> ${escapeHtml(variant.changeNote)}</p>` : ''}
     <div class="variant-actions">
-      <button data-command="copyVariant" data-variant-id="${variant.id}">Copy ${escapeHtml(variant.label)}</button>
+      <button data-command="copyVariant" data-variant-id="${variant.id}" data-copy-confirm>Copy ${escapeHtml(variant.label)}</button>
       ${allowReplace ? `<button class="secondary" data-command="replaceVariant" data-variant-id="${variant.id}">Replace with ${escapeHtml(variant.label)}</button>` : ''}
       ${settings.ttsEnabled ? `${readAloudIconButton('readVariant', `data-variant-id="${variant.id}"`, variant.label)}${stopSpeechIconButton()}` : ''}
     </div>

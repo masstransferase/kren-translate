@@ -91,9 +91,10 @@ export class UserDictionaryService {
 
   public async previewImport(
     content: string,
-    format: UserDictionaryExportFormat
+    format: UserDictionaryExportFormat,
+    maxEntries?: number
   ): Promise<UserDictionaryImportPreview> {
-    return previewUserDictionaryImportDocument(content, format, await this.read());
+    return previewUserDictionaryImportDocument(content, format, await this.read(), maxEntries);
   }
 
   public async applyImport(
