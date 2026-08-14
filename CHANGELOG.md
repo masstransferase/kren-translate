@@ -4,6 +4,12 @@ This changelog describes the private local KREN build.
 
 ## Unreleased
 
+## 1.3.2
+
+- Copying a result no longer raises a notification. The button you pressed reads `Result copied` for a moment instead, so the confirmation appears where you are looking and nothing is left on screen to dismiss.
+- Bounds User Dictionary import at 5,000 entries, configurable, and refuses a larger file with the count rather than accepting it slowly.
+- Updates development dependencies to clear all six security advisories. No dependency that ships to users changed.
+
 ## 1.3.1
 
 - Fixes an open notification freezing the KREN panel. Copying a result showed "KREN result copied." and, until that notification was dismissed, every button in the secondary sidebar was accepted but never ran. KREN no longer waits for a notification to be dismissed before continuing, so the panel stays responsive whether you close it or leave it. Present since 1.1.0.

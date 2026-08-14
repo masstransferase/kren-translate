@@ -108,6 +108,26 @@ export function exportUserDictionaryMarkdown(store: UserDictionaryStoreV1): stri
   ].join('\n');
 }
 
+// An imported document had no ceiling on size or entry count. A 16.9 MB file holding
+// 20,000 entries was accepted in 1.28 seconds during the 1.3.0 publication review.
+//
+// This is not a security bound. The file comes from a file dialog, so there is no
+// attacker who is not also the operator. It is a usability bound: KREN already limits
+// submitted text with kren.translation.maxCharacters, and picking the wrong file should
+// produce a readable refusal naming the count rather than a panel that stops responding.
+//
+// The count is checked before validating any entry, so a large file is refused quickly
+// instead of after the expensive pass.
+export const USER_DICTIONARY_MAX_IMPORT_ENTRIES = 5_000;
+
+function rejectOversizedImport(entryCount: number, maximum: number): void {
+  if (entryCount <= maximum) return;
+  throw new UserDictionaryImportError(
+    `Import holds ${entryCount} entries; the maximum is ${maximum}. ` +
+    'Split the file, or raise kren.userDictionary.maxImportEntries.'
+  );
+}
+
 export function previewUserDictionaryImportDocument(
   content: string,
   format: UserDictionaryExportFormat,
@@ -139,12 +159,21 @@ export function previewUserDictionaryMarkdownImport(
 
 export function previewUserDictionaryImport(
   content: string,
-  currentStore: UserDictionaryStoreV1
+  currentStore: UserDictionaryStoreV1,
+  maxEntries: number = USER_DICTIONARY_MAX_IMPORT_ENTRIES
 ): UserDictionaryImportPreview {
   validateUserDictionaryStore(currentStore);
   const parsed = parseImportDocument(content);
-  rejectUnexpectedImportContent(parsed);
   if (!isRecord(parsed)) throw new UserDictionaryImportError('Import has invalid top-level data.');
+  // Counted before rejectUnexpectedImportContent, which walks every string in the
+  // document. On an oversized file that walk is the expensive part, and refusing first
+  // means the user gets the count back immediately instead of after a scan of work that
+  // is about to be discarded.
+  rejectOversizedImport(
+    Array.isArray(parsed.entries) ? parsed.entries.length : 0,
+    maxEntries
+  );
+  rejectUnexpectedImportContent(parsed);
   rejectUnknownTopLevelFields(parsed);
   if (parsed.schemaVersion !== 1) {
     const version = typeof parsed.schemaVersion === 'number'

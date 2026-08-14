@@ -19,7 +19,7 @@ vi.mock('vscode', () => ({
   window: { showErrorMessage, showInformationMessage, showWarningMessage }
 }));
 
-import { copyTextResult } from '../src/extension.js';
+import { copyTextResult, notify } from '../src/extension.js';
 import { KrenResultsViewProvider } from '../src/resultsView.js';
 import { REWRITE_MODES, rewriteModeSettingEntries } from '../src/rewriteModes.js';
 import { userDictionaryEntry } from './userDictionaryFixtures.js';
@@ -175,9 +175,19 @@ describe('results webview failure reporting', () => {
     writeText.mockReset().mockResolvedValue(undefined);
   });
 
-  it('handles the next queued message while the copy notification remains open', async () => {
+  // The copy path no longer notifies at all: the panel button confirms itself. The
+  // property this test exists for is unchanged and still load-bearing for the other 59
+  // call sites, so it is exercised through a handler that does notify. A stub that
+  // resolves immediately could never reproduce the freeze, which is why it needs one
+  // that never resolves.
+  it('handles the next queued message while a notification raised by a handler stays open', async () => {
     showInformationMessage.mockReturnValueOnce(new Promise(() => undefined));
-    const harness = createHarness({ copyText: copyTextResult });
+    const harness = createHarness({
+      copyText: async (text: string) => {
+        await copyTextResult(text);
+        notify('information', 'A notice the user never dismisses.');
+      }
+    });
     harness.provider.setResult({
       kind: 'rewrite',
       providerId: 'gemini',
@@ -203,16 +213,27 @@ describe('results webview failure reporting', () => {
 
     await vi.waitFor(() => expect(harness.actions.details).toHaveBeenCalledOnce());
     expect(writeText).toHaveBeenCalledWith('Copied result.');
-    expect(showInformationMessage).toHaveBeenCalledWith('KREN result copied.');
+    expect(showInformationMessage).toHaveBeenCalledWith('A notice the user never dismisses.');
   });
 
-  it('keeps the copy operation successful when its notification rejects', async () => {
+  it('keeps an operation successful when its notification rejects', async () => {
     showInformationMessage.mockRejectedValueOnce(new Error('Notification host failed.'));
 
-    await expect(copyTextResult('Copied despite notification failure.')).resolves.toBeUndefined();
+    expect(() => notify('information', 'A notice whose host fails.')).not.toThrow();
+    await expect(copyTextResult('Copied anyway.')).resolves.toBeUndefined();
+    expect(writeText).toHaveBeenCalledWith('Copied anyway.');
+  });
 
-    expect(writeText).toHaveBeenCalledWith('Copied despite notification failure.');
-    expect(showInformationMessage).toHaveBeenCalledWith('KREN result copied.');
+  // The copy confirmation moved onto the button itself, so copying must raise nothing.
+  // Asserted rather than assumed, because the notification that used to be here is what
+  // froze the panel, and a future change that quietly restores it would restore that too.
+  it('raises no notification when copying, because the button confirms itself', async () => {
+    await copyTextResult('Silently copied.');
+
+    expect(writeText).toHaveBeenCalledWith('Silently copied.');
+    expect(showInformationMessage).not.toHaveBeenCalled();
+    expect(showWarningMessage).not.toHaveBeenCalled();
+    expect(showErrorMessage).not.toHaveBeenCalled();
   });
 
   // Redaction has to be judged in both directions. A leaked key is the obvious

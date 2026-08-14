@@ -1,8 +1,8 @@
-# KREN User Guide
+﻿# KREN User Guide
 
 KREN is a selection-first language workbench for VS Code. It operates only on text you explicitly select, copy, or submit to a confirmed VS Code language-model tool. Passive hovering, ordinary typing, and opening a file do not call remote providers.
 
-This guide applies to KREN 1.3.1. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
+This guide applies to KREN 1.3.2. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
 
 ## Requirements
 

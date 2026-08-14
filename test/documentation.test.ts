@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -131,5 +131,38 @@ describe('KREN User Guide', () => {
     for (const file of filesWithExtension('src', '.ts')) {
       expect(readFileSync(file, 'utf8'), file).not.toMatch(/\bKren\b/u);
     }
+  });
+});
+
+// DESIGN.md used to enumerate every setting by hand. The list went stale without anyone
+// noticing: it named kren.rewrite.tone, removed in 1.2.0, and gave pre-1.2.0 domain
+// values, while omitting the ten rewrite axes entirely. A delegated run read it as
+// specification and had to be corrected mid-flight.
+//
+// The enumeration is gone and the manifest is the source of truth, but prose still
+// mentions individual keys where that is the clearest way to explain a rule. This asserts
+// that every key it mentions actually exists, so the document can go out of date in tone
+// but never in fact.
+//
+// This file is copied into both channels, and DESIGN.md is private-only, so the check is
+// conditional on the document being present. That conditional is the point rather than a
+// weakness: asserting on a file that does not exist in one channel is how a shared test
+// passes privately and fails the public build, which is exactly what happened when this
+// test was first written.
+describe('DESIGN.md names only settings that exist', () => {
+  it.skipIf(!existsSync('DESIGN.md'))('mentions no kren setting key absent from the manifest', () => {
+    const design = readFileSync('DESIGN.md', 'utf8');
+    const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      contributes: { configuration: { properties: Record<string, unknown> } };
+    };
+    const declared = new Set(Object.keys(manifest.contributes.configuration.properties));
+    // Retired keys may be named only where the document is explaining their migration.
+    const retired = new Set(['kren.rewrite.tone', 'kren.rewrite.mode']);
+    const mentioned = [...design.matchAll(/`(kren\.[A-Za-z0-9.]+)`/gu)].map((match) => match[1]!);
+    const unknown = [...new Set(mentioned)]
+      .filter((key) => !declared.has(key) && !retired.has(key));
+
+    expect(unknown, `DESIGN.md names settings that do not exist: ${unknown.join(', ')}`)
+      .toEqual([]);
   });
 });

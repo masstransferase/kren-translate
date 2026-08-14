@@ -2219,9 +2219,12 @@ async function copyLastResult(): Promise<void> {
   await copyTextResult(resultText(lastResult.result));
 }
 
-export async function copyTextResult(text: string): Promise<void> {
+export // No confirmation is raised here. The panel's copy buttons confirm themselves by changing
+// their own label, which puts the feedback on the control the user just pressed. The
+// notification this replaces was awaited inside the serial webview message queue, so
+// leaving it on screen froze the entire panel until it was dismissed.
+async function copyTextResult(text: string): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  notify('information', 'KREN result copied.');
 }
 
 async function replaceLastResult(): Promise<void> {
