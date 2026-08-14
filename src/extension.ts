@@ -346,9 +346,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kren.openUserDictionary', () =>
       openUserDictionary()
     ),
-    vscode.commands.registerCommand('kren.hideSecondarySidebar', () =>
-      vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar')
-    ),
+    vscode.commands.registerCommand('kren.hideResults', () => resultsView.hide()),
     vscode.commands.registerCommand('kren.openPanelSettings', () => resultsView.showSettings()),
     vscode.commands.registerCommand('kren.clearResults', () => {
       lastResult = undefined;
@@ -1959,7 +1957,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
       { label: '$(settings-gear) Configure Rewrite Gemini Profile', command: 'kren.configureRewriteGeminiProfile' as const },
       { label: '$(settings-gear) Configure Languages', command: 'kren.configureLanguages' as const },
       { label: '$(layout-sidebar-right) Show KREN Secondary Sidebar', command: 'kren.showResults' as const },
-      { label: '$(close) Hide Secondary Sidebar', command: 'kren.hideSecondarySidebar' as const },
+      { label: '$(close) Hide KREN', command: 'kren.hideResults' as const },
       { label: '$(gear) Open KREN Settings', command: 'kren.openPanelSettings' as const }
     ];
   const selected = await vscode.window.showQuickPick(

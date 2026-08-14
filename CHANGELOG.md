@@ -4,6 +4,11 @@ This changelog describes the private local KREN build.
 
 ## Unreleased
 
+## 1.3.3
+
+- **Hide KREN** now hides only KREN. It previously closed the entire Secondary Sidebar, taking Chat, Claude Code, Codex, and anything else living there with it; reopening the sidebar from one of those brought KREN straight back, because it had never actually been hidden. KREN now removes its own view and leaves the workbench layout alone.
+- Renames the command from `kren.hideSecondarySidebar` to `kren.hideResults`, titled **Hide KREN**, because the old name described what it wrongly did. A custom keybinding on the old identifier needs updating; KREN ships no default keybinding for it.
+
 ## 1.3.2
 
 - Copying a result no longer raises a notification. The button you pressed reads `Result copied` for a moment instead, so the confirmation appears where you are looking and nothing is left on screen to dismiss.

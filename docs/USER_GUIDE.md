@@ -2,7 +2,7 @@
 
 KREN is a selection-first language workbench for VS Code. It operates only on text you explicitly select, copy, or submit to a confirmed VS Code language-model tool. Passive hovering, ordinary typing, and opening a file do not call remote providers.
 
-This guide applies to KREN 1.3.2. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
+This guide applies to KREN 1.3.3. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
 
 ## Requirements
 
@@ -75,7 +75,7 @@ For VS Code Chat, Claude Code, Codex, terminals, output panels, and other copyab
 
 1. Copy the exact text you want processed.
 2. Click **KREN** in the status bar.
-3. Verify the visible clipboard preview and choose an operation in the top-center Quick Pick. The same menu can show KREN or hide the Secondary Sidebar, even when the clipboard is empty.
+3. Verify the visible clipboard preview and choose an operation in the top-center Quick Pick. The same menu can show or hide KREN, even when the clipboard is empty. Hiding KREN removes only KREN; anything else in the Secondary Sidebar stays where it is.
 4. Review the rich result in KREN.
 
 KREN reads the clipboard once after you click the status item. It does not monitor clipboard changes or inspect another extension's private webview.

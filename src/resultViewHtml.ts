@@ -972,7 +972,7 @@ function renderManual(
       <li>Read Aloud is limited to a local Windows extension host, and Edge Online relies on an unofficial service interface.</li>
       <li>Models, access, quotas, pricing, permitted use, and retention can change. AI output is informational, not professional advice.</li>
     </ul>
-    <p>KREN opens in the Secondary Sidebar by default. Click KREN in the status bar to show KREN or hide the Secondary Sidebar. If an online provider fails, verify its key, model, network connection, retry settings, and provider quota. For Christopher or Ava, verify <code>python -m pip install edge-tts</code> and use Preview in Settings.</p>
+    <p>KREN opens in the Secondary Sidebar by default. Click KREN in the status bar to show or hide KREN. Hiding removes only KREN and leaves the rest of the Secondary Sidebar alone. If an online provider fails, verify its key, model, network connection, retry settings, and provider quota. For Christopher or Ava, verify <code>python -m pip install edge-tts</code> and use Preview in Settings.</p>
 
     <p class="credits">${krenCreditLine(version)}</p>`;
 }

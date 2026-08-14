@@ -37,7 +37,7 @@ You need keys only for the online features you choose. This private local build 
 - **Read Aloud requires local Windows.** Edge Online voices also require Python and `edge-tts`.
 - **Gemini is optional and restricted by Google's current terms.** Gemini API users must be at least 18, use it for professional or business purposes, and meet current account and regional eligibility requirements. KREN asks for confirmation before first Gemini use.
 
-Open the KREN Secondary Sidebar menu and choose **Settings**. The settings page guides provider, language, model, rewrite, grammar, speech, and API-key removal. The status-bar KREN menu can show or hide the Secondary Sidebar.
+Open the KREN Secondary Sidebar menu and choose **Settings**. The settings page guides provider, language, model, rewrite, grammar, speech, and API-key removal. The status-bar KREN menu can show or hide KREN itself, leaving anything else in the Secondary Sidebar untouched.
 
 ## Privacy and cost
 
