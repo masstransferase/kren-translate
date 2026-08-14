@@ -1,21 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { showErrorMessage } = vi.hoisted(() => ({
-  showErrorMessage: vi.fn(async () => undefined)
+const { showErrorMessage, showInformationMessage, showWarningMessage, writeText } = vi.hoisted(() => ({
+  showErrorMessage: vi.fn(async (_message: string) => undefined),
+  showInformationMessage: vi.fn(async (_message: string) => undefined),
+  showWarningMessage: vi.fn(async (_message: string) => undefined),
+  writeText: vi.fn(async (_text: string) => undefined)
 }));
 
 vi.mock('vscode', () => ({
   commands: { executeCommand: vi.fn(async () => undefined) },
-  env: { remoteName: undefined },
+  env: { clipboard: { writeText }, remoteName: undefined },
   Uri: {
     joinPath: (base: { path?: string }, ...parts: string[]) => ({
       path: [base.path ?? '', ...parts].join('/'),
       toString() { return this.path; }
     })
   },
-  window: { showErrorMessage }
+  window: { showErrorMessage, showInformationMessage, showWarningMessage }
 }));
 
+import { copyTextResult } from '../src/extension.js';
 import { KrenResultsViewProvider } from '../src/resultsView.js';
 import { REWRITE_MODES, rewriteModeSettingEntries } from '../src/rewriteModes.js';
 import { userDictionaryEntry } from './userDictionaryFixtures.js';
@@ -25,6 +29,11 @@ type MessageListener = (message: unknown) => void;
 function createHarness(overrides: Record<string, unknown> = {}) {
   let receiveMessage: MessageListener | undefined;
   const actions = {
+    notify: vi.fn((kind: 'information' | 'warning' | 'error', message: string) => {
+      if (kind === 'information') void showInformationMessage(message);
+      if (kind === 'warning') void showWarningMessage(message);
+      if (kind === 'error') void showErrorMessage(message);
+    }),
     copy: vi.fn(async () => undefined),
     details: vi.fn(),
     replace: vi.fn(async () => undefined),
@@ -160,7 +169,50 @@ async function settleMessages(): Promise<void> {
 
 describe('results webview failure reporting', () => {
   beforeEach(() => {
-    showErrorMessage.mockClear();
+    showErrorMessage.mockReset().mockResolvedValue(undefined);
+    showInformationMessage.mockReset().mockResolvedValue(undefined);
+    showWarningMessage.mockReset().mockResolvedValue(undefined);
+    writeText.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('handles the next queued message while the copy notification remains open', async () => {
+    showInformationMessage.mockReturnValueOnce(new Promise(() => undefined));
+    const harness = createHarness({ copyText: copyTextResult });
+    harness.provider.setResult({
+      kind: 'rewrite',
+      providerId: 'gemini',
+      sourceText: 'Source text.',
+      sourceLanguage: 'en',
+      targetLanguage: 'en',
+      createdAt: '1970-01-01T00:00:00.000Z',
+      englishVariety: 'american',
+      domain: 'general',
+      modality: 'written',
+      function: 'general',
+      formality: 'neutral',
+      voice: 'preserve',
+      stance: 'neutral',
+      length: 'preserve',
+      perspective: 'preserve',
+      rhetoricalMode: 'preserve',
+      variants: [{ id: 'natural', label: 'Natural', text: 'Copied result.' }]
+    }, 'Source text.', false);
+
+    harness.dispatch({ command: 'copyVariant', variantId: 'natural' });
+    harness.dispatch({ command: 'details' });
+
+    await vi.waitFor(() => expect(harness.actions.details).toHaveBeenCalledOnce());
+    expect(writeText).toHaveBeenCalledWith('Copied result.');
+    expect(showInformationMessage).toHaveBeenCalledWith('KREN result copied.');
+  });
+
+  it('keeps the copy operation successful when its notification rejects', async () => {
+    showInformationMessage.mockRejectedValueOnce(new Error('Notification host failed.'));
+
+    await expect(copyTextResult('Copied despite notification failure.')).resolves.toBeUndefined();
+
+    expect(writeText).toHaveBeenCalledWith('Copied despite notification failure.');
+    expect(showInformationMessage).toHaveBeenCalledWith('KREN result copied.');
   });
 
   // Redaction has to be judged in both directions. A leaked key is the obvious
