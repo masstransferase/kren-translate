@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -606,5 +607,22 @@ describe('hiding KREN', () => {
     await harness.provider.reveal();
 
     expect(executeCommand).toHaveBeenCalledWith('setContext', 'kren.resultsEnabled', true);
+  });
+});
+
+// The command identifier changed in 1.3.3. A hand-written keybinding on the old name
+// would otherwise break silently, so the old identifier stays registered as an alias. It
+// runs the new behaviour on purpose: someone who bound it wanted KREN out of the way, not
+// the Secondary Sidebar closed. Asserted here as a contract on the manifest, since the
+// alias must not be contributed and so must not appear in the Command Palette.
+describe('the retired hide identifier', () => {
+  it('is no longer contributed, so it stays out of the Command Palette', () => {
+    const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      contributes: { commands: Array<{ command: string; title: string }> };
+    };
+    const contributed = manifest.contributes.commands.map((command) => command.command);
+
+    expect(contributed).toContain('kren.hideResults');
+    expect(contributed).not.toContain('kren.hideSecondarySidebar');
   });
 });

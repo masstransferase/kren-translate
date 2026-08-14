@@ -347,6 +347,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       openUserDictionary()
     ),
     vscode.commands.registerCommand('kren.hideResults', () => resultsView.hide()),
+    // Deprecated alias for the identifier used before 1.3.3, kept registered but no
+    // longer contributed in package.json, so it stays out of the Command Palette while a
+    // hand-written keybinding on the old name keeps working. It runs the new behaviour
+    // deliberately: someone who bound the old command wanted to put KREN away, not to
+    // close the Secondary Sidebar and take Chat and Codex with it.
+    vscode.commands.registerCommand('kren.hideSecondarySidebar', () => resultsView.hide()),
     vscode.commands.registerCommand('kren.openPanelSettings', () => resultsView.showSettings()),
     vscode.commands.registerCommand('kren.clearResults', () => {
       lastResult = undefined;
