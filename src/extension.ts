@@ -138,8 +138,19 @@ let storedSecretKeys = new Set<string>();
 let userDictionaryService: UserDictionaryService;
 let userDictionaryStoragePath = '';
 
-// The extension identity is publisher-dependent: "local.kren-translate" when sideloaded
-// when sideloaded, "masstransferase.kren-translate" once published. Hard-coding it
+type NotificationKind = 'information' | 'warning' | 'error';
+
+export function notify(kind: NotificationKind, message: string): void {
+  const notification = kind === 'information'
+    ? vscode.window.showInformationMessage(message)
+    : kind === 'warning'
+      ? vscode.window.showWarningMessage(message)
+      : vscode.window.showErrorMessage(message);
+  void Promise.resolve(notification).catch(() => undefined);
+}
+
+// The extension identity is publisher-dependent: "local.kren-translate" when sideloaded,
+// "masstransferase.kren-translate" once published. Hard-coding it
 // means the settings filter below silently matches nothing in whichever channel was not
 // the one it was written for, and a settings page that opens empty looks like a bug in
 // VS Code rather than in KREN. Read it from the running extension instead.
@@ -171,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       context.globalState.get<CloudTranslationUsageState>(LEGACY_CLOUD_USAGE_KEY)
     );
   } catch (error) {
-    void vscode.window.showWarningMessage(errorMessage(error));
+    notify('warning', errorMessage(error));
   }
   const hoverStore = new HoverStore(vscode.Uri.joinPath(context.extensionUri, 'media'));
   readAloudPlayer = new WindowsReadAloudPlayer();
@@ -187,6 +198,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await migrateRewriteAxes();
   registerKrenChatTools(context, extensionRuntime(context));
   resultsView = new KrenResultsViewProvider({
+    notify,
     copy: copyLastResult,
     details: showDetails,
     replace: replaceLastResult,
@@ -290,7 +302,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand('kren.clearGrammarFindings', () => {
       grammarCodeActions.clear();
-      void vscode.window.showInformationMessage('KREN grammar findings cleared.');
+      notify('information', 'KREN grammar findings cleared.');
     }),
     vscode.commands.registerCommand('kren.clearGrammarCustomDictionary', () =>
       clearGrammarCustomDictionary(context)
@@ -688,7 +700,7 @@ async function updatePanelSetting(
 ): Promise<void> {
   const value = validatedPanelSetting(key, rawValue);
   if (value === undefined) {
-    await vscode.window.showErrorMessage(`KREN rejected an invalid value for ${key}.`);
+    notify('error', `KREN rejected an invalid value for ${key}.`);
     resultsView.refresh();
     return;
   }
@@ -867,13 +879,13 @@ async function refreshProModels(
       },
       () => listGeminiProModels(key, controller.signal)
     );
-    await vscode.window.showInformationMessage(
+    notify('information',
       `KREN found ${models.length} Gemini text models available or recommended for the alternate profile.`
     );
     return models;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      await vscode.window.showErrorMessage('KREN: Gemini model discovery timed out.');
+      notify('error', 'KREN: Gemini model discovery timed out.');
     } else {
       await showLookupError(error);
     }
@@ -955,7 +967,7 @@ async function testLanguageModelConnection(
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
     const models = await listModels(key, controller.signal);
-    await vscode.window.showInformationMessage(
+    notify('information',
       `KREN: ${providerName} connection succeeded (${models.length} compatible models found).`
     );
   } catch (error) {
@@ -1085,7 +1097,7 @@ async function setGoogleCloudTranslationKey(context: vscode.ExtensionContext): P
     .getConfiguration('kren')
     .update('translationProvider', 'googleCloudTranslation', vscode.ConfigurationTarget.Global);
   await context.globalState.update(CLOUD_DEFAULT_MIGRATION, true);
-  await vscode.window.showInformationMessage(
+  notify('information',
     'Google Cloud Translation is now the Translate Selection provider.'
   );
 }
@@ -1099,25 +1111,25 @@ export function deactivate(): void {
 
 async function executeReadAloudSelection(context: vscode.ExtensionContext): Promise<void> {
   if (process.platform !== 'win32' || vscode.env.remoteName) {
-    await vscode.window.showInformationMessage(
+    notify('information',
       'KREN Read Aloud currently requires a local Windows VS Code session.'
     );
     return;
   }
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    await vscode.window.showInformationMessage('Open an editor and select text first.');
+    notify('information', 'Open an editor and select text first.');
     return;
   }
   const selections = editor.selections.filter((selection) => !selection.isEmpty);
   if (selections.length !== 1 || !selections[0]) {
-    await vscode.window.showInformationMessage('Select one passage to read aloud.');
+    notify('information', 'Select one passage to read aloud.');
     return;
   }
   const rawText = editor.document.getText(selections[0]);
   const spokenText = prepareTextForSpeech(rawText);
   if (!spokenText) {
-    await vscode.window.showInformationMessage(
+    notify('information',
       'KREN found no speakable sentence text after removing formatting markers.'
     );
     return;
@@ -1139,7 +1151,7 @@ async function readAloudText(
   edgeReadAloudPlayer.stop();
   if (provider === 'edgeOnline' && !vscode.workspace.isTrusted) {
     await vscode.commands.executeCommand('setContext', 'kren.readAloudActive', false);
-    await vscode.window.showWarningMessage(
+    notify('warning',
       'KREN Edge Online speech is disabled in Restricted Mode because it launches the configured Python executable. Trust this workspace to use Edge Online speech, or choose Local Windows speech.'
     );
     return;
@@ -1172,7 +1184,7 @@ async function readAloudText(
           await vscode.env.clipboard.writeText('python -m pip install edge-tts');
         }
       } else if (result === 'failed') {
-        await vscode.window.showErrorMessage(
+        notify('error',
           'KREN could not generate or play the selected Edge online voice. Check the Python command, edge-tts installation, voice ID, and network connection.'
         );
       }
@@ -1185,7 +1197,7 @@ async function readAloudText(
       volume: config.get<number>('readAloud.volume', 100)
     });
     if (!completed) {
-      await vscode.window.showErrorMessage(
+      notify('error',
         'KREN could not use the selected Windows voice. Choose another voice in KREN Settings or verify that Windows speech is installed.'
       );
     }
@@ -1225,12 +1237,12 @@ async function ensureEdgeTtsConsent(context: vscode.ExtensionContext): Promise<b
 async function executeGrammarCheck(context: vscode.ExtensionContext): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    await vscode.window.showInformationMessage('Open an editor and select English text first.');
+    notify('information', 'Open an editor and select English text first.');
     return;
   }
   const selections = editor.selections.filter((selection) => !selection.isEmpty);
   if (selections.length !== 1 || !selections[0]) {
-    await vscode.window.showInformationMessage('Select one English passage to check.');
+    notify('information', 'Select one English passage to check.');
     return;
   }
   await checkGrammarRange(context, editor, new vscode.Range(
@@ -1251,7 +1263,7 @@ async function checkGrammarRange(
   const config = vscode.workspace.getConfiguration('kren');
   const maxCharacters = config.get<number>('translation.maxCharacters', 5000);
   if (selectedText.length > maxCharacters) {
-    await vscode.window.showWarningMessage(
+    notify('warning',
       `The selection has ${selectedText.length} characters; the configured maximum is ${maxCharacters}.`
     );
     return undefined;
@@ -1300,7 +1312,7 @@ async function checkGrammarRange(
     if (editor.document.uri.toString() !== snapshot.uri ||
         editor.document.version !== snapshot.version ||
         editor.document.getText(snapshot.range) !== snapshot.selectedText) {
-      await vscode.window.showWarningMessage(
+      notify('warning',
         'The checked selection changed before Grammar Check finished, so KREN discarded the findings.'
       );
       return undefined;
@@ -1322,9 +1334,9 @@ async function checkGrammarRange(
     );
     if (announce) {
       if (!result.issues.length) {
-        void vscode.window.showInformationMessage('KREN: Harper found no spelling or grammar issues.');
+        notify('information', 'KREN: Harper found no spelling or grammar issues.');
       } else {
-        void vscode.window.showInformationMessage(
+        notify('information',
           `KREN found ${result.issues.length} possible issue${result.issues.length === 1 ? '' : 's'}. Right-click an underlined issue and choose Quick Fix.`
         );
       }
@@ -1332,7 +1344,7 @@ async function checkGrammarRange(
     return state;
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      await vscode.window.showInformationMessage(
+      notify('information',
         abortReason === 'timedOut'
           ? 'KREN Grammar Check timed out while running locally.'
           : 'KREN Grammar Check was cancelled.'
@@ -1357,13 +1369,13 @@ async function applyGrammarQuickFix(
   const state = grammarCodeActions.getState(rawUri, rawGeneration);
   const editor = vscode.window.activeTextEditor;
   if (!state || !editor || editor.document.uri.toString() !== rawUri) {
-    void vscode.window.showInformationMessage('That KREN grammar finding is no longer current.');
+    notify('information', 'That KREN grammar finding is no longer current.');
     return;
   }
   if (editor.document.version !== state.documentVersion ||
       editor.document.getText(state.range) !== state.selectedText) {
     grammarCodeActions.clear(editor.document.uri);
-    void vscode.window.showWarningMessage(
+    notify('warning',
       'The checked text changed, so KREN did not apply the correction. Run Grammar Check again.'
     );
     return;
@@ -1379,7 +1391,7 @@ async function applyGrammarQuickFix(
     editBuilder.replace(state.range, corrected);
   });
   if (!applied) {
-    await vscode.window.showErrorMessage('VS Code could not apply the KREN grammar correction.');
+    notify('error', 'VS Code could not apply the KREN grammar correction.');
     return;
   }
   const updatedRange = new vscode.Range(
@@ -1403,7 +1415,7 @@ async function showGrammarDetails(rawUri: unknown, rawGeneration: unknown): Prom
       !Number.isInteger(rawGeneration)) return;
   const state = grammarCodeActions.getState(rawUri, rawGeneration);
   if (!state) {
-    await vscode.window.showInformationMessage('That KREN grammar result is no longer current.');
+    notify('information', 'That KREN grammar result is no longer current.');
     return;
   }
   lastResult = {
@@ -1429,7 +1441,7 @@ async function manageGrammarFinding(
   if (!state || !editor || editor.document.uri.toString() !== rawUri ||
       editor.document.version !== state.documentVersion ||
       editor.document.getText(state.range) !== state.selectedText) {
-    await vscode.window.showInformationMessage('That KREN grammar finding is no longer current.');
+    notify('information', 'That KREN grammar finding is no longer current.');
     return;
   }
   const issue = state.result.issues.find((candidate) => candidate.id === rawIssueId);
@@ -1437,7 +1449,7 @@ async function manageGrammarFinding(
   try {
     await persistGrammarPreference(context, issue, action);
   } catch (error) {
-    await vscode.window.showErrorMessage(`KREN could not update local grammar data: ${errorMessage(error)}`);
+    notify('error', `KREN could not update local grammar data: ${errorMessage(error)}`);
     return;
   }
   await checkGrammarRange(context, editor, state.range, false, false);
@@ -1454,7 +1466,7 @@ async function managePanelGrammarIssue(
   try {
     await persistGrammarPreference(context, issue, action);
   } catch (error) {
-    await vscode.window.showErrorMessage(`KREN could not update local grammar data: ${errorMessage(error)}`);
+    notify('error', `KREN could not update local grammar data: ${errorMessage(error)}`);
     return;
   }
   const editor = vscode.window.activeTextEditor;
@@ -1500,14 +1512,14 @@ async function clearGrammarCustomDictionary(context: vscode.ExtensionContext): P
   await clearHarperWords();
   await context.globalState.update(GRAMMAR_CUSTOM_WORDS, []);
   resultsView.refresh();
-  await vscode.window.showInformationMessage('KREN local grammar dictionary cleared.');
+  notify('information', 'KREN local grammar dictionary cleared.');
 }
 
 async function clearIgnoredGrammarFindings(context: vscode.ExtensionContext): Promise<void> {
   await clearHarperIgnoredLints();
   await context.globalState.update(GRAMMAR_IGNORED_LINTS, '');
   resultsView.refresh();
-  await vscode.window.showInformationMessage('KREN ignored grammar findings cleared.');
+  notify('information', 'KREN ignored grammar findings cleared.');
 }
 
 function ignoredLintCount(serialized: string): number {
@@ -1558,12 +1570,12 @@ async function executeLookup(
 ): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    await vscode.window.showInformationMessage('Open an editor and select text first.');
+    notify('information', 'Open an editor and select text first.');
     return;
   }
   const nonEmptySelections = editor.selections.filter((selection) => !selection.isEmpty);
   if (nonEmptySelections.length !== 1) {
-    await vscode.window.showInformationMessage('Select one word, phrase, or sentence first.');
+    notify('information', 'Select one word, phrase, or sentence first.');
     return;
   }
 
@@ -1573,7 +1585,7 @@ async function executeLookup(
   const config = vscode.workspace.getConfiguration('kren');
   const maxCharacters = config.get<number>('translation.maxCharacters', 5000);
   if (rawText.length > maxCharacters) {
-    await vscode.window.showWarningMessage(
+    notify('warning',
       `The selection has ${rawText.length} characters; the configured maximum is ${maxCharacters}.`
     );
     return;
@@ -1650,7 +1662,7 @@ async function executeLookup(
         : abortReason === 'timedOut'
           ? 'KREN translation timed out. Try again, choose Gemini 3.1 Flash-Lite, or increase kren.request.timeoutMs.'
           : 'KREN translation was cancelled.';
-      await vscode.window.showInformationMessage(message);
+      notify('information', message);
       return;
     }
     await showLookupError(error, () => executeLookup(context, hoverStore, operation));
@@ -1659,7 +1671,7 @@ async function executeLookup(
 
 async function executeAddToUserDictionary(context: vscode.ExtensionContext): Promise<void> {
   if (!vscode.workspace.getConfiguration('kren').get<boolean>('userDictionary.enabled', false)) {
-    await vscode.window.showInformationMessage(
+    notify('information',
       'Enable User Dictionary in KREN Settings before adding an entry.'
     );
     return;
@@ -1680,7 +1692,7 @@ async function executeAddToUserDictionary(context: vscode.ExtensionContext): Pro
     5000
   );
   if (expression.length > maximum) {
-    await vscode.window.showWarningMessage(
+    notify('warning',
       `The selected expression has ${expression.length} characters; the configured maximum is ${maximum}.`
     );
     return;
@@ -1719,7 +1731,7 @@ async function executeAddToUserDictionary(context: vscode.ExtensionContext): Pro
     await resultsView.showUserDictionaryDraft(draft);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      await vscode.window.showInformationMessage(
+      notify('information',
         'User Dictionary generation was cancelled. Nothing was saved.'
       );
       return;
@@ -1780,7 +1792,7 @@ async function regenerateUserDictionaryDraft(
 
 async function openUserDictionary(): Promise<void> {
   if (!vscode.workspace.getConfiguration('kren').get<boolean>('userDictionary.enabled', false)) {
-    await vscode.window.showInformationMessage(
+    notify('information',
       'Enable User Dictionary in KREN Settings before opening it.'
     );
     return;
@@ -1888,7 +1900,7 @@ async function exportUserDictionary(
     ? exportUserDictionaryJson(store)
     : exportUserDictionaryMarkdown(store);
   await writeFile(destination.fsPath, content, 'utf8');
-  await vscode.window.showInformationMessage(
+  notify('information',
     `Exported ${selected.length} User Dictionary entr${selected.length === 1 ? 'y' : 'ies'} as ${format === 'json' ? 'lossless JSON' : 'lossy Markdown'}.`
   );
 }
@@ -1952,11 +1964,11 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
   if (!selected) return;
   if ('userDictionaryCapture' in selected) {
     if (!rawText.trim()) {
-      await vscode.window.showInformationMessage('Copy a word or phrase first.');
+      notify('information', 'Copy a word or phrase first.');
       return;
     }
     if (rawText.length > maxCharacters) {
-      await vscode.window.showWarningMessage(
+      notify('warning',
         `The clipboard has ${rawText.length} characters; the configured maximum is ${maxCharacters}.`
       );
       return;
@@ -1966,7 +1978,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
       await resultsView.showUserDictionaryDraft(draft);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        await vscode.window.showInformationMessage(
+        notify('information',
           'User Dictionary generation was cancelled. Nothing was saved.'
         );
         return;
@@ -1981,11 +1993,11 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
   }
   const selectedOperation = selected.operation;
   if (!rawText.trim()) {
-    await vscode.window.showInformationMessage('Copy a word, phrase, or sentence first.');
+    notify('information', 'Copy a word, phrase, or sentence first.');
     return;
   }
   if (rawText.length > maxCharacters) {
-    await vscode.window.showWarningMessage(
+    notify('warning',
       `The clipboard has ${rawText.length} characters; the configured maximum is ${maxCharacters}.`
     );
     return;
@@ -2026,7 +2038,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
     await resultsView.showResult(result, rawText, false);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      await vscode.window.showInformationMessage(
+      notify('information',
         abortReason === 'timedOut' ? 'KREN request timed out.' : 'KREN request was cancelled.'
       );
       return;
@@ -2160,7 +2172,7 @@ async function configureRewriteGeminiProfile(
       selected.profile === 'pro' ? 'kren.setGeminiProApiKey' : 'kren.setGeminiApiKey'
     );
   }
-  await vscode.window.showInformationMessage(
+  notify('information',
     `Rewrite Text now uses the ${selected.profile === 'pro' ? 'alternate' : 'default'} Gemini profile.`
   );
 }
@@ -2201,20 +2213,20 @@ async function showResultQuickPick(result: KrenResult): Promise<void> {
 
 async function copyLastResult(): Promise<void> {
   if (!lastResult) {
-    await vscode.window.showInformationMessage('KREN has no result to copy yet.');
+    notify('information', 'KREN has no result to copy yet.');
     return;
   }
   await copyTextResult(resultText(lastResult.result));
 }
 
-async function copyTextResult(text: string): Promise<void> {
+export async function copyTextResult(text: string): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  await vscode.window.showInformationMessage('KREN result copied.');
+  notify('information', 'KREN result copied.');
 }
 
 async function replaceLastResult(): Promise<void> {
   if (!lastResult) {
-    await vscode.window.showInformationMessage('KREN has no result to replace with yet.');
+    notify('information', 'KREN has no result to replace with yet.');
     return;
   }
   await replaceLastResultWith(resultText(lastResult.result));
@@ -2224,12 +2236,12 @@ async function replaceLastResultWith(replacement: string): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!lastResult?.uri || !lastResult.range || !editor ||
       editor.document.uri.toString() !== lastResult.uri) {
-    await vscode.window.showInformationMessage('The original KREN selection is no longer active.');
+    notify('information', 'The original KREN selection is no longer active.');
     return;
   }
   const range = lastResult.range;
   if (editor.document.getText(range) !== lastResult.selectedText) {
-    await vscode.window.showWarningMessage('The original selection changed, so KREN did not replace it.');
+    notify('warning', 'The original selection changed, so KREN did not replace it.');
     return;
   }
   await editor.edit((editBuilder) => {
@@ -2242,19 +2254,19 @@ async function applySelectedGrammarChoices(
   replace: boolean
 ): Promise<void> {
   if (!lastResult || lastResult.result.kind !== 'grammar') {
-    await vscode.window.showInformationMessage('KREN has no grammar result to apply.');
+    notify('information', 'KREN has no grammar result to apply.');
     return;
   }
   const selected = choices.filter((choice) => choice.suggestionIndex >= 0);
   if (!selected.length) {
-    await vscode.window.showInformationMessage('Choose at least one grammar correction first.');
+    notify('information', 'Choose at least one grammar correction first.');
     return;
   }
   let corrected: string;
   try {
     corrected = applyGrammarChoices(lastResult.result, selected);
   } catch (error) {
-    await vscode.window.showErrorMessage(`KREN could not apply those corrections: ${errorMessage(error)}`);
+    notify('error', `KREN could not apply those corrections: ${errorMessage(error)}`);
     return;
   }
   if (replace) {
@@ -2266,7 +2278,7 @@ async function applySelectedGrammarChoices(
 
 function showDetails(): void {
   if (!lastResult) {
-    void vscode.window.showInformationMessage('KREN has no result to show yet.');
+    notify('information', 'KREN has no result to show yet.');
     return;
   }
   outputChannel.clear();
@@ -2329,7 +2341,7 @@ async function configureLanguages(): Promise<void> {
     explanation.code,
     vscode.ConfigurationTarget.Global
   );
-  await vscode.window.showInformationMessage(
+  notify('information',
     `KREN languages updated: translations to ${translation.name}; explanations in ${explanation.name}. Input is detected automatically.`
   );
 }
@@ -2385,13 +2397,13 @@ async function setSecret(
   prompt: string
 ): Promise<boolean> {
   if (await context.secrets.get(key)) {
-    await vscode.window.showInformationMessage(
+    notify('information',
       `KREN already has ${credentialLabel(key)} stored. Remove it before setting a new key.`
     );
     return false;
   }
   if (isMerriamWebsterSecretKey(key) && !await canStoreMerriamWebsterKey(context.secrets, key)) {
-    await vscode.window.showWarningMessage(MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
+    notify('warning', MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
     return false;
   }
   const value = await vscode.window.showInputBox({
@@ -2404,7 +2416,7 @@ async function setSecret(
   if (isMerriamWebsterSecretKey(key)) {
     const stored = await storeMerriamWebsterKey(context.secrets, key, value.trim());
     if (!stored) {
-      await vscode.window.showWarningMessage(MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
+      notify('warning', MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
       return false;
     }
   } else {
@@ -2412,7 +2424,7 @@ async function setSecret(
   }
   storedSecretKeys.add(key);
   resultsView.refresh();
-  await vscode.window.showInformationMessage('KREN API key saved securely.');
+  notify('information', 'KREN API key saved securely.');
   return true;
 }
 
@@ -2424,13 +2436,13 @@ async function deleteSecret(
   if (!await context.secrets.get(key)) {
     storedSecretKeys.delete(key);
     resultsView.refresh();
-    await vscode.window.showInformationMessage('KREN found no stored API key for that provider.');
+    notify('information', 'KREN found no stored API key for that provider.');
     return;
   }
   await context.secrets.delete(key);
   storedSecretKeys.delete(key);
   resultsView.refresh();
-  await vscode.window.showInformationMessage(confirmation);
+  notify('information', confirmation);
 }
 
 async function deleteAllApiKeys(context: vscode.ExtensionContext): Promise<void> {
@@ -2447,7 +2459,7 @@ async function deleteAllApiKeys(context: vscode.ExtensionContext): Promise<void>
   storedSecretKeys.clear();
   resultsView.refresh();
   const removed = stored.filter((value) => Boolean(value)).length;
-  await vscode.window.showInformationMessage(
+  notify('information',
     removed === 0
       ? 'KREN found no stored API keys in this VS Code profile.'
       : `KREN deleted ${removed} stored API key${removed === 1 ? '' : 's'} from this VS Code profile.`
@@ -2460,14 +2472,14 @@ async function showLookupError(
 ): Promise<void> {
   const message = errorMessage(error);
   if (!(error instanceof ProviderError)) {
-    void vscode.window.showErrorMessage(`KREN: ${message}`);
+    notify('error', `KREN: ${message}`);
     return;
   }
   const retryLabel = error.retryable && retry ? 'Retry Now' : undefined;
   const action = error.action;
   const actionButton = action ? actionLabel(action) : undefined;
   if (!retryLabel && !actionButton) {
-    void vscode.window.showErrorMessage(`KREN: ${message}`);
+    notify('error', `KREN: ${message}`);
     return;
   }
   const buttons = [retryLabel, actionButton].filter((item): item is string => Boolean(item));
@@ -2621,7 +2633,7 @@ function progressTitle(operation: KrenOperation): string {
 async function showGoogleCloudTranslationUsage(): Promise<void> {
   const usage = await cloudTranslationUsage.get();
   const remaining = GOOGLE_CLOUD_FREE_TIER_CHARACTERS - usage.characters;
-  await vscode.window.showInformationMessage(
+  notify('information',
     `KREN Google Cloud Translation usage for ${usage.month}: ${usage.characters.toLocaleString()} / ${GOOGLE_CLOUD_FREE_TIER_CHARACTERS.toLocaleString()} characters (${remaining.toLocaleString()} remaining). This local count does not include requests made outside this VS Code profile.`
   );
 }
@@ -2658,13 +2670,13 @@ async function testKoreanDictionary(context: vscode.ExtensionContext): Promise<v
       () => new KoreanDictionaryProvider(key).lookup(request, controller.signal)
     );
     if (!result) {
-      await vscode.window.showErrorMessage(
+      notify('error',
         'KREN reached the Korean Basic Dictionary, but its response contained no usable entry for “나무”.'
       );
       return;
     }
     const meanings = result.entries.map((entry) => entry.meaning).join(', ');
-    await vscode.window.showInformationMessage(
+    notify('information',
       `Korean Basic Dictionary connection succeeded: 나무 → ${meanings}`
     );
   } catch (error) {

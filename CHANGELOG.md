@@ -4,6 +4,10 @@ This changelog describes the private local KREN build.
 
 ## Unreleased
 
+## 1.3.1
+
+- Fixes an open notification freezing the KREN panel. Copying a result showed "KREN result copied." and, until that notification was dismissed, every button in the secondary sidebar was accepted but never ran. KREN no longer waits for a notification to be dismissed before continuing, so the panel stays responsive whether you close it or leave it. Present since 1.1.0.
+
 ## 1.3.0
 
 Merriam-Webster's terms allow no more than two reference works per account, and the registration page issues at most two keys, so KREN stores at most two. All three reference works stay available and each user configures whichever two they hold keys for; the unconfigured one remains visible with the reason rather than being hidden.

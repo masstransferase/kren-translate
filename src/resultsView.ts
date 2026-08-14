@@ -66,6 +66,7 @@ interface UserDictionaryState {
 }
 
 interface ResultsViewActions {
+  notify(kind: 'information' | 'warning' | 'error', message: string): void;
   copy(): Promise<void>;
   details(): void;
   replace(): Promise<void>;
@@ -271,7 +272,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
 
   public async playPronunciation(audioUrl: unknown, headword: unknown): Promise<void> {
     if (typeof audioUrl !== 'string' || !isAllowedPronunciationUrl(audioUrl)) {
-      await vscode.window.showErrorMessage('KREN blocked an invalid pronunciation audio URL.');
+      this.actions.notify('error', 'KREN blocked an invalid pronunciation audio URL.');
       return;
     }
     const audio = {
@@ -560,7 +561,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       if (!isPanelCommand(action)) {
         const text = `KREN programming error: command "${action}" is not available in this build.`;
         this.actions.log(`[panel command unavailable] ${action}`);
-        void vscode.window.showErrorMessage(text);
+        this.actions.notify('error', text);
       } else {
         void this.actions.runCommand(action).catch((error: unknown) => {
           this.reportActionFailure(
@@ -903,7 +904,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   private reportActionFailure(action: string, error: unknown, logKind: string): void {
     const message = safePanelErrorMessage(error);
     this.actions.log(`[${logKind}] ${action}: ${message}`);
-    void vscode.window.showErrorMessage(`KREN: ${message}`);
+    this.actions.notify('error', `KREN: ${message}`);
   }
 
   private rewriteVariantText(id: RewriteVariantId | undefined): string | undefined {
