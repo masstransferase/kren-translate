@@ -47,7 +47,13 @@ describe('plain-text full details', () => {
       sourceText: 'Leverage synergies.',
       englishVariety: 'international',
       domain: 'business',
-      tone: 'plainLanguage',
+      modality: 'written',
+      function: 'general',
+      formality: 'neutral',
+      voice: 'preserve',
+      stance: 'direct',
+      length: 'preserve',
+      perspective: 'preserve',
       rhetoricalMode: 'persuade',
       variants: [
         { id: 'natural', label: 'Natural English', text: 'Use our combined strengths.' },
@@ -62,7 +68,8 @@ describe('plain-text full details', () => {
     expect(details.indexOf('Jargon-Free')).toBeLessThan(details.indexOf('Provider: Gemini'));
     expect(details).toContain('English: International English');
     expect(details).toContain('Domain: Business');
-    expect(details).toContain('Tone: Plain Language');
+    expect(details).toContain('Formality: Neutral');
+    expect(details).toContain('Stance: Direct');
   });
 
   it('identifies and preserves an editorial synonym discussion', () => {

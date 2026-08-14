@@ -3,7 +3,7 @@
 - **400 Invalid request / thinking or effort unsupported:** choose a compatible level or `Auto`, then retry.
 - **401 or 403:** replace the provider key and confirm the key/project has API access.
 - **404 model unavailable:** Refresh models or enter a current model ID in KREN Settings.
-- **Dictionary key rejected or no entry found:** confirm that each Merriam-Webster key was issued for the matching reference. Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary use separate credential fields in this private build. A key for one reference does not unlock another.
+- **Dictionary key rejected or no entry found:** confirm that each Merriam-Webster key was issued for the matching reference. Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary use separate credential fields in this build. A key for one reference does not unlock another.
 - **429 quota or rate limit:** check provider quota/billing. KREN uses bounded same-provider backoff; do not raise attempts when a hard quota is exhausted.
 - **503 high demand:** retry later or select another model from the same provider. KREN never redirects text to another company.
 - **Timeout:** verify connectivity, reduce input size, or increase `kren.request.timeoutMs` within its allowed range.

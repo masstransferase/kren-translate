@@ -17,7 +17,14 @@ const rewriteRequest: RewriteRequest = {
   targetLanguage: 'en',
   englishVariety: 'american',
   domain: 'general',
-  tone: 'neutral'
+  modality: 'written',
+  function: 'general',
+  formality: 'neutral',
+  voice: 'preserve',
+  stance: 'neutral',
+  length: 'preserve',
+  perspective: 'preserve',
+  rhetoricalMode: 'preserve'
 };
 
 describe('rewrite variant definitions', () => {

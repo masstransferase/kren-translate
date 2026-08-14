@@ -2,7 +2,7 @@
 
 KREN is a selection-first language workbench for VS Code. It operates only on text you explicitly select, copy, or submit to a confirmed VS Code language-model tool. Passive hovering, ordinary typing, and opening a file do not call remote providers.
 
-This guide applies to KREN 1.1.0. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
+This guide applies to KREN 1.3.0. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
 
 ## Requirements
 
@@ -105,6 +105,43 @@ Korean Dictionary results identify the Basic Korean Dictionary and the National 
 English Dictionary accepts short expressions such as `take on`, `settle on`, and `get rid of`. KREN queries Merriam-Webster first. KREN sends that exact expression to Google Cloud Translation only when no entry is returned for a multi-word expression and the fallback is enabled. Authentication, network, and other errors do not trigger translation fallback.
 
 Dictionary, thesaurus, medical dictionary, and Korean dictionary results are lookup-only; they do not offer Replace Selection.
+
+## User Dictionary
+
+The User Dictionary is your own local glossary of expressions, stored on this machine. It is **off by default**: set `kren.userDictionary.enabled` to true before any command appears, and while it is off no entry can be written and no provider request can be made.
+
+### Adding an entry
+
+1. Select an expression and choose **Add to User Dictionary**.
+2. Review the editable draft, then save it. Nothing is stored until you save.
+3. An expression already in your dictionary is refused before any provider call, so a duplicate costs nothing.
+
+Two capture modes are available through `kren.userDictionary.defaultCaptureMode`:
+
+- **LLM Only** generates the entry from the selected expression alone.
+
+- **Merriam-Webster and LLM** additionally performs a live Merriam-Webster lookup and shows both results separately, each attributed. The two are independent: the dictionary text is never placed in the model prompt, and the model output is never sent to Merriam-Webster. Only your personal entry is saved, along with four identifying fields for the reference. Set `kren.userDictionary.fallbackOnMerriamWebsterNoMatch` to true to fall back to the LLM-only draft when Merriam-Webster genuinely has no entry; an authentication, quota, or network failure is reported as itself and never as "no entry found".
+
+### Managing entries
+
+Choose **Open User Dictionary** for the list. Search covers term, aliases, meanings, usage notes, tags, and collections. Filters cover language, collection, entry type, capture mode, and whether a Merriam-Webster reference is attached. Select several entries to delete or export them together; selection never triggers regeneration, so it never spends a provider call.
+
+Entry details offer read-aloud through the speaker icon, using your existing speech settings.
+
+### Purge
+
+Purge always previews before it acts. The preview lists the count and the terms, and confirming deletes exactly those entries, not whatever a fresh age calculation would select at that moment. Ages come from when an entry was last changed; viewing an entry does not make it newer.
+
+**Remove all** requires typing the confirmation, because it is the only option whose reach is everything. No age-based option can arrive there by accident.
+
+### Import, export, and recovery
+
+- **JSON** is the lossless format and the one to use for backups.
+- **Markdown** is human-readable and lossy by design. Pronunciation in particular can round-trip imperfectly, which is why the interface says so where you choose the format.
+
+Import previews the entry count, the duplicates, and any invalid records before writing, and never overwrites an existing entry without an explicit decision. The file you import from is never modified. An export from an older schema version imports cleanly; an export from an unrecognized future version is refused with the reason rather than partly applied.
+
+KREN Settings shows the exact storage path. If the store is ever unreadable, KREN preserves the original file alongside it and tells you where, so you can import it back by hand. A storage failure is always reported as a storage failure and never displayed as an empty dictionary.
 
 ## Grammar Check
 
@@ -211,6 +248,7 @@ KREN does not bundle an MCP server. Copying text and using the KREN status item 
 - The latest submitted input and result remain in memory until replaced, cleared, or the extension host stops. Open Full Details also writes a copy to the KREN Output channel, which VS Code may preserve in session logs.
 - API keys are stored in VS Code Secret Storage. KREN Settings shows only whether each key is stored, never the key value. Merriam-Webster issues no more than two API keys per account, so KREN refuses a third Merriam-Webster key before storing it. Remove one key to enable a different reference work immediately.
 - Custom grammar words, ignored Harper hashes, consent flags, and the Cloud Translation usage ledger are stored in VS Code global storage.
+- User Dictionary entries are stored in VS Code global storage, on this machine only, and are never synchronized or sent anywhere except when you export them yourself. KREN Settings shows the exact path. Only the selected expression and KREN's bounded instruction reach the provider; entry content never appears in a log line or an error message.
 - The default submitted-text limit is 5,000 characters and is configurable from 1 to 20,000 with `kren.translation.maxCharacters`; despite its historical name, this shared limit applies to KREN operations generally.
 - The default provider/local-operation timeout is 45 seconds and is configurable from 1 to 120 seconds with `kren.request.timeoutMs`.
 - Same-provider retries are bounded. For Rewrite Text, the alternate Gemini profile can use only its explicitly configured same-provider fallback after eligible temporary overload errors or an unusable structured response, and results identify fallback use. Authentication, invalid-request, empty-result, and safety errors do not trigger fallback. Explain uses the selected model without this rewrite fallback.
@@ -238,9 +276,10 @@ See [Troubleshooting](TROUBLESHOOTING.md) for additional details. Never paste an
 
 1. Run each provider-specific **KREN: Delete ... API Key** command for secrets you want explicitly removed.
 2. Clear custom grammar words and ignored findings from KREN Settings if desired.
-3. Clear the rich result to remove KREN's current in-memory input/result.
-4. Uninstall KREN.
-5. To remove remaining consent flags and the Cloud Translation usage ledger, delete KREN's VS Code global storage folder after uninstalling. The folder is named for the extension identifier shown on KREN's entry in the Extensions view: `masstransferase.kren-translate` for a Marketplace install, or `local.kren-translate` for a sideloaded build.
+3. Export your User Dictionary as JSON first if you want to keep it, then use **Remove all** in the User Dictionary. Uninstalling alone leaves the entries on disk until step 5 removes the folder.
+4. Clear the rich result to remove KREN's current in-memory input/result.
+5. Uninstall KREN.
+6. To remove remaining consent flags, User Dictionary entries, and the Cloud Translation usage ledger, delete KREN's VS Code global storage folder after uninstalling. The folder is named for the extension identifier shown on KREN's entry in the Extensions view: `masstransferase.kren-translate` for a Marketplace install, or `local.kren-translate` for a sideloaded build.
 
 Deleting or resetting the local Cloud Translation ledger does not change provider billing records and must not be used to bypass the configured safety ceiling.
 

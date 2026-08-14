@@ -4,10 +4,18 @@ import { isRewriteVariantId } from './rewriteVariants.js';
 import { readFile, stat } from 'node:fs/promises';
 import { isAllowedPronunciationUrl } from './pronunciation.js';
 import {
+  isRewriteSettingsGroup,
   renderKrenResultViewHtml,
-  type KrenPanelSettings
+  type KrenPanelSettings,
+  type RewriteSettingsGroup
 } from './resultViewHtml.js';
 import type { GrammarChoice, KrenResult, RewriteVariantId } from './types.js';
+import { REWRITE_MODALITIES, type RewriteModality } from './rewriteAxes.js';
+import {
+  isRewriteModeId,
+  rewriteModeSettingEntries,
+  type RewriteModeId
+} from './rewriteModes.js';
 import {
   DEFAULT_PRO_MODELS,
   type GeminiModelOption
@@ -18,11 +26,43 @@ import {
   priorityWebviewCommand,
   type PriorityWebviewCommand
 } from './webviewMessagePriority.js';
+import {
+  applyUserDictionaryDraftEdits,
+  isUserDictionaryExportFormat,
+  isUserDictionaryCaptureMode,
+  isUserDictionaryPurgeSelection,
+  isUserDictionarySourceFilter,
+  type UserDictionaryCaptureMode,
+  type UserDictionaryCaptureResult,
+  type UserDictionaryEntryV1,
+  type UserDictionaryExportFormat,
+  type UserDictionaryImportDecision,
+  type UserDictionaryImportPreview,
+  type UserDictionaryListQuery,
+  type UserDictionaryPurgePreview,
+  type UserDictionaryPurgeSelection,
+  type UserDictionaryViewStatus,
+  type UserDictionarySaveResult
+} from './userDictionary/index.js';
 
 interface ResultState {
   result: KrenResult;
   sourceText: string;
   allowReplace: boolean;
+}
+
+interface UserDictionaryState {
+  entries: UserDictionaryEntryV1[];
+  status?: UserDictionaryViewStatus;
+  selectedId?: string;
+  selectedIds?: string[];
+  query?: UserDictionaryListQuery;
+  purgePreview?: UserDictionaryPurgePreview;
+  importPreview?: UserDictionaryImportPreview;
+  draft?: UserDictionaryEntryV1;
+  editingId?: string;
+  duplicateId?: string;
+  capture?: UserDictionaryCaptureResult;
 }
 
 interface ResultsViewActions {
@@ -36,6 +76,32 @@ interface ResultsViewActions {
   readAloudText(text: string): Promise<void>;
   stopReadAloud(): void;
   clear(): void;
+  loadUserDictionary(): Promise<UserDictionaryEntryV1[]>;
+  saveUserDictionaryEntry(
+    entry: UserDictionaryEntryV1,
+    replaceId?: string
+  ): Promise<UserDictionarySaveResult>;
+  deleteUserDictionaryEntry(id: string): Promise<UserDictionaryEntryV1[]>;
+  deleteUserDictionaryEntries(ids: readonly string[]): Promise<UserDictionaryEntryV1[] | undefined>;
+  previewUserDictionaryPurge(
+    selection: UserDictionaryPurgeSelection
+  ): Promise<UserDictionaryPurgePreview>;
+  confirmUserDictionaryPurge(
+    preview: UserDictionaryPurgePreview
+  ): Promise<UserDictionaryEntryV1[] | undefined>;
+  previewUserDictionaryImport(): Promise<UserDictionaryImportPreview | undefined>;
+  applyUserDictionaryImport(
+    preview: UserDictionaryImportPreview,
+    decision: UserDictionaryImportDecision
+  ): Promise<UserDictionaryEntryV1[]>;
+  exportUserDictionary(
+    format: UserDictionaryExportFormat,
+    entryIds?: readonly string[]
+  ): Promise<void>;
+  regenerateUserDictionaryEntry(
+    expression: string,
+    captureMode: UserDictionaryCaptureMode
+  ): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1 | undefined>;
   updateSetting(key: KrenPanelSettingKey, value: string | number | boolean): Promise<void>;
   runCommand(command: KrenPanelCommand): Promise<void>;
   log(message: string): void;
@@ -58,6 +124,8 @@ export type KrenPanelSettingKey =
   | 'explanation.geminiProfile'
   | 'rewrite.provider'
   | 'rewrite.sourceLanguage'
+  | 'rewrite.modality'
+  | 'rewrite.function'
   | 'rewrite.englishVariety'
   | 'gemini.model'
   | 'gemini.thinkingLevel'
@@ -78,7 +146,11 @@ export type KrenPanelSettingKey =
   | 'rewrite.preferredVariant'
   | 'rewrite.quickMenuVariant'
   | 'rewrite.domain'
-  | 'rewrite.tone'
+  | 'rewrite.formality'
+  | 'rewrite.voice'
+  | 'rewrite.stance'
+  | 'rewrite.length'
+  | 'rewrite.perspective'
   | 'rewrite.rhetoricalMode'
   | 'rewrite.preserveFormatting'
   | 'rewrite.includeChangeNotes'
@@ -91,7 +163,19 @@ export type KrenPanelSettingKey =
   | 'readAloud.edgeRatePercent'
   | 'readAloud.edgePythonCommand'
   | 'dictionary.multiWordTranslationFallback'
-  | 'pronunciation.windowsNativePlayback';
+  | 'pronunciation.windowsNativePlayback'
+  | 'userDictionary.enabled'
+  | 'userDictionary.defaultCaptureMode'
+  | 'userDictionary.fallbackOnMerriamWebsterNoMatch'
+  | 'userDictionary.provider'
+  | 'userDictionary.model'
+  | 'userDictionary.thinkingOrEffort'
+  | 'userDictionary.entryLanguage'
+  | 'userDictionary.includePronunciation'
+  | 'userDictionary.includeSynonyms'
+  | 'userDictionary.includeUsageNotes'
+  | 'userDictionary.numberOfExamples'
+  | 'userDictionary.includeTechnicalMeanings';
 
 export type { KrenPanelCommand } from './panelCommands.js';
 
@@ -102,10 +186,11 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   private view: vscode.WebviewView | undefined;
   private viewDisposables: vscode.Disposable[] = [];
   private state: ResultState | undefined;
+  private userDictionaryState: UserDictionaryState = { entries: [] };
   private autoplayAudio: { url: string; headword: string } | undefined;
   private audioPlaybackResolver: ((started: boolean) => void) | undefined;
   private generatedAudioResolver: ((result: EdgeReadAloudResult) => void) | undefined;
-  private activeScreen: 'result' | 'start' | 'settings' | 'manual' = 'result';
+  private activeScreen: 'result' | 'start' | 'settings' | 'manual' | 'userDictionary' = 'result';
   private messageQueue: Promise<void> = Promise.resolve();
   private proModels: GeminiModelOption[] = DEFAULT_PRO_MODELS;
   private openAIModels: GeminiModelOption[] = [{ id: 'gpt-5.4', displayName: 'GPT-5.4' }];
@@ -115,6 +200,8 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   private proModelRefresh = 0;
   private openAIModelRefresh = 0;
   private anthropicModelRefresh = 0;
+  private inferredRewriteModality: RewriteModality | undefined;
+  private activeRewriteSettingsGroup: RewriteSettingsGroup | undefined;
   private readonly windowsPronunciation = new WindowsPronunciationPlayer();
 
   public constructor(
@@ -155,6 +242,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
 
   public setResult(result: KrenResult, sourceText: string, allowReplace: boolean): void {
     this.state = { result, sourceText, allowReplace };
+    this.inferredRewriteModality = undefined;
     this.autoplayAudio = undefined;
     this.activeScreen = 'result';
     this.render();
@@ -162,6 +250,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
 
   public clear(): void {
     this.state = undefined;
+    this.inferredRewriteModality = undefined;
     this.autoplayAudio = undefined;
     this.activeScreen = 'result';
     this.render();
@@ -260,6 +349,56 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     this.refreshReadAloudVoicesInBackground();
   }
 
+  public async showUserDictionary(selectedId?: string): Promise<void> {
+    this.activeScreen = 'userDictionary';
+    this.userDictionaryState = {
+      entries: this.userDictionaryState.entries,
+      status: 'loading',
+      selectedId
+    };
+    this.render();
+    await this.reveal();
+    try {
+      const entries = await this.actions.loadUserDictionary();
+      this.userDictionaryState = { entries, selectedId, status: 'ready' };
+      this.render();
+    } catch (error) {
+      this.userDictionaryState = {
+        entries: this.userDictionaryState.entries,
+        status: 'storageError'
+      };
+      this.render();
+      throw error;
+    }
+  }
+
+  public async showUserDictionaryGenerationFailure(): Promise<void> {
+    this.activeScreen = 'userDictionary';
+    this.userDictionaryState = {
+      entries: this.userDictionaryState.entries,
+      status: 'generationFailed'
+    };
+    this.render();
+    await this.reveal();
+  }
+
+  public async showUserDictionaryDraft(
+    value: UserDictionaryCaptureResult | UserDictionaryEntryV1,
+    editingId?: string
+  ): Promise<void> {
+    const capture = normalizeUserDictionaryCaptureResult(value);
+    this.userDictionaryState = {
+      ...this.userDictionaryState,
+      draft: capture.draft,
+      capture,
+      editingId,
+      duplicateId: undefined
+    };
+    this.activeScreen = 'userDictionary';
+    this.render();
+    await this.reveal();
+  }
+
   public dispose(): void {
     this.proModelRefresh += 1;
     this.openAIModelRefresh += 1;
@@ -319,6 +458,12 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   private render(): void {
     if (!this.view) return;
     const nonce = createNonce();
+    const settings = {
+      ...this.actions.settings(),
+      ...(this.userDictionaryState.status === 'ready'
+        ? { userDictionaryEntryCount: this.userDictionaryState.entries.length }
+        : {})
+    };
     const brandImageUri = this.view.webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'kren-panel-logo.png')
     ).toString();
@@ -334,11 +479,14 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       sourceText: this.state?.sourceText,
       allowReplace: this.state?.allowReplace,
       autoplayAudio: this.autoplayAudio,
-      settings: this.actions.settings(),
+      settings,
       activeScreen: this.activeScreen,
+      userDictionary: this.userDictionaryState,
       proModels: this.proModels,
       openAIModels: this.openAIModels,
-      anthropicModels: this.anthropicModels
+      anthropicModels: this.anthropicModels,
+      inferredRewriteModality: this.inferredRewriteModality,
+      activeRewriteSettingsGroup: this.activeRewriteSettingsGroup
     });
     this.autoplayAudio = undefined;
   }
@@ -374,6 +522,8 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     if (message.command === 'readVariant') {
       const text = this.rewriteVariantText(message.variantId);
       if (text) {
+        this.inferredRewriteModality = REWRITE_MODALITIES[1].id;
+        this.render();
         void this.actions.readAloudText(text).catch((error: unknown) => {
           this.reportActionFailure('Read Aloud', error, 'panel read aloud failed');
         });
@@ -385,6 +535,22 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     if (message.command === 'updateSetting' && message.key !== undefined &&
         message.value !== undefined) {
       await this.actions.updateSetting(message.key, message.value);
+      if (message.key === 'rewrite.modality') this.inferredRewriteModality = undefined;
+    }
+    if (message.command === 'applyRewriteMode' && message.modeId) {
+      this.inferredRewriteModality = undefined;
+      for (const { key, value } of rewriteModeSettingEntries(message.modeId)) {
+        await this.actions.updateSetting(key, value);
+      }
+      this.render();
+    }
+    if (message.command === 'editRewriteGroup') {
+      this.activeRewriteSettingsGroup = message.group || undefined;
+    }
+    if (message.command === 'pinInferredModality' && this.inferredRewriteModality) {
+      await this.actions.updateSetting('rewrite.modality', this.inferredRewriteModality);
+      this.inferredRewriteModality = undefined;
+      this.render();
     }
     if (message.command === 'runCommand' && message.action) {
       // Do not hold the serialized settings queue while a long-running audio command
@@ -421,6 +587,250 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     if (message.command === 'showResult') {
       this.activeScreen = 'result';
       this.render();
+    }
+    if (message.command === 'showUserDictionary') {
+      try {
+        await this.showUserDictionary();
+      } catch (error) {
+        this.reportActionFailure('Open User Dictionary', error, 'user dictionary open failed');
+      }
+    }
+    if (message.command === 'openUserDictionaryEntry' && message.entryId) {
+      this.userDictionaryState = {
+        ...this.userDictionaryState,
+        selectedId: message.entryId
+      };
+      this.render();
+    }
+    if (message.command === 'readUserDictionaryEntry' && message.entryId) {
+      // Reads the headword only, not the definition. A dictionary entry is consulted for
+      // how the term sounds, and reading a paragraph of generated prose aloud is a
+      // different feature nobody asked for. Uses the same Read Aloud settings and the
+      // same failure reporting as every other speech path in KREN.
+      const entry = this.userDictionaryState.entries.find((item) => item.id === message.entryId);
+      if (entry) {
+        void this.actions.readAloudText(entry.term).catch((error: unknown) => {
+          this.reportActionFailure('Read Aloud', error, 'user dictionary read aloud failed');
+        });
+      }
+    }
+    if (message.command === 'editUserDictionaryEntry' && message.entryId) {
+      const entry = this.userDictionaryState.entries.find((item) => item.id === message.entryId);
+      if (entry) {
+        this.userDictionaryState = {
+          ...this.userDictionaryState,
+          draft: entry,
+          capture: normalizeUserDictionaryCaptureResult(entry),
+          editingId: entry.id,
+          duplicateId: undefined
+        };
+        this.render();
+      }
+    }
+    if (message.command === 'cancelUserDictionaryDraft') {
+      this.userDictionaryState = {
+        entries: this.userDictionaryState.entries,
+        selectedId: this.userDictionaryState.editingId
+      };
+      this.render();
+    }
+    if (message.command === 'saveUserDictionaryDraft' && message.entry !== undefined &&
+        this.userDictionaryState.draft) {
+      try {
+        const approved = applyUserDictionaryDraftEdits(
+          this.userDictionaryState.draft,
+          message.entry
+        );
+        const result = await this.actions.saveUserDictionaryEntry(
+          approved,
+          this.userDictionaryState.editingId
+        );
+        if (result.kind === 'duplicate') {
+          this.userDictionaryState = {
+            ...this.userDictionaryState,
+            draft: approved,
+            duplicateId: result.existing.id,
+            entries: result.entries
+          };
+        } else {
+          this.userDictionaryState = {
+            entries: result.entries,
+            selectedId: result.entry.id
+          };
+        }
+        this.render();
+      } catch (error) {
+        this.reportActionFailure('Save User Dictionary entry', error, 'user dictionary save failed');
+      }
+    }
+    if (message.command === 'openExistingUserDictionaryEntry' &&
+        this.userDictionaryState.duplicateId) {
+      this.userDictionaryState = {
+        entries: this.userDictionaryState.entries,
+        selectedId: this.userDictionaryState.duplicateId
+      };
+      this.render();
+    }
+    if (message.command === 'updateExistingUserDictionaryEntry' &&
+        this.userDictionaryState.draft && this.userDictionaryState.duplicateId) {
+      try {
+        const result = await this.actions.saveUserDictionaryEntry(
+          this.userDictionaryState.draft,
+          this.userDictionaryState.duplicateId
+        );
+        if (result.kind === 'saved') {
+          this.userDictionaryState = {
+            entries: result.entries,
+            selectedId: result.entry.id
+          };
+          this.render();
+        }
+      } catch (error) {
+        this.reportActionFailure('Update User Dictionary entry', error, 'user dictionary update failed');
+      }
+    }
+    if (message.command === 'deleteUserDictionaryEntry' && message.entryId) {
+      try {
+        const entries = await this.actions.deleteUserDictionaryEntry(message.entryId);
+        this.userDictionaryState = { entries };
+        this.render();
+      } catch (error) {
+        this.reportActionFailure('Delete User Dictionary entry', error, 'user dictionary delete failed');
+      }
+    }
+    if (message.command === 'updateUserDictionaryList' && message.query) {
+      this.userDictionaryState = { ...this.userDictionaryState, query: message.query };
+      this.render();
+    }
+    if (message.command === 'selectUserDictionaryEntries' && message.entryIds) {
+      const available = new Set(this.userDictionaryState.entries.map((entry) => entry.id));
+      this.userDictionaryState = {
+        ...this.userDictionaryState,
+        selectedIds: message.entryIds.filter((id) => available.has(id))
+      };
+      this.render();
+    }
+    if (message.command === 'deleteSelectedUserDictionaryEntries') {
+      try {
+        const ids = this.userDictionaryState.selectedIds ?? [];
+        if (ids.length === 0) return;
+        const entries = await this.actions.deleteUserDictionaryEntries(ids);
+        if (entries) this.userDictionaryState = { entries, status: 'ready' };
+        this.render();
+      } catch (error) {
+        this.reportActionFailure('Delete selected User Dictionary entries', error, 'user dictionary multi-delete failed');
+      }
+    }
+    if (message.command === 'exportUserDictionary' && message.format) {
+      try {
+        const entryIds = message.selectedOnly
+          ? this.userDictionaryState.selectedIds ?? []
+          : undefined;
+        if (message.selectedOnly && entryIds?.length === 0) return;
+        await this.actions.exportUserDictionary(message.format, entryIds);
+      } catch (error) {
+        this.reportActionFailure('Export User Dictionary', error, 'user dictionary export failed');
+      }
+    }
+    if (message.command === 'previewUserDictionaryImport') {
+      try {
+        const preview = await this.actions.previewUserDictionaryImport();
+        if (preview) {
+          const entries = await this.actions.loadUserDictionary();
+          this.userDictionaryState = {
+            entries,
+            status: 'ready',
+            importPreview: preview
+          };
+          this.activeScreen = 'userDictionary';
+        }
+        this.render();
+      } catch (error) {
+        this.reportActionFailure('Preview User Dictionary import', error, 'user dictionary import preview failed');
+      }
+    }
+    if (message.command === 'cancelUserDictionaryImport') {
+      this.userDictionaryState = { ...this.userDictionaryState, importPreview: undefined };
+      this.render();
+    }
+    if (message.command === 'applyUserDictionaryImport' && message.importDecision &&
+        this.userDictionaryState.importPreview) {
+      try {
+        const entries = await this.actions.applyUserDictionaryImport(
+          this.userDictionaryState.importPreview,
+          message.importDecision
+        );
+        this.userDictionaryState = { entries, status: 'ready' };
+        this.render();
+      } catch (error) {
+        this.reportActionFailure('Apply User Dictionary import', error, 'user dictionary import failed');
+      }
+    }
+    if (message.command === 'previewUserDictionaryPurge' && message.purgeSelection) {
+      try {
+        const purgePreview = await this.actions.previewUserDictionaryPurge(message.purgeSelection);
+        const entries = await this.actions.loadUserDictionary();
+        this.userDictionaryState = { entries, status: 'ready', purgePreview };
+        this.activeScreen = 'userDictionary';
+        this.render();
+      } catch (error) {
+        this.reportActionFailure('Preview User Dictionary purge', error, 'user dictionary purge preview failed');
+      }
+    }
+    if (message.command === 'cancelUserDictionaryPurge') {
+      this.userDictionaryState = { ...this.userDictionaryState, purgePreview: undefined };
+      this.render();
+    }
+    if (message.command === 'confirmUserDictionaryPurge' && this.userDictionaryState.purgePreview) {
+      try {
+        const entries = await this.actions.confirmUserDictionaryPurge(
+          this.userDictionaryState.purgePreview
+        );
+        if (entries) this.userDictionaryState = { entries, status: 'ready' };
+        this.render();
+      } catch (error) {
+        this.reportActionFailure('Purge User Dictionary', error, 'user dictionary purge failed');
+      }
+    }
+    if ((message.command === 'regenerateUserDictionaryDraft' ||
+        message.command === 'changeUserDictionaryDraftCaptureMode') &&
+        (this.userDictionaryState.draft || this.userDictionaryState.capture)) {
+      try {
+        const expression = this.userDictionaryState.draft?.term ??
+          this.userDictionaryState.capture?.expression;
+        const captureMode = message.command === 'changeUserDictionaryDraftCaptureMode'
+          ? message.captureMode
+          : this.userDictionaryState.capture?.captureMode ??
+            this.userDictionaryState.draft?.capture.mode;
+        if (!expression || !captureMode) return;
+        const regenerated = await this.actions.regenerateUserDictionaryEntry(
+          expression,
+          captureMode
+        );
+        if (!regenerated) {
+          this.render();
+          return;
+        }
+        const capture = normalizeUserDictionaryCaptureResult(regenerated);
+        this.userDictionaryState = {
+          ...this.userDictionaryState,
+          draft: capture.draft,
+          capture,
+          duplicateId: undefined
+        };
+        this.render();
+      } catch (error) {
+        this.userDictionaryState = {
+          entries: this.userDictionaryState.entries,
+          status: 'generationFailed'
+        };
+        this.render();
+        this.reportActionFailure(
+          'Regenerate User Dictionary draft',
+          error,
+          'user dictionary regenerate failed'
+        );
+      }
     }
     if (message.command === 'refreshProModels') {
       this.refreshProModelsInBackground();
@@ -513,14 +923,38 @@ type ResultsViewCommand =
   | 'addGrammarWord'
   | 'ignoreGrammarIssue'
   | 'readVariant'
+  | 'pinInferredModality'
   | 'stopReadAloud'
   | 'clear'
   | 'updateSetting'
+  | 'applyRewriteMode'
+  | 'editRewriteGroup'
   | 'runCommand'
   | 'showSettings'
   | 'showManual'
   | 'showStartPage'
   | 'showResult'
+  | 'showUserDictionary'
+  | 'openUserDictionaryEntry'
+  | 'readUserDictionaryEntry'
+  | 'editUserDictionaryEntry'
+  | 'cancelUserDictionaryDraft'
+  | 'saveUserDictionaryDraft'
+  | 'openExistingUserDictionaryEntry'
+  | 'updateExistingUserDictionaryEntry'
+  | 'deleteUserDictionaryEntry'
+  | 'updateUserDictionaryList'
+  | 'selectUserDictionaryEntries'
+  | 'deleteSelectedUserDictionaryEntries'
+  | 'exportUserDictionary'
+  | 'previewUserDictionaryImport'
+  | 'cancelUserDictionaryImport'
+  | 'applyUserDictionaryImport'
+  | 'previewUserDictionaryPurge'
+  | 'cancelUserDictionaryPurge'
+  | 'confirmUserDictionaryPurge'
+  | 'regenerateUserDictionaryDraft'
+  | 'changeUserDictionaryDraftCaptureMode'
   | 'refreshProModels'
   | 'refreshOpenAIModels'
   | 'refreshAnthropicModels'
@@ -537,6 +971,17 @@ function isCommandMessage(value: unknown): value is {
   key?: KrenPanelSettingKey;
   value?: string | number | boolean;
   action?: string;
+  modeId?: RewriteModeId;
+  group?: RewriteSettingsGroup | '';
+  entryId?: string;
+  entry?: unknown;
+  captureMode?: UserDictionaryCaptureMode;
+  query?: UserDictionaryListQuery;
+  entryIds?: string[];
+  format?: UserDictionaryExportFormat;
+  selectedOnly?: boolean;
+  purgeSelection?: UserDictionaryPurgeSelection;
+  importDecision?: UserDictionaryImportDecision;
 } {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as {
@@ -547,16 +992,45 @@ function isCommandMessage(value: unknown): value is {
     key?: unknown;
     value?: unknown;
     action?: unknown;
+    modeId?: unknown;
+    group?: unknown;
+    entryId?: unknown;
+    entry?: unknown;
+    captureMode?: unknown;
+    query?: unknown;
+    entryIds?: unknown;
+    format?: unknown;
+    selectedOnly?: unknown;
+    purgeSelection?: unknown;
+    importDecision?: unknown;
   };
   const command = candidate.command;
   if (command !== 'copy' && command !== 'details' && command !== 'replace' &&
       command !== 'copyVariant' && command !== 'replaceVariant' &&
       command !== 'applyGrammar' && command !== 'copyGrammar' &&
       command !== 'addGrammarWord' && command !== 'ignoreGrammarIssue' &&
-      command !== 'readVariant' && command !== 'stopReadAloud' && command !== 'clear' &&
-      command !== 'updateSetting' && command !== 'runCommand' &&
+      command !== 'readVariant' && command !== 'pinInferredModality' &&
+      command !== 'stopReadAloud' && command !== 'clear' &&
+      command !== 'updateSetting' && command !== 'applyRewriteMode' &&
+      command !== 'editRewriteGroup' && command !== 'runCommand' &&
       command !== 'showSettings' && command !== 'showManual' && command !== 'showStartPage' &&
       command !== 'showResult' &&
+      command !== 'showUserDictionary' && command !== 'openUserDictionaryEntry' &&
+      command !== 'readUserDictionaryEntry' &&
+      command !== 'editUserDictionaryEntry' && command !== 'cancelUserDictionaryDraft' &&
+      command !== 'saveUserDictionaryDraft' &&
+      command !== 'openExistingUserDictionaryEntry' &&
+      command !== 'updateExistingUserDictionaryEntry' &&
+      command !== 'deleteUserDictionaryEntry' &&
+      command !== 'updateUserDictionaryList' && command !== 'selectUserDictionaryEntries' &&
+      command !== 'deleteSelectedUserDictionaryEntries' &&
+      command !== 'exportUserDictionary' &&
+      command !== 'previewUserDictionaryImport' && command !== 'cancelUserDictionaryImport' &&
+      command !== 'applyUserDictionaryImport' &&
+      command !== 'previewUserDictionaryPurge' && command !== 'cancelUserDictionaryPurge' &&
+      command !== 'confirmUserDictionaryPurge' &&
+      command !== 'regenerateUserDictionaryDraft' &&
+      command !== 'changeUserDictionaryDraftCaptureMode' &&
       command !== 'refreshProModels' && command !== 'refreshOpenAIModels' &&
       command !== 'refreshAnthropicModels' && command !== 'pronunciationStarted' &&
       command !== 'pronunciationFailed' && command !== 'generatedAudioEnded' &&
@@ -571,8 +1045,72 @@ function isCommandMessage(value: unknown): value is {
       (typeof candidate.value === 'string' || typeof candidate.value === 'number' ||
         typeof candidate.value === 'boolean');
   }
+  if (command === 'applyRewriteMode') return isRewriteModeId(candidate.modeId);
+  if (command === 'editRewriteGroup') {
+    return candidate.group === '' || isRewriteSettingsGroup(candidate.group);
+  }
   if (command === 'runCommand') return isPanelCommandName(candidate.action);
+  if (command === 'changeUserDictionaryDraftCaptureMode') {
+    return isUserDictionaryCaptureMode(candidate.captureMode);
+  }
+  if (command === 'updateUserDictionaryList') {
+    return isUserDictionaryListQuery(candidate.query);
+  }
+  if (command === 'selectUserDictionaryEntries') {
+    return isEntryIdList(candidate.entryIds);
+  }
+  if (command === 'exportUserDictionary') {
+    return isUserDictionaryExportFormat(candidate.format) &&
+      typeof candidate.selectedOnly === 'boolean';
+  }
+  if (command === 'previewUserDictionaryPurge') {
+    return isUserDictionaryPurgeSelection(candidate.purgeSelection);
+  }
+  if (command === 'applyUserDictionaryImport') {
+    return isUserDictionaryImportDecision(candidate.importDecision);
+  }
+  if (command === 'openUserDictionaryEntry' || command === 'readUserDictionaryEntry' ||
+      command === 'editUserDictionaryEntry' ||
+      command === 'deleteUserDictionaryEntry') {
+    return typeof candidate.entryId === 'string' && candidate.entryId.length <= 100;
+  }
+  if (command === 'saveUserDictionaryDraft') return isDictionaryDraftMessage(candidate.entry);
   return true;
+}
+
+function isEntryIdList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= 10_000 &&
+    value.every((item) => typeof item === 'string' && item.length <= 100);
+}
+
+function isUserDictionaryListQuery(value: unknown): value is UserDictionaryListQuery {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const query = value as Record<string, unknown>;
+  const textFields = ['search', 'language', 'collection', 'entryType'];
+  if (!textFields.every((field) => query[field] === undefined ||
+      (typeof query[field] === 'string' && String(query[field]).length <= 500))) return false;
+  if (query.captureMode !== undefined && !isUserDictionaryCaptureMode(query.captureMode)) {
+    return false;
+  }
+  return query.source === undefined || isUserDictionarySourceFilter(query.source);
+}
+
+function isUserDictionaryImportDecision(value: unknown): value is UserDictionaryImportDecision {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const decision = value as { mode?: unknown; duplicateStrategy?: unknown };
+  if (decision.mode === 'cancel' || decision.mode === 'replace') return true;
+  return decision.mode === 'merge' &&
+    (decision.duplicateStrategy === 'keepExisting' ||
+      decision.duplicateStrategy === 'replaceExisting');
+}
+
+function isDictionaryDraftMessage(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  try {
+    return JSON.stringify(value).length <= 200_000;
+  } catch {
+    return false;
+  }
 }
 
 function isGrammarChoices(value: unknown): value is GrammarChoice[] {
@@ -631,6 +1169,8 @@ const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   'explanation.geminiProfile',
   'rewrite.provider',
   'rewrite.sourceLanguage',
+  'rewrite.modality',
+  'rewrite.function',
   'rewrite.englishVariety',
   'gemini.model',
   'gemini.thinkingLevel',
@@ -651,7 +1191,11 @@ const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   'rewrite.preferredVariant',
   'rewrite.quickMenuVariant',
   'rewrite.domain',
-  'rewrite.tone',
+  'rewrite.formality',
+  'rewrite.voice',
+  'rewrite.stance',
+  'rewrite.length',
+  'rewrite.perspective',
   'rewrite.rhetoricalMode',
   'rewrite.preserveFormatting',
   'rewrite.includeChangeNotes',
@@ -665,9 +1209,31 @@ const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   'readAloud.edgePythonCommand',
   'dictionary.multiWordTranslationFallback',
   'pronunciation.windowsNativePlayback'
+  ,'userDictionary.enabled'
+  ,'userDictionary.defaultCaptureMode'
+  ,'userDictionary.fallbackOnMerriamWebsterNoMatch'
+  ,'userDictionary.provider'
+  ,'userDictionary.model'
+  ,'userDictionary.thinkingOrEffort'
+  ,'userDictionary.entryLanguage'
+  ,'userDictionary.includePronunciation'
+  ,'userDictionary.includeSynonyms'
+  ,'userDictionary.includeUsageNotes'
+  ,'userDictionary.numberOfExamples'
+  ,'userDictionary.includeTechnicalMeanings'
 ]);
 
-
+function normalizeUserDictionaryCaptureResult(
+  value: UserDictionaryCaptureResult | UserDictionaryEntryV1
+): UserDictionaryCaptureResult {
+  if ('captureMode' in value) return value;
+  return {
+    expression: value.term,
+    captureMode: value.capture.mode,
+    draft: value,
+    fallbackUsed: false
+  };
+}
 
 function createNonce(): string {
   const bytes = new Uint8Array(16);
