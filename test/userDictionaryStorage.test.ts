@@ -231,7 +231,10 @@ describe('User Dictionary atomic local storage', () => {
 // review suggested. Wrong either way, and the fix is to nest the close.
 describe('lock release when closing the handle fails', () => {
   it('releases the lock even though close rejects, so the next write succeeds', async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), 'kren-lock-close-'));
+    // temporaryStorageDirectory rather than a bare mkdtemp, so the afterEach hook removes
+    // it. A directory created outside that helper is never registered and leaks one
+    // temporary tree per run, which is invisible until someone looks at their temp folder.
+    const directory = await temporaryStorageDirectory();
     const failing = new UserDictionaryStorage(directory, {
       closeLockHandle: async () => { throw new Error('simulated close failure'); }
     });
