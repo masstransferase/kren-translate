@@ -8,27 +8,45 @@ import type {
   GrammarSuggestion as CoreGrammarSuggestion,
   GrammarSuggestionKind as CoreGrammarSuggestionKind,
   LanguageModelProviderId as CoreLanguageModelProviderId,
-  RewriteDomain as CoreRewriteDomain,
-  RewriteEnglishVariety as CoreRewriteEnglishVariety,
-  RewriteRhetoricalMode as CoreRewriteRhetoricalMode,
-  RewriteTone as CoreRewriteTone,
   RewriteVariant as CoreRewriteVariant,
   RewriteVariantId as CoreRewriteVariantId,
   ThesaurusSection as CoreThesaurusSection,
   ThesaurusSense as CoreThesaurusSense,
   ThesaurusWord as CoreThesaurusWord
 } from '@kren/core/contracts';
+import type {
+  RewriteAxes,
+  RewriteDomain,
+  RewriteEnglishVariety,
+  RewriteEnglishVarietySetting,
+  RewriteFormality,
+  RewriteFunction,
+  RewriteLength,
+  RewriteModality,
+  RewritePerspective,
+  RewriteRhetoricalMode,
+  RewriteStance,
+  RewriteVoice
+} from './rewriteAxes.js';
 
 export type LanguageCode = string;
 export type LookupKind = 'dictionary' | 'translation';
 export type TranslationProviderId = 'gemini' | 'googleCloudTranslation';
 export type LanguageModelProviderId = CoreLanguageModelProviderId;
 export type ExplanationOutputLanguage = string;
-export type RewriteDomain = CoreRewriteDomain;
-export type RewriteEnglishVariety = CoreRewriteEnglishVariety;
-export type RewriteEnglishVarietySetting = 'followGrammar' | RewriteEnglishVariety;
-export type RewriteTone = CoreRewriteTone;
-export type RewriteRhetoricalMode = CoreRewriteRhetoricalMode;
+export type {
+  RewriteDomain,
+  RewriteEnglishVariety,
+  RewriteEnglishVarietySetting,
+  RewriteFormality,
+  RewriteFunction,
+  RewriteLength,
+  RewriteModality,
+  RewritePerspective,
+  RewriteRhetoricalMode,
+  RewriteStance,
+  RewriteVoice
+} from './rewriteAxes.js';
 export type RewriteOperation =
   | 'rewrite'
   | 'rewriteNatural'
@@ -57,15 +75,11 @@ export interface DictionaryRequest extends BaseRequest {
   operation: 'translate';
 }
 
-export interface RewriteRequest extends BaseRequest {
+export interface RewriteRequest extends BaseRequest, RewriteAxes {
   kind: 'translation';
   operation: RewriteOperation;
   /** BCP-47 source language, or auto to detect it within the rewrite request. */
   sourceLanguage: LanguageCode;
-  englishVariety: RewriteEnglishVariety;
-  domain: RewriteDomain;
-  tone: RewriteTone;
-  rhetoricalMode?: RewriteRhetoricalMode;
   preserveFormatting?: boolean;
   includeChangeNotes?: boolean;
 }
@@ -91,13 +105,9 @@ export type RewriteVariantId = CoreRewriteVariantId;
 
 export interface RewriteVariant extends CoreRewriteVariant {}
 
-export interface RewriteResult extends BaseResult {
+export interface RewriteResult extends BaseResult, RewriteAxes {
   kind: 'rewrite';
   variants: RewriteVariant[];
-  englishVariety: RewriteEnglishVariety;
-  domain: RewriteDomain;
-  tone: RewriteTone;
-  rhetoricalMode: RewriteRhetoricalMode;
   modelId?: string;
   fallbackFromModel?: string;
 }

@@ -12,6 +12,8 @@
 // This module deliberately imports nothing from vscode, so it can be unit tested.
 
 export const PANEL_COMMAND_LIST = [
+  'kren.addToUserDictionary',
+  'kren.openUserDictionary',
   'kren.setGeminiApiKey',
   'kren.deleteGeminiApiKey',
   'kren.setGeminiProApiKey',

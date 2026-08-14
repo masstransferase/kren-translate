@@ -4,8 +4,8 @@ import * as vscode from 'vscode';
 declare function suite(name: string, callback: () => void): void;
 declare function test(name: string, callback: () => Promise<void>): void;
 
-// The extension identity is publisher-dependent: "local" when sideloaded from the
-// private tree, "masstransferase" in the produced public tree. Looking it up by a
+// The extension identity is publisher-dependent: "local" when sideloaded and
+// "masstransferase" once published to the Marketplace. Looking it up by a
 // hard-coded identifier passes in one channel and fails in the other, which is how a
 // publisher change first showed up as "extension was not discovered".
 function findKrenExtension(): vscode.Extension<unknown> | undefined {

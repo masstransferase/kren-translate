@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  DEFAULT_PRO_MODELS,
   listGeminiProModels,
   normalizeProModel
 } from '../src/providers/geminiModels.js';
@@ -38,7 +39,11 @@ describe('Gemini model discovery', () => {
     expect(init?.body).toBeUndefined();
     expect(new Headers(init?.headers).get('x-goog-api-key')).toBe('secret-key');
     expect(models.map((model) => model.id)).toContain('gemini-4-pro-preview');
-    expect(models[0]?.id).toBe('gemini-3.1-pro-preview');
-    expect(models[1]?.id).toBe('gemini-3.5-flash');
+    // Derived from the list rather than pinned to two literal ids. The literal form
+    // failed the moment a model was added, which is a test breaking on a change it was
+    // never meant to guard. What it is actually asserting is that the built-in defaults
+    // stay ahead of discovered models, in their declared order.
+    expect(models.slice(0, DEFAULT_PRO_MODELS.length).map((model) => model.id))
+      .toEqual(DEFAULT_PRO_MODELS.map((model) => model.id));
   });
 });
