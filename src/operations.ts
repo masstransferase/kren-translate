@@ -1,3 +1,4 @@
+import { DEFAULT_GEMINI_MODEL } from './providers/geminiModels.js';
 import { analyzeSelection } from './classifier.js';
 import {
   isEnglishDictionaryQuery as coreIsEnglishDictionaryQuery,
@@ -44,7 +45,7 @@ import type {
   TranslationProviderId,
   TranslationRequest
 } from './types.js';
-import { REWRITE_AXIS_DEFAULTS } from './rewriteAxes.js';
+import { REWRITE_AXIS_DEFAULTS } from '@kren/core/rewrite-axes';
 import {
   attachUserDictionaryMerriamWebsterReference,
   captureUserDictionaryDraft,
@@ -52,13 +53,13 @@ import {
   type UserDictionaryCaptureResult
 } from './userDictionary/capture.js';
 import {
-  isUserDictionaryCaptureMode,
   isUserDictionaryProvider,
   type UserDictionaryEntryV1,
   type UserDictionaryProvider
-} from './userDictionary/contract.js';
+} from '@kren/core/user-dictionary';
 import {
   isUserDictionaryExampleCount,
+  isUserDictionaryProviderCaptureMode,
   isUserDictionaryThinkingOrEffort,
   USER_DICTIONARY_CAPTURE_DEFAULTS,
   type UserDictionaryCaptureSettings
@@ -150,9 +151,8 @@ export type KrenOperation =
   | 'synonyms'
   | 'grammar'
   | 'rewrite'
-  | 'rewriteNatural'
-  | 'rewriteConcise'
-  | 'rewriteJargonFree';
+  | 'rewriteMinimal'
+  | 'rewriteFull';
 
 type MerriamWebsterOperation = Extract<
   KrenOperation,
@@ -368,7 +368,7 @@ async function rewriteText(
   await beforeLanguageModelRequest(runtime, 'gemini', profile);
   const model = profile === 'pro'
     ? runtime.getSetting<string>('gemini.alternateModel', 'gemini-3.1-pro-preview')
-    : runtime.getSetting<string>('gemini.model', 'gemini-3.5-flash');
+    : runtime.getSetting<string>('gemini.model', DEFAULT_GEMINI_MODEL);
   const configuredThinking = runtime.getSetting<GeminiThinkingLevel>(
     'gemini.alternateThinkingLevel',
     'low'
@@ -415,8 +415,8 @@ async function rewriteText(
 }
 
 function isRewriteOperation(operation: KrenOperation): operation is RewriteOperation {
-  return operation === 'rewrite' || operation === 'rewriteNatural' ||
-    operation === 'rewriteConcise' || operation === 'rewriteJargonFree';
+  return operation === 'rewrite' || operation === 'rewriteMinimal' ||
+    operation === 'rewriteFull';
 }
 
 export function isProFallbackError(error: unknown): error is ProviderError {
@@ -431,7 +431,7 @@ function alternateGeminiFallback(
 ): { model: string; thinkingLevel: GeminiThinkingLevel | undefined } | undefined {
   const model = runtime.getSetting<string>(
     'gemini.alternateFallbackModel',
-    'gemini-3.5-flash'
+    DEFAULT_GEMINI_MODEL
   ).trim();
   if (!model || normalizeModelId(model) === normalizeModelId(primaryModel)) return undefined;
   return {
@@ -544,7 +544,8 @@ export async function runUserDictionaryCapture(
   runtime: KrenRuntime,
   expression: string,
   signal: AbortSignal,
-  captureModeOverride?: UserDictionaryCaptureSettings['captureMode']
+  captureModeOverride?: UserDictionaryCaptureSettings['captureMode'],
+  termSuppliedByUser = false
 ): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1> {
   if (!runtime.getSetting<boolean>('userDictionary.enabled', false)) {
     throw new Error('Enable User Dictionary in KREN Settings before adding an entry.');
@@ -603,7 +604,7 @@ export async function runUserDictionaryCapture(
       settings,
       languageModelTransport,
       signal,
-      { maxMalformedAttempts: attempts }
+      { maxMalformedAttempts: attempts, termSuppliedByUser }
     );
   const languageModelCapture = generateLanguageModelCapture(expression);
   if (settings.captureMode === 'llmOnly') {
@@ -729,7 +730,7 @@ function readUserDictionaryCaptureSettings(runtime: KrenRuntime): UserDictionary
     'userDictionary.model',
     USER_DICTIONARY_CAPTURE_DEFAULTS.model
   ).trim();
-  if (!isUserDictionaryCaptureMode(captureModeValue) ||
+  if (!isUserDictionaryProviderCaptureMode(captureModeValue) ||
       !isUserDictionaryProvider(providerValue) ||
       !isUserDictionaryThinkingOrEffort(thinkingValue) ||
       !isUserDictionaryExampleCount(examplesValue) ||
@@ -813,7 +814,7 @@ async function createTranslationProvider(
       throw new ProviderError('Set your default Gemini API key before using Gemini.', 'setGeminiKey');
     }
     await beforeLanguageModelRequest(runtime, 'gemini', 'standard');
-    const model = runtime.getSetting<string>('gemini.model', 'gemini-3.5-flash');
+    const model = runtime.getSetting<string>('gemini.model', DEFAULT_GEMINI_MODEL);
     const thinking = configuredThinkingLevel(
       model,
       runtime.getSetting<GeminiThinkingLevel | 'auto'>('gemini.thinkingLevel', 'auto')
@@ -855,7 +856,7 @@ async function createLanguageModelProvider(
   await beforeLanguageModelRequest(runtime, 'gemini', profile);
   const model = profile === 'pro'
     ? runtime.getSetting<string>('gemini.alternateModel', 'gemini-3.1-pro-preview')
-    : runtime.getSetting<string>('gemini.model', 'gemini-3.5-flash');
+    : runtime.getSetting<string>('gemini.model', DEFAULT_GEMINI_MODEL);
   const configuredAlternateThinking = runtime.getSetting<GeminiThinkingLevel>(
     'gemini.alternateThinkingLevel',
     'low'

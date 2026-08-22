@@ -1,20 +1,20 @@
-import type { UserDictionaryEntryV1, UserDictionaryStoreV1 } from './contract.js';
+import type { UserDictionaryEntryV1, UserDictionaryStoreV1 } from '@kren/core/user-dictionary';
 import {
   applyUserDictionaryImport,
   previewUserDictionaryImportDocument,
   type UserDictionaryImportDecision,
   type UserDictionaryImportPreview
-} from './importExport.js';
-import type { UserDictionaryExportFormat } from './lifecycle.js';
-import { userDictionaryDuplicateKey } from './normalization.js';
+} from '@kren/core/user-dictionary';
+import type { UserDictionaryExportFormat } from '@kren/core/user-dictionary';
+import { userDictionaryDuplicateKey } from '@kren/core/user-dictionary';
 import {
   entriesRemainingAfterPurge,
   previewUserDictionaryPurge,
   type UserDictionaryPurgePreview,
   type UserDictionaryPurgeSelection
-} from './purge.js';
+} from '@kren/core/user-dictionary';
 import { UserDictionaryStorage } from './storage.js';
-import { validateUserDictionaryEntry } from './validation.js';
+import { validateUserDictionaryEntry } from '@kren/core/user-dictionary';
 
 export type UserDictionarySaveResult =
   | { kind: 'saved'; entry: UserDictionaryEntryV1; entries: UserDictionaryEntryV1[] }

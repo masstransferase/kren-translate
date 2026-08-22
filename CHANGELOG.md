@@ -4,6 +4,22 @@ This changelog describes the private local KREN build.
 
 ## Unreleased
 
+## 1.3.6
+
+- Renames **Hide KREN** to **Close KREN Panel**. VS Code's own Secondary Sidebar tab menu carries an entry reading **Hide 'KREN'**, which unpins the tab and is what makes it vanish when you select another tab. Two commands a word apart doing different things is how the owner lost an afternoon to a disappearing tab. The command identifier is unchanged, so any keybinding still works.
+- Changes the attribution to **Designed & Developed by T.H. YANG using CLAUDE CODE and CODEX**.
+
+
+## 1.3.5
+
+- Corrects what 1.3.4 claimed. The KREN tab leaving the Secondary Sidebar when you select another tab is VS Code's per-tab **Keep** setting, not anything KREN controls, and 1.3.4's setting description, user guide, and code comments all said otherwise. They now say what is true. The repair is to right-click the KREN tab and choose **Keep 'KREN'** once.
+- Renames the startup setting in the settings panel to **Reopen KREN at startup**, which is what it does.
+
+## 1.3.4
+
+- Showing and hiding KREN now survives a restart. Activation used to clear KREN's view unconditionally, so a KREN you had open came back hidden after every restart. **Show KREN Secondary Sidebar** and **Hide KREN** now set `kren.results.openAtStartup`, which is the single record of whether KREN is shown.
+- Note for anyone reading this entry as first published: it also claimed to stop the KREN tab disappearing when another tab in the Secondary Sidebar is selected. That claim was wrong and is corrected in 1.3.5.
+
 ## 1.3.3
 
 - **Hide KREN** now hides only KREN. It previously closed the entire Secondary Sidebar, taking Chat, Claude Code, Codex, and anything else living there with it; reopening the sidebar from one of those brought KREN straight back, because it had never actually been hidden. KREN now removes its own view and leaves the workbench layout alone.

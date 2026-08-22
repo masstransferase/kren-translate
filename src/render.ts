@@ -22,7 +22,7 @@ import {
   REWRITE_STANCES,
   REWRITE_VOICES,
   rewriteAxisLabel
-} from './rewriteAxes.js';
+} from '@kren/core/rewrite-axes';
 
 const providerNames: Record<string, string> = {
   harper: 'Harper (offline)',

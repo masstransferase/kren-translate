@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
-import { exportUserDictionaryJson } from '../src/userDictionary/importExport.js';
+import { exportUserDictionaryJson } from '@kren/core/user-dictionary';
 import {
   UserDictionaryStorage,
   UserDictionaryStorageError

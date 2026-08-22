@@ -2,7 +2,7 @@
   "name": "kren-translate",
   "displayName": "KREN: Dictionary, Translate & Rewrite",
   "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, multilingual rewriting, and read aloud inside VS Code.",
-  "version": "1.3.3",
+  "version": "1.3.6",
   "private": true,
   "publisher": "masstransferase",
   "license": "MIT",
@@ -129,22 +129,17 @@
       },
       {
         "command": "kren.rewriteEnglishSelection",
-        "title": "Rewrite Text: All 3 Variants",
+        "title": "Rewrite Text: Both Variants",
         "category": "KREN"
       },
       {
-        "command": "kren.rewriteNaturalSelection",
-        "title": "Rewrite Text: Natural",
+        "command": "kren.rewriteMinimalSelection",
+        "title": "Rewrite Text: Minimal Rewrite",
         "category": "KREN"
       },
       {
-        "command": "kren.rewriteConciseSelection",
-        "title": "Rewrite Text: Concise",
-        "category": "KREN"
-      },
-      {
-        "command": "kren.rewriteJargonFreeSelection",
-        "title": "Rewrite Text: Jargon-Free",
+        "command": "kren.rewriteFullSelection",
+        "title": "Rewrite Text: Full Rewrite",
         "category": "KREN"
       },
       {
@@ -189,7 +184,7 @@
       },
       {
         "command": "kren.hideResults",
-        "title": "Hide KREN",
+        "title": "Close KREN Panel",
         "category": "KREN"
       },
       {
@@ -435,19 +430,14 @@
           "group": "1_rewrite@10"
         },
         {
-          "command": "kren.rewriteNaturalSelection",
+          "command": "kren.rewriteMinimalSelection",
           "when": "editorHasSelection",
           "group": "1_rewrite@20"
         },
         {
-          "command": "kren.rewriteConciseSelection",
+          "command": "kren.rewriteFullSelection",
           "when": "editorHasSelection",
           "group": "1_rewrite@30"
-        },
-        {
-          "command": "kren.rewriteJargonFreeSelection",
-          "when": "editorHasSelection",
-          "group": "1_rewrite@40"
         },
         {
           "command": "kren.configureRewriteGeminiProfile",
@@ -649,12 +639,12 @@
             "Use the Anthropic Claude API and the existing Anthropic credential."
           ],
           "default": "gemini",
-          "description": "Dedicated language-model provider for User Dictionary generation."
+          "description": "Language-model provider shared by User Dictionary generation and Smart Grammar Check."
         },
         "kren.userDictionary.model": {
           "type": "string",
           "default": "gemini-3.6-flash",
-          "description": "Editable model identifier used only for User Dictionary generation."
+          "description": "Editable model identifier shared by User Dictionary generation and Smart Grammar Check."
         },
         "kren.userDictionary.thinkingOrEffort": {
           "type": "string",
@@ -667,7 +657,7 @@
             "high"
           ],
           "default": "low",
-          "description": "Thinking level or effort sent when supported by the selected User Dictionary provider and model."
+          "description": "Thinking level or effort shared by User Dictionary generation and Smart Grammar Check when supported by the selected provider and model."
         },
         "kren.userDictionary.entryLanguage": {
           "type": "string",
@@ -715,7 +705,7 @@
         "kren.results.openAtStartup": {
           "type": "boolean",
           "default": false,
-          "description": "Open the KREN Secondary Sidebar after VS Code finishes starting. Off by default; enabling creates the KREN webview at startup."
+          "description": "Reopen the KREN Secondary Sidebar shortly after VS Code starts. Show KREN turns this on and Close KREN Panel turns it off, so it follows what you last chose. This does not control whether KREN's tab stays in the sidebar when you select another tab: that is VS Code's own per-tab Keep setting, reached by right-clicking the tab."
         },
         "kren.translationProvider": {
           "type": "string",
@@ -753,6 +743,11 @@
           ],
           "default": "american",
           "description": "English dialect used by the offline Harper Grammar Check. Selected text never leaves this computer."
+        },
+        "kren.grammar.smart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Add a language-model pass beside local Harper when you run Grammar Check, catching mistakes a rule cannot see. On by default. It uses the User Dictionary provider, model, and thinking or effort setting. KREN asks for confirmation before the first request to any provider. Turn it off to keep Grammar Check entirely local. It never applies to automatic paragraph checking, which stays local either way."
         },
         "kren.grammar.autoCheck": {
           "type": "boolean",
@@ -870,7 +865,7 @@
         },
         "kren.gemini.model": {
           "type": "string",
-          "default": "gemini-3.5-flash",
+          "default": "gemini-3.6-flash",
           "description": "Gemini model ID. Availability, access, quotas, pricing, and permitted use depend on the user's Google project and region."
         },
         "kren.gemini.thinkingLevel": {
@@ -932,7 +927,7 @@
         },
         "kren.gemini.alternateFallbackModel": {
           "type": "string",
-          "default": "gemini-3.5-flash",
+          "default": "gemini-3.6-flash",
           "description": "Fallback model for the alternate Gemini profile in Explain Meaning or Nuance and Rewrite Text."
         },
         "kren.gemini.alternateFallbackThinkingLevel": {
@@ -972,34 +967,30 @@
         "kren.rewrite.preferredVariant": {
           "type": "string",
           "enum": [
-            "natural",
-            "concise",
-            "jargonFree"
+            "minimal",
+            "full"
           ],
           "enumDescriptions": [
-            "Show Natural first.",
-            "Show the Concise rewrite first.",
-            "Show the Jargon-Free rewrite first."
+            "Show Minimal Rewrite first.",
+            "Show Full Rewrite first."
           ],
-          "default": "natural",
+          "default": "minimal",
           "description": "Rewrite variant selected initially in the rich KREN panel. All returned variants remain available as tabs."
         },
         "kren.rewrite.quickMenuVariant": {
           "type": "string",
           "enum": [
             "all",
-            "natural",
-            "concise",
-            "jargonFree"
+            "minimal",
+            "full"
           ],
           "enumDescriptions": [
-            "Place the all-three-variants action first in the KREN clipboard Quick Pick.",
-            "Place Natural first in the KREN clipboard Quick Pick.",
-            "Place Concise first in the KREN clipboard Quick Pick.",
-            "Place Jargon-Free first in the KREN clipboard Quick Pick."
+            "Place the both-variants action first in the KREN clipboard Quick Pick.",
+            "Place Minimal Rewrite first in the KREN clipboard Quick Pick.",
+            "Place Full Rewrite first in the KREN clipboard Quick Pick."
           ],
           "default": "all",
-          "description": "Preferred Rewrite Text action in the KREN clipboard Quick Pick. All four rewrite choices remain available."
+          "description": "Preferred Rewrite Text action in the KREN clipboard Quick Pick. All three rewrite choices remain available."
         },
         "kren.rewrite.modality": {
           "type": "string",
@@ -1315,7 +1306,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kren/core": "file:vendor/kren-core-0.1.5.tgz",
+    "@kren/core": "file:vendor/kren-core-0.13.13.tgz",
     "fast-xml-parser": "^5.10.1",
     "harper.js": "^2.4.0"
   },

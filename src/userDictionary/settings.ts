@@ -2,8 +2,10 @@ import {
   USER_DICTIONARY_CAPTURE_MODES,
   USER_DICTIONARY_PROVIDERS,
   type UserDictionaryCaptureMode,
+  type UserDictionaryProviderCaptureMode,
   type UserDictionaryProvider
-} from './contract.js';
+} from '@kren/core/user-dictionary';
+import { DEFAULT_GEMINI_MODEL } from '../providers/geminiModels.js';
 
 interface UserDictionaryOption<T extends string | number> {
   id: T;
@@ -32,8 +34,13 @@ export const USER_DICTIONARY_EXAMPLE_COUNTS = [
 export type UserDictionaryExampleCount =
   typeof USER_DICTIONARY_EXAMPLE_COUNTS[number]['id'];
 
+export const USER_DICTIONARY_PROVIDER_CAPTURE_MODES = [
+  'llmOnly',
+  'merriamWebsterAndLlm'
+] as const satisfies readonly UserDictionaryProviderCaptureMode[];
+
 export interface UserDictionaryCaptureSettings {
-  captureMode: UserDictionaryCaptureMode;
+  captureMode: UserDictionaryProviderCaptureMode;
   fallbackOnMerriamWebsterNoMatch: boolean;
   provider: UserDictionaryProvider;
   model: string;
@@ -47,10 +54,10 @@ export interface UserDictionaryCaptureSettings {
 }
 
 export const USER_DICTIONARY_CAPTURE_DEFAULTS = {
-  captureMode: USER_DICTIONARY_CAPTURE_MODES[0],
+  captureMode: USER_DICTIONARY_PROVIDER_CAPTURE_MODES[0],
   fallbackOnMerriamWebsterNoMatch: false,
   provider: USER_DICTIONARY_PROVIDERS[0],
-  model: 'gemini-3.6-flash',
+  model: DEFAULT_GEMINI_MODEL,
   thinkingOrEffort: 'low',
   entryLanguage: 'auto',
   includePronunciation: true,
@@ -74,6 +81,13 @@ export function isUserDictionaryExampleCount(
     USER_DICTIONARY_EXAMPLE_COUNTS.some((option) => option.id === value);
 }
 
+export function isUserDictionaryProviderCaptureMode(
+  value: unknown
+): value is UserDictionaryProviderCaptureMode {
+  return typeof value === 'string' &&
+    USER_DICTIONARY_PROVIDER_CAPTURE_MODES.some((mode) => mode === value);
+}
+
 export function userDictionaryThinkingOrEffortOptions(): Array<[
   UserDictionaryThinkingOrEffort,
   string
@@ -89,12 +103,24 @@ export function userDictionaryExampleCountOptions(): Array<[
 }
 
 export function userDictionaryCaptureModeOptions(): Array<[
+  UserDictionaryProviderCaptureMode,
+  string
+]> {
+  return USER_DICTIONARY_PROVIDER_CAPTURE_MODES.map((id) => [
+    id,
+    id === 'llmOnly' ? 'LLM Only' : 'Merriam-Webster + LLM'
+  ]);
+}
+
+export function userDictionaryCaptureFilterOptions(): Array<[
   UserDictionaryCaptureMode,
   string
 ]> {
   return USER_DICTIONARY_CAPTURE_MODES.map((id) => [
     id,
-    id === 'llmOnly' ? 'LLM Only' : 'Merriam-Webster + LLM'
+    id === 'llmOnly'
+      ? 'LLM Only'
+      : id === 'merriamWebsterAndLlm' ? 'Merriam-Webster + LLM' : 'Manual or imported'
   ]);
 }
 

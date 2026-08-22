@@ -20,8 +20,13 @@ import type {
 } from '../types.js';
 import {
   isRewriteVariantId,
+  REWRITE_OUTPUT_RULES,
+  REWRITE_PRIORITY_RULE,
+  REWRITE_WORKED_EXAMPLE,
   REWRITE_VARIANT_IDS,
-  REWRITE_VARIANT_LIST
+  REWRITE_VARIANT_LIST,
+  REWRITE_VARIANTS,
+  rewriteVariantLabel
 } from '../rewriteVariants.js';
 import {
   REWRITE_DOMAINS,
@@ -35,7 +40,7 @@ import {
   REWRITE_STANCES,
   REWRITE_VOICES,
   rewriteAxisInstruction
-} from '../rewriteAxes.js';
+} from '@kren/core/rewrite-axes';
 
 interface GeminiPayload {
   candidates?: Array<{
@@ -297,45 +302,45 @@ export function rewriteSystemInstruction(request: RewriteRequest): string {
   const languageInstruction = request.sourceLanguage === 'auto'
     ? 'Detect the dominant natural language of the supplied text. Return its BCP-47 language code in detectedLanguage. Rewrite in that same language and never translate it.'
     : `The source language is ${languageName(request.sourceLanguage)} (${request.sourceLanguage}). Return "${request.sourceLanguage}" in detectedLanguage and rewrite in that same language. Never translate it.`;
-  const preservation = [
+  const commonInstructions = [
+    // First, and deliberately. The owner proved the ranking matters on 2026-08-20: the
+    // same model, given this requirement first, changed the sentence, and given it at line
+    // eight behind three preservation lines, returned the sentence unchanged.
+    REWRITE_PRIORITY_RULE,
     'Rewrite only the exact text supplied by the user.',
     languageInstruction,
-    'Preserve its factual meaning, claims, qualifications, numbers, citations, and necessary domain terminology.',
+    'Preserve its factual meaning, claims, qualifications, numbers, and citations.',
     'Preserve intentional mixed-language terms, names, quotations, code, and necessary domain terminology.',
-    'Correct grammar and awkward phrasing, but do not add facts, evidence, promises, certainty, examples, or document context.',
+    // Said outright, because a run of preservation rules otherwise reads as an instruction
+    // to keep the words too, and that is the reading that produced the failure.
+    'These preservation rules govern meaning, not wording. Choosing different words to carry the same meaning is expected of every variant and is never a violation of them.',
+    'Correct grammar and unnatural phrasing. Do not add facts, evidence, promises, certainty, examples, or document context.',
     'Never intensify a claim beyond the evidence or qualifications present in the supplied text.',
     'Return JSON only. Every variant must be complete and usable on its own.'
   ];
-  if (request.preserveFormatting !== false && request.modality === REWRITE_MODALITIES[0].id) {
-    preservation.push('Preserve Markdown, LaTeX commands, citations, links, placeholders, code identifiers, filenames, inline code, and fenced code blocks exactly unless grammar inside ordinary prose requires a change.');
-  }
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_FUNCTIONS, request.function));
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_DOMAINS, request.domain));
+  const fullRewriteInstructions: string[] = [];
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_FUNCTIONS, request.function));
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_DOMAINS, request.domain));
   const englishVarietyInstruction = rewriteAxisInstruction(
     REWRITE_ENGLISH_VARIETIES,
     request.englishVariety
   );
   if (englishVarietyInstruction) {
-    preservation.push(`Only when detectedLanguage is English, ${englishVarietyInstruction.replace(/^Use/u, 'use')}`);
+    fullRewriteInstructions.push(`Only when detectedLanguage is English, ${englishVarietyInstruction.replace(/^Use/u, 'use')}`);
   }
-  preservation.push('When detectedLanguage is not English, ignore the English-variety setting and use natural conventions for the detected language.');
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_FORMALITIES, request.formality));
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_VOICES, request.voice));
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_STANCES, request.stance));
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_PERSPECTIVES, request.perspective));
+  fullRewriteInstructions.push('When detectedLanguage is not English, ignore the English-variety setting and use natural conventions for the detected language.');
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_FORMALITIES, request.formality));
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_VOICES, request.voice));
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_STANCES, request.stance));
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_PERSPECTIVES, request.perspective));
   pushInstruction(
-    preservation,
+    fullRewriteInstructions,
     rewriteAxisInstruction(REWRITE_RHETORICAL_MODES, request.rhetoricalMode)
   );
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_MODALITIES, request.modality));
-  pushInstruction(preservation, rewriteAxisInstruction(REWRITE_LENGTHS, request.length));
-  const jargonFree = [
-    'Write clear, natural, human-like prose in the detected language.',
-    'Remove buzzwords, cliches, corporate jargon, and unnecessary specialist jargon.',
-    'Keep precise domain terminology only when it is needed for correctness.',
-    'Use no em dashes or en dashes. Use commas, parentheses, colons, semicolons, or separate sentences instead.',
-    'Use no metaphors unless removing one would change the intended meaning.'
-  ];
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_MODALITIES, request.modality));
+  pushInstruction(fullRewriteInstructions, rewriteAxisInstruction(REWRITE_LENGTHS, request.length));
+  const formattingInstruction = 'Preserve Markdown, LaTeX commands, citations, links, placeholders, code identifiers, filenames, inline code, and fenced code blocks exactly unless grammar inside ordinary prose requires a change.';
+  const outputRulesInstruction = `The following output rules apply to every requested variant: ${REWRITE_OUTPUT_RULES.join(' ')}`;
   const changeNoteField = request.includeChangeNotes
     ? ',"changeNote":"one concise sentence describing the important edits"'
     : '';
@@ -343,27 +348,37 @@ export function rewriteSystemInstruction(request: RewriteRequest): string {
     ? 'For each variant, include a concise changeNote describing only the important edits.'
     : 'Do not include commentary or change notes.';
   const singleVariant = rewriteOperationVariant(request.operation);
-  if (singleVariant) {
-    const variantInstructions: Record<RewriteVariantId, string[]> = {
-      natural: ['Write fluent, native-level prose in the detected language that follows the configured tone and rhetorical mode while preserving the original level of detail.'],
-      concise: ['Write tighter, more direct prose in the detected language while retaining every important point.'],
-      jargonFree
-    };
-    const label = rewriteVariantLabel(singleVariant, request.sourceLanguage);
-    return [...preservation, ...variantInstructions[singleVariant],
-      changeNoteInstruction,
-      'Return exactly this JSON shape:',
-      `{"kind":"rewrite","detectedLanguage":"BCP-47 code","variants":[{"id":"${singleVariant}","label":"${label}","text":"rewritten text"${changeNoteField}}]}`
-    ].join('\n');
+  const requestedVariants = singleVariant
+    ? REWRITE_VARIANTS.filter((variant) => variant.id === singleVariant)
+    : REWRITE_VARIANTS;
+  const variantInstructions: string[] = [];
+  for (const [index, variant] of requestedVariants.entries()) {
+    variantInstructions.push(`${index + 1}. ${variant.instruction}`);
+    if (variant.id === 'minimal' && request.preserveFormatting !== false) {
+      variantInstructions.push(`Minimal Rewrite formatting requirement: ${formattingInstruction}`);
+    }
+    if (variant.id === 'full') {
+      variantInstructions.push('Style settings for Full Rewrite only:');
+      variantInstructions.push(...fullRewriteInstructions);
+      if (request.preserveFormatting !== false && request.modality === REWRITE_MODALITIES[0].id) {
+        variantInstructions.push(`Full Rewrite formatting requirement: ${formattingInstruction}`);
+      }
+    }
   }
-  return [...preservation,
-    'Produce exactly three meaning-preserving variants:',
-    '1. Natural: fluent, native-level writing in the detected language that follows the configured tone and rhetorical mode while preserving the original level of detail.',
-    '2. Concise: tighter and more direct writing in the detected language while retaining every important point.',
-    `3. Jargon-Free: ${jargonFree.join(' ')}`,
+  const schemaVariants = requestedVariants.map((variant) =>
+    `{"id":"${variant.id}","label":"${variant.label}","text":"rewritten text"${changeNoteField}}`
+  ).join(',');
+  return [
+    ...commonInstructions,
+    outputRulesInstruction,
+    `Produce exactly ${requestedVariants.length === 1 ? 'one' : 'two'} variant${requestedVariants.length === 1 ? '' : 's'}:`,
+    ...variantInstructions,
     changeNoteInstruction,
-    'Return exactly this JSON shape and order:',
-    `{"kind":"rewrite","detectedLanguage":"BCP-47 code","variants":[{"id":"natural","label":"Natural","text":"rewritten text"${changeNoteField}},{"id":"concise","label":"Concise","text":"rewritten text"${changeNoteField}},{"id":"jargonFree","label":"Jargon-Free","text":"rewritten text"${changeNoteField}}]}`
+    // Last, where it is closest to the answer. Smart Grammar Check carries examples and
+    // corrected the owner's sentence on 2026-08-20; the rewrites carried none and did not.
+    REWRITE_WORKED_EXAMPLE,
+    `Return exactly this JSON shape${requestedVariants.length > 1 ? ' and order' : ''}:`,
+    `{"kind":"rewrite","detectedLanguage":"BCP-47 code","variants":[${schemaVariants}]}`
   ].join('\n');
 }
 
@@ -460,13 +475,22 @@ export function normalizeGeminiRewriteResult(
   const expectedIds: readonly RewriteVariantId[] = requestedVariant
     ? [requestedVariant]
     : REWRITE_VARIANT_IDS;
+  if (value.variants.length !== expectedIds.length) {
+    throw new ProviderError(
+      `${providerName} did not return all requested rewrite variants. Try again.`,
+      undefined,
+      true,
+      undefined,
+      'structuredOutput'
+    );
+  }
   const byId = new Map<RewriteVariantId, RewriteVariant>();
   for (const item of value.variants) {
     if (!isRecord(item)) continue;
     const id = rewriteVariantId(item.id);
     const text = stringValue(item.text);
     if (!id || !text || !expectedIds.includes(id)) continue;
-    const variant: RewriteVariant = { id, label: rewriteVariantLabel(id, sourceLanguage), text };
+    const variant: RewriteVariant = { id, label: rewriteVariantLabel(id), text };
     const changeNote = stringValue(item.changeNote);
     if (changeNote) variant.changeNote = changeNote;
     byId.set(id, variant);
@@ -482,6 +506,7 @@ export function normalizeGeminiRewriteResult(
     );
   }
   for (const variant of variants as RewriteVariant[]) {
+    if (variant.id !== 'full') continue;
     const violation = rewriteOutputViolation(variant.text, request, sourceLanguage);
     if (violation) {
       throw new ProviderError(
@@ -536,7 +561,7 @@ export function rewriteOutputViolation(
   sourceLanguage = request.sourceLanguage
 ): 'spoken modality' | 'length' | 'perspective' | undefined {
   if (request.modality === REWRITE_MODALITIES[1].id) {
-    if (/[();–—]/u.test(text)) return 'spoken modality';
+    if (/[();\u2013\u2014]/u.test(text)) return 'spoken modality';
     if (SPOKEN_ABBREVIATIONS.some((abbreviation) => text.includes(abbreviation))) {
       return 'spoken modality';
     }
@@ -580,12 +605,6 @@ function rewriteOperationVariant(operation: RewriteRequest['operation']): Rewrit
 
 function rewriteVariantId(value: unknown): RewriteVariantId | undefined {
   return isRewriteVariantId(value) ? value : undefined;
-}
-
-function rewriteVariantLabel(id: RewriteVariantId, sourceLanguage = 'en'): string {
-  const variant = REWRITE_VARIANT_LIST.find((candidate) => candidate.id === id);
-  if (!variant) return id;
-  return isEnglishLanguageCode(sourceLanguage) ? variant.englishResultLabel : variant.label;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -27,6 +27,11 @@ import {
   type KrenRuntime
 } from './operations.js';
 import { resultDetails, resultText } from './render.js';
+import {
+  mergeSmartGrammarIssues,
+  smartGrammarIssues,
+  type SmartGrammarOutcome
+} from './smartGrammar.js';
 import { explicitTextSubmission } from './submission.js';
 import {
   KrenResultsViewProvider,
@@ -37,6 +42,7 @@ import type { KrenPanelSettings } from './resultViewHtml.js';
 import {
   ALL_REWRITE_VARIANTS_ID,
   isRewriteVariantId,
+  migrateRetiredRewriteVariantSettings,
   REWRITE_VARIANT_LIST,
   type QuickMenuRewriteVariantId
 } from './rewriteVariants.js';
@@ -45,9 +51,10 @@ import {
   migrateLegacyRewriteSettings,
   REWRITE_AXIS_DEFAULTS,
   type RewriteConfigurationTarget
-} from './rewriteAxes.js';
+} from '@kren/core/rewrite-axes';
 import { KoreanDictionaryProvider } from './providers/koreanDictionary.js';
 import {
+  DEFAULT_GEMINI_MODEL,
   DEFAULT_PRO_MODELS,
   listGeminiProModels,
   type GeminiModelOption
@@ -77,7 +84,7 @@ import {
   normalizeCustomWord
 } from './providers/harperGrammar.js';
 import { GrammarCodeActions, type GrammarDiagnosticState } from './grammarCodeActions.js';
-import { USER_DICTIONARY_MAX_IMPORT_ENTRIES } from './userDictionary/importExport.js';
+import { USER_DICTIONARY_MAX_IMPORT_ENTRIES } from '@kren/core/user-dictionary';
 import {
   normalizeUserDictionaryTerm,
   exportUserDictionaryJson,
@@ -92,7 +99,8 @@ import {
   type UserDictionaryImportDecision,
   type UserDictionaryImportPreview,
   type UserDictionaryPurgePreview,
-  type UserDictionaryPurgeSelection
+  type UserDictionaryPurgeSelection,
+  type UserDictionaryProviderCaptureMode
 } from './userDictionary/index.js';
 
 const GEMINI_KEY = KREN_SECRET_KEYS.gemini;
@@ -159,12 +167,26 @@ let extensionId = 'local.kren-translate';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   extensionId = context.extension.id;
-  // The rich view is unavailable until an explicit KREN action calls reveal(),
-  // unless the user has deliberately enabled the opt-in startup-sidebar setting.
+  // kren.results.openAtStartup is the one record of whether KREN's Secondary Sidebar is
+  // shown. reveal() turns it on and hide() turns it off, so this line restores whichever
+  // the owner last chose rather than always starting hidden.
+  //
+  // What this line does NOT do, stated because an earlier version of this comment claimed
+  // it did and the claim was wrong: it has no effect on whether KREN's tab stays in the
+  // Secondary Sidebar when another tab is selected. That is the workbench's own per-tab
+  // pin, stored under workbench.auxiliarybar.pinnedPanels and changed only by the tab
+  // context menu, whose entry reads Keep when unpinned and Hide when pinned. A view's
+  // when clause can empty a container, and emptying a container never touches its pin.
+  // Verified against the installed workbench bundle on 2026-08-22: the context menu
+  // action toggles between compositeBar.pin and compositeBar.unpin, and nothing an
+  // extension contributes reaches it.
+  //
+  // This does not build the webview either. VS Code calls resolveWebviewView only when
+  // the view first becomes visible, so nothing behind the tab runs until it is opened.
   await vscode.commands.executeCommand(
     'setContext',
     KrenResultsViewProvider.enabledContext,
-    false
+    vscode.workspace.getConfiguration('kren').get<boolean>('results.openAtStartup', false)
   );
   activeExtensionContext = context;
   extensionVersion = String(context.extension.packageJSON.version ?? '0.0.0');
@@ -314,14 +336,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kren.rewriteEnglishSelection', () =>
       executeLookup(context, hoverStore, 'rewrite')
     ),
-    vscode.commands.registerCommand('kren.rewriteNaturalSelection', () =>
-      executeLookup(context, hoverStore, 'rewriteNatural')
+    vscode.commands.registerCommand('kren.rewriteMinimalSelection', () =>
+      executeLookup(context, hoverStore, 'rewriteMinimal')
     ),
-    vscode.commands.registerCommand('kren.rewriteConciseSelection', () =>
-      executeLookup(context, hoverStore, 'rewriteConcise')
-    ),
-    vscode.commands.registerCommand('kren.rewriteJargonFreeSelection', () =>
-      executeLookup(context, hoverStore, 'rewriteJargonFree')
+    vscode.commands.registerCommand('kren.rewriteFullSelection', () =>
+      executeLookup(context, hoverStore, 'rewriteFull')
     ),
     vscode.commands.registerCommand('kren.readAloudSelection', () =>
       executeReadAloudSelection(context)
@@ -510,7 +529,7 @@ function readPanelSettings(): KrenPanelSettings {
     ),
     userDictionaryModel: config.get<string>(
       'userDictionary.model',
-      'gemini-3.5-flash'
+      DEFAULT_GEMINI_MODEL
     ),
     userDictionaryThinkingOrEffort: config.get<KrenPanelSettings['userDictionaryThinkingOrEffort']>(
       'userDictionary.thinkingOrEffort',
@@ -551,6 +570,7 @@ function readPanelSettings(): KrenPanelSettings {
       'grammar.dialect',
       'american'
     ),
+    grammarSmart: config.get<boolean>('grammar.smart', false),
     grammarAutoCheck: config.get<boolean>('grammar.autoCheck', false),
     grammarAutoCheckDelayMs: config.get<number>('grammar.autoCheckDelayMs', 900),
     grammarCustomWordCount: activeExtensionContext.globalState.get<string[]>(GRAMMAR_CUSTOM_WORDS, []).length,
@@ -583,7 +603,7 @@ function readPanelSettings(): KrenPanelSettings {
       'rewrite.englishVariety',
       REWRITE_AXIS_DEFAULTS.englishVariety
     ),
-    geminiModel: config.get<string>('gemini.model', 'gemini-3.5-flash'),
+    geminiModel: config.get<string>('gemini.model', DEFAULT_GEMINI_MODEL),
     geminiThinkingLevel: config.get<KrenPanelSettings['geminiThinkingLevel']>(
       'gemini.thinkingLevel',
       'auto'
@@ -607,7 +627,7 @@ function readPanelSettings(): KrenPanelSettings {
     alternateFallbackEnabled: config.get<boolean>('gemini.alternateFallbackEnabled', true),
     alternateFallbackModel: config.get<string>(
       'gemini.alternateFallbackModel',
-      'gemini-3.5-flash'
+      DEFAULT_GEMINI_MODEL
     ),
     alternateFallbackThinkingLevel: config.get<KrenPanelSettings['alternateFallbackThinkingLevel']>(
       'gemini.alternateFallbackThinkingLevel',
@@ -615,7 +635,7 @@ function readPanelSettings(): KrenPanelSettings {
     ),
     preferredRewriteVariant: config.get<KrenPanelSettings['preferredRewriteVariant']>(
       'rewrite.preferredVariant',
-      REWRITE_VARIANT_LIST[0].id
+      REWRITE_VARIANT_LIST[0]!.id
     ),
     quickMenuRewriteVariant: config.get<KrenPanelSettings['quickMenuRewriteVariant']>(
       'rewrite.quickMenuVariant',
@@ -1021,6 +1041,10 @@ async function migrateRewriteAxes(): Promise<void> {
     inspect: <T>(key: string) => config.inspect<T>(key),
     update: (key, value, target) => config.update(key, value, targets[target])
   });
+  await migrateRetiredRewriteVariantSettings({
+    inspect: <T>(key: string) => config.inspect<T>(key),
+    update: (key, value, target) => config.update(key, value, targets[target])
+  });
 }
 
 function refreshReadAloudVoices(): Promise<void> {
@@ -1046,7 +1070,7 @@ async function migrateDeprecatedGeminiFallback(
   const config = vscode.workspace.getConfiguration('kren');
   const inspected = config.inspect<string>('gemini.alternateFallbackModel');
   const deprecatedModel = ['gemini', '2.5', 'pro'].join('-');
-  const replacementModel = 'gemini-3.5-flash';
+  const replacementModel = DEFAULT_GEMINI_MODEL;
   if (inspected?.globalValue === deprecatedModel) {
     await config.update(
       'gemini.alternateFallbackModel',
@@ -1253,13 +1277,87 @@ async function executeGrammarCheck(context: vscode.ExtensionContext): Promise<vo
   await checkGrammarRange(context, editor, new vscode.Range(
     selections[0].start,
     selections[0].end
-  ), true);
+  ), true, true);
+}
+
+/**
+ * Runs the language-model pass beside Harper, or returns undefined when the user has not
+ * turned it on or has no key for the chosen provider. It never throws: losing Harper's
+ * local findings to a remote problem would be worse than the feature being unavailable.
+ */
+// Named here rather than inline so the three providers and their key names sit together.
+const SMART_GRAMMAR_SECRET_KEYS = {
+  gemini: KREN_SECRET_KEYS.gemini,
+  openai: KREN_SECRET_KEYS.openai,
+  anthropic: KREN_SECRET_KEYS.anthropic
+} as const;
+
+async function runSmartGrammarPass(
+  context: vscode.ExtensionContext,
+  selectedText: string
+): Promise<SmartGrammarOutcome | undefined> {
+  const config = vscode.workspace.getConfiguration('kren');
+  if (!config.get<boolean>('grammar.smart', false)) return undefined;
+  const provider = config.get<KrenPanelSettings['userDictionaryProvider']>(
+    'userDictionary.provider',
+    'gemini'
+  );
+  if (provider !== 'gemini' && provider !== 'openai' && provider !== 'anthropic') return undefined;
+  const model = config.get<string>('userDictionary.model', DEFAULT_GEMINI_MODEL).trim();
+  if (!model) return undefined;
+  const thinkingOrEffort = config.get<KrenPanelSettings['userDictionaryThinkingOrEffort']>(
+    'userDictionary.thinkingOrEffort',
+    'low'
+  );
+  // The same first-use confirmation every other provider request goes through. Skipping it
+  // here would have made the manual's promise about it false for this one path.
+  try {
+    await ensureLanguageModelConsent(context, provider);
+  } catch {
+    return {
+      status: 'failed',
+      reason: 'Smart Grammar Check needs the provider terms accepted, so only local findings are shown.'
+    };
+  }
+  const apiKey = await extensionRuntime(context).getSecret(SMART_GRAMMAR_SECRET_KEYS[provider]);
+  if (!apiKey) {
+    return {
+      status: 'failed',
+      reason: `Smart Grammar Check needs a ${provider} API key, so only local findings are shown.`
+    };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    config.get<number>('request.timeoutMs', 45000)
+  );
+  try {
+    return await smartGrammarIssues(
+      selectedText,
+      { provider, model, thinkingOrEffort, apiKey },
+      controller.signal
+    );
+  } catch {
+    return {
+      status: 'failed',
+      reason: 'Smart Grammar Check was cancelled or timed out, so only local findings are shown.'
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function checkGrammarRange(
   context: vscode.ExtensionContext,
   editor: vscode.TextEditor,
   range: vscode.Range,
+  /**
+   * True only where the user started the check. It has no default, so a new caller has to
+   * decide rather than inherit one. The automatic paragraph checker passes false and must
+   * keep passing false: it runs while the user types, so a remote call there would send
+   * the document continuously with nobody asking for it.
+   */
+  allowSmartGrammar: boolean,
   announce: boolean,
   showProgress = announce,
   publishPanel = true
@@ -1314,6 +1412,17 @@ async function checkGrammarRange(
       )
       : await runCheck();
     if (result.kind !== 'grammar') throw new Error('KREN received an invalid grammar result.');
+    const smart = allowSmartGrammar
+      ? await runSmartGrammarPass(context, selectedText)
+      : undefined;
+    if (smart?.status === 'completed') {
+      result.issues = mergeSmartGrammarIssues(result.issues, smart.issues);
+    } else if (smart) {
+      // Without this the reason is computed and discarded, so a missing key, a timeout, a
+      // provider failure, or a discarded rewrite all look like a clean local-only pass and
+      // the user believes the model agreed with Harper.
+      notify('information', smart.reason);
+    }
     if (editor.document.uri.toString() !== snapshot.uri ||
         editor.document.version !== snapshot.version ||
         editor.document.getText(snapshot.range) !== snapshot.selectedText) {
@@ -1404,7 +1513,7 @@ async function applyGrammarQuickFix(
     editor.document.positionAt(startOffset + corrected.length)
   );
   editor.selection = new vscode.Selection(updatedRange.start, updatedRange.end);
-  const refreshed = await checkGrammarRange(context, editor, updatedRange, false);
+  const refreshed = await checkGrammarRange(context, editor, updatedRange, false, false);
   if (!refreshed) return;
   const remaining = refreshed.result.issues.length;
   void vscode.window.setStatusBarMessage(
@@ -1457,7 +1566,7 @@ async function manageGrammarFinding(
     notify('error', `KREN could not update local grammar data: ${errorMessage(error)}`);
     return;
   }
-  await checkGrammarRange(context, editor, state.range, false, false);
+  await checkGrammarRange(context, editor, state.range, false, false, false);
 }
 
 async function managePanelGrammarIssue(
@@ -1478,7 +1587,7 @@ async function managePanelGrammarIssue(
   if (lastResult.uri && lastResult.range && editor &&
       editor.document.uri.toString() === lastResult.uri &&
       editor.document.getText(lastResult.range) === lastResult.selectedText) {
-    await checkGrammarRange(context, editor, lastResult.range, false, false);
+    await checkGrammarRange(context, editor, lastResult.range, false, false, false);
     return;
   }
   const controller = new AbortController();
@@ -1553,7 +1662,7 @@ function scheduleAutomaticGrammarCheck(
     if (!currentEditor || currentEditor.document !== document || document.version !== version) return;
     const range = currentParagraphRange(document, currentEditor.selection.active);
     if (range.isEmpty || !/\p{Script=Latin}/u.test(document.getText(range))) return;
-    void checkGrammarRange(context, currentEditor, range, false, false, false);
+    void checkGrammarRange(context, currentEditor, range, false, false, false, false);
   }, delay);
 }
 
@@ -1732,7 +1841,7 @@ async function executeAddToUserDictionary(context: vscode.ExtensionContext): Pro
   }
 
   try {
-    const draft = await generateUserDictionaryDraft(context, expression);
+    const draft = await generateUserDictionaryDraft(context, expression, false);
     await resultsView.showUserDictionaryDraft(draft);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
@@ -1749,7 +1858,8 @@ async function executeAddToUserDictionary(context: vscode.ExtensionContext): Pro
 async function generateUserDictionaryDraft(
   context: vscode.ExtensionContext,
   expression: string,
-  captureMode?: UserDictionaryCaptureMode
+  termSuppliedByUser: boolean,
+  captureMode?: UserDictionaryProviderCaptureMode
 ): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1> {
   return vscode.window.withProgress(
     {
@@ -1770,7 +1880,8 @@ async function generateUserDictionaryDraft(
           extensionRuntime(context),
           expression,
           controller.signal,
-          captureMode
+          captureMode,
+          termSuppliedByUser
         );
       } finally {
         clearTimeout(timeout);
@@ -1785,13 +1896,19 @@ async function regenerateUserDictionaryDraft(
   expression: string,
   captureMode: UserDictionaryCaptureMode
 ): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1 | undefined> {
+  if (captureMode === 'manual') {
+    notify('information',
+      'Manual or imported entries cannot be regenerated until a language-model capture mode is selected.'
+    );
+    return undefined;
+  }
   const confirmed = await vscode.window.showWarningMessage(
     'Regenerate this User Dictionary draft and discard its unsaved edits?',
     { modal: true },
     'Regenerate'
   );
   return confirmed === 'Regenerate'
-    ? generateUserDictionaryDraft(context, expression, captureMode)
+    ? generateUserDictionaryDraft(context, expression, true, captureMode)
     : undefined;
 }
 
@@ -1928,7 +2045,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
   );
   const rewriteItems: Array<{ label: string; operation: KrenOperation; id: string }> = [
     {
-      label: '$(edit) Rewrite Text: All 3 Variants',
+      label: '$(edit) Rewrite Text: Both Variants',
       operation: 'rewrite',
       id: ALL_REWRITE_VARIANTS_ID
     },
@@ -1963,13 +2080,13 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
       { label: '$(settings-gear) Configure Rewrite Gemini Profile', command: 'kren.configureRewriteGeminiProfile' as const },
       { label: '$(settings-gear) Configure Languages', command: 'kren.configureLanguages' as const },
       { label: '$(layout-sidebar-right) Show KREN Secondary Sidebar', command: 'kren.showResults' as const },
-      { label: '$(close) Hide KREN', command: 'kren.hideResults' as const },
+      { label: '$(close) Close KREN Panel', command: 'kren.hideResults' as const },
       { label: '$(gear) Open KREN Settings', command: 'kren.openPanelSettings' as const }
     ];
   const selected = await vscode.window.showQuickPick(
     pickerItems,
     {
-      title: `KREN — clipboard: ${clipboardPreview(rawText)}`,
+      title: `KREN: clipboard: ${clipboardPreview(rawText)}`,
       placeHolder: 'Choose a clipboard action or manage the KREN Secondary Sidebar'
     }
   );
@@ -1986,7 +2103,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
       return;
     }
     try {
-      const draft = await generateUserDictionaryDraft(context, rawText);
+      const draft = await generateUserDictionaryDraft(context, rawText, false);
       await resultsView.showUserDictionaryDraft(draft);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -2638,10 +2755,9 @@ function progressTitle(operation: KrenOperation): string {
   if (operation === 'englishDictionary') return 'KREN: searching the English dictionary…';
   if (operation === 'koreanDictionary') return 'KREN: searching the Korean dictionary…';
   if (operation === 'synonyms') return 'KREN: searching the thesaurus…';
-  if (operation === 'rewrite') return 'KREN: rewriting text in three styles…';
-  if (operation === 'rewriteNatural') return 'KREN: producing a natural rewrite…';
-  if (operation === 'rewriteConcise') return 'KREN: making the text concise…';
-  if (operation === 'rewriteJargonFree') return 'KREN: rewriting text without jargon…';
+  if (operation === 'rewrite') return 'KREN: producing both rewrite variants…';
+  if (operation === 'rewriteMinimal') return 'KREN: producing a Minimal Rewrite…';
+  if (operation === 'rewriteFull') return 'KREN: producing a Full Rewrite…';
   return 'KREN: translating selection…';
 }
 

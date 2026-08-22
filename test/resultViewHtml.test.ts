@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { MERRIAM_WEBSTER_KEY_LIMIT, MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE } from '../src/operations.js';
-import { REWRITE_RHETORICAL_MODES } from '../src/rewriteAxes.js';
+import { REWRITE_RHETORICAL_MODES } from '@kren/core/rewrite-axes';
+import { ICON_PATHS, type IconName } from '@kren/core/icons';
+import {
+  exportUserDictionaryMarkdown,
+  importUserDictionaryMarkdown
+} from '@kren/core/user-dictionary';
+import { applyGrammarChoices as applyCoreGrammarChoices } from '@kren/core/grammar';
 
 // The settings groups in the order the owner asked for on 2026-08-13. Order is a
 // requirement here, not an accident of where each block was appended, and it is the kind
@@ -18,10 +24,17 @@ const SETTINGS_GROUP_ORDER = [
 ];
 import {
   krenCreditLine,
+  preselectedGrammarChoices,
   REWRITE_SETTINGS_GROUPS,
   renderKrenResultViewHtml
 } from '../src/resultViewHtml.js';
-import type { DictionaryResult, GrammarResult, RewriteResult, TranslationResult } from '../src/types.js';
+import type {
+  DictionaryResult,
+  GrammarIssue,
+  GrammarResult,
+  RewriteResult,
+  TranslationResult
+} from '../src/types.js';
 import type { KrenPanelSettings } from '../src/resultViewHtml.js';
 import { userDictionaryEntry } from './userDictionaryFixtures.js';
 
@@ -48,6 +61,7 @@ const settings: KrenPanelSettings = {
   translationProvider: 'googleCloudTranslation',
   translationTargetLanguage: 'ko',
   grammarDialect: 'american',
+  grammarSmart: false,
   grammarAutoCheck: false,
   grammarAutoCheckDelayMs: 900,
   grammarCustomWordCount: 0,
@@ -70,7 +84,7 @@ const settings: KrenPanelSettings = {
   alternateFallbackEnabled: true,
   alternateFallbackModel: 'gemini-3.5-flash',
   alternateFallbackThinkingLevel: 'low',
-  preferredRewriteVariant: 'natural',
+  preferredRewriteVariant: 'minimal',
   quickMenuRewriteVariant: 'all',
   rewriteModality: 'written',
   rewriteFunction: 'general',
@@ -109,6 +123,95 @@ const proModels = [
   { id: 'gemini-3.5-flash', displayName: 'Gemini 3.5 Flash' }
 ];
 
+const PANEL_ICONS = [
+  ['speaker', 'data-command="readVariant"'],
+  ['stop', 'data-command="stopReadAloud"'],
+  ['edit', 'data-command="editUserDictionaryEntry"'],
+  ['delete', 'data-command="deleteUserDictionaryEntry"'],
+  ['clear', 'data-command="clear"'],
+  ['menu', 'data-menu-toggle']
+] as const satisfies ReadonlyArray<readonly [IconName, string]>;
+
+function renderIconFixture(): string {
+  const entry = userDictionaryEntry();
+  const result: RewriteResult = {
+    ...base,
+    sourceLanguage: 'en',
+    targetLanguage: 'en',
+    kind: 'rewrite',
+    providerId: 'gemini',
+    modelId: 'gemini-3.6-flash',
+    sourceText: 'Leverage synergies.',
+    englishVariety: 'american',
+    domain: 'general',
+    modality: 'written',
+    function: 'general',
+    formality: 'preserve',
+    voice: 'preserve',
+    stance: 'preserve',
+    length: 'preserve',
+    perspective: 'preserve',
+    rhetoricalMode: 'preserve',
+    variants: [
+      { id: 'minimal', label: 'Minimal Rewrite', text: 'Work together more effectively.' }
+    ]
+  };
+  return renderKrenResultViewHtml({
+    cspSource: 'vscode-webview://test',
+    nonce: 'test-nonce',
+    settings: { ...settings, userDictionaryEnabled: true },
+    result,
+    sourceText: result.sourceText,
+    allowReplace: true,
+    userDictionary: { entries: [entry], selectedId: entry.id },
+    proModels
+  });
+}
+
+function renderedIconButtons(html: string): string[] {
+  return [...html.matchAll(/<button[^>]*class="[^"]*icon-button[^"]*"[^>]*>[\s\S]*?<\/button>/gu)]
+    .map((match) => match[0]);
+}
+
+function grammarResult(sourceText: string, issues: GrammarIssue[]): GrammarResult {
+  return {
+    ...base,
+    kind: 'grammar',
+    providerId: 'harper',
+    sourceText,
+    dialect: 'american',
+    issues
+  };
+}
+
+function renderGrammarResult(result: GrammarResult): string {
+  return renderKrenResultViewHtml({
+    cspSource: 'vscode-webview://test',
+    nonce: 'test-nonce',
+    brandImageUri,
+    result,
+    sourceText: result.sourceText,
+    allowReplace: true,
+    settings,
+    proModels
+  });
+}
+
+function checkedGrammarChoices(html: string): Array<{ issueId: string; suggestionIndex: number }> {
+  return [...html.matchAll(/<input type="radio"[^>]*data-grammar-choice="-?\d+"[^>]*>/gu)]
+    .map((match) => match[0])
+    .filter((input) => /\schecked(?:\s|>)/u.test(input))
+    .map((input) => ({
+      issueId: input.match(/data-grammar-issue="([^"]+)"/u)?.[1] ?? '',
+      suggestionIndex: Number(input.match(/data-grammar-choice="(-?\d+)"/u)?.[1])
+    }));
+}
+
+function grammarActionDisabledStates(html: string): boolean[] {
+  return [...html.matchAll(/<button[^>]*data-grammar-action[^>]*>/gu)]
+    .map((match) => /\sdisabled(?:\s|>)/u.test(match[0]));
+}
+
 describe('KREN rich result view', () => {
   // Icon-only buttons carry no text, so their accessible name comes entirely from the
   // attributes. Dropping one turns the control into an unlabelled square for anyone using
@@ -133,7 +236,7 @@ describe('KREN rich result view', () => {
       perspective: 'preserve',
       rhetoricalMode: 'preserve',
       variants: [
-        { id: 'natural', label: 'Natural', text: 'Work together more effectively.' }
+        { id: 'minimal', label: 'Minimal Rewrite', text: 'Work together more effectively.' }
       ]
     };
     const rewriteHtml = renderKrenResultViewHtml({
@@ -147,6 +250,98 @@ describe('KREN rich result view', () => {
 
     const buttons = [...rewriteHtml.matchAll(/<button[^>]*class="[^"]*icon-button[^"]*"[^>]*>/g)]
       .map((match) => match[0]);
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(button, `icon button without a title: ${button}`).toMatch(/title="[^"]+"/);
+      expect(button, `icon button without an aria-label: ${button}`).toMatch(/aria-label="[^"]+"/);
+    }
+  });
+
+  it('renders every icon-only button as SVG without numeric HTML entity glyphs', () => {
+    const buttons = renderedIconButtons(renderIconFixture());
+
+    expect({
+      buttonCount: buttons.length,
+      everyButtonContainsSvg: buttons.every((button) => button.includes('<svg')),
+      numericEntities: buttons.flatMap((button) => button.match(/&#\d+;/gu) ?? [])
+    }).toEqual({
+      buttonCount: buttons.length,
+      everyButtonContainsSvg: true,
+      numericEntities: []
+    });
+  });
+
+  it('uses the shared path data for every panel icon', () => {
+    const buttons = renderedIconButtons(renderIconFixture());
+    const actualPaths = Object.fromEntries(PANEL_ICONS.map(([name, marker]) => {
+      const button = buttons.find((candidate) => candidate.includes(marker)) ?? '';
+      return [name, [...button.matchAll(/<path d="([^"]+)"\/>/gu)].map((match) => match[1])];
+    }));
+    const expectedPaths = Object.fromEntries(PANEL_ICONS.map(([name]) => [
+      name,
+      [...ICON_PATHS[name]]
+    ]));
+
+    expect(actualPaths).toEqual(expectedPaths);
+  });
+
+  it('styles shared icon SVGs as unfilled theme-colour strokes', () => {
+    const html = renderIconFixture();
+    const iconRule = html.match(/\.icon-button svg \{([^}]*)\}/u)?.[1] ?? '';
+
+    expect({
+      fill: /(?:^|;)\s*fill:\s*none\s*(?:;|$)/u.test(iconRule),
+      stroke: /(?:^|;)\s*stroke:\s*currentColor\s*(?:;|$)/u.test(iconRule)
+    }).toEqual({ fill: true, stroke: true });
+  });
+
+  it('labels every icon button rendered by settings and User Dictionary screens', () => {
+    const entry = userDictionaryEntry();
+    const settingsHtml = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: {
+        ...settings,
+        userDictionaryEnabled: true,
+        credentialPresence: {
+          geminiDefault: true,
+          geminiAlternate: true,
+          googleCloudTranslation: true,
+          openai: true,
+          anthropic: true,
+          merriamWebsterCollegiate: true,
+          merriamWebsterMedical: true,
+          merriamWebsterThesaurus: true,
+          koreanDictionary: true
+        }
+      },
+      activeScreen: 'settings',
+      proModels
+    });
+    const dictionaryHtml = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, userDictionaryEnabled: true },
+      activeScreen: 'userDictionary',
+      userDictionary: {
+        entries: [entry],
+        status: 'ready',
+        selectedId: entry.id,
+        selectedIds: [entry.id],
+        purgePreview: {
+          selection: 'olderThan3Months',
+          cutoff: '2026-05-13T00:00:00.000Z',
+          count: 1,
+          entryIds: [entry.id],
+          terms: [entry.term]
+        }
+      },
+      proModels
+    });
+    const buttons = [settingsHtml, dictionaryHtml]
+      .flatMap((html) => [...html.matchAll(/<button[^>]*class="[^"]*icon-button[^"]*"[^>]*>/g)])
+      .map((match) => match[0]);
+
     expect(buttons.length).toBeGreaterThan(0);
     for (const button of buttons) {
       expect(button, `icon button without a title: ${button}`).toMatch(/title="[^"]+"/);
@@ -309,11 +504,56 @@ describe('KREN rich result view', () => {
     expect(html).toContain('data-command="previewUserDictionaryPurge"');
   });
 
+  it('renders a manual-mode entry without claiming a provider or model', () => {
+    const entry = userDictionaryEntry({
+      capture: {
+        mode: 'manual',
+        generatedAt: '1970-01-01T00:00:00.000Z',
+        userEdited: true
+      }
+    });
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, userDictionaryEnabled: true },
+      activeScreen: 'userDictionary',
+      userDictionary: { entries: [entry], selectedId: entry.id },
+      proModels
+    });
+
+    expect(html).toContain('Manual or imported entry.');
+    expect(html).not.toContain('Generated by');
+  });
+
+  it('renders a Markdown-imported entry with truthful manual provenance', () => {
+    const markdown = exportUserDictionaryMarkdown({
+      schemaVersion: 1,
+      entries: [userDictionaryEntry()]
+    });
+    const imported = importUserDictionaryMarkdown(markdown).entries[0];
+    expect(imported?.capture.mode).toBe('manual');
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, userDictionaryEnabled: true },
+      activeScreen: 'userDictionary',
+      userDictionary: { entries: imported ? [imported] : [] },
+      proModels
+    });
+
+    expect(html).toContain('Manual or imported entry.');
+    expect(html).not.toContain('markdown-import');
+    expect(html).not.toContain('Generated by');
+  });
+
   it('visibly separates attributed live reference content from the personal draft', () => {
     const draft = userDictionaryEntry({
       capture: {
-        ...userDictionaryEntry().capture,
-        mode: 'merriamWebsterAndLlm'
+        mode: 'merriamWebsterAndLlm',
+        provider: 'gemini',
+        model: 'synthetic-model',
+        generatedAt: '2026-08-12T01:00:00.000Z',
+        userEdited: true
       }
     });
     const liveReference: DictionaryResult = {
@@ -365,8 +605,11 @@ describe('KREN rich result view', () => {
   it('labels a genuine no-match fallback visibly', () => {
     const draft = userDictionaryEntry({
       capture: {
-        ...userDictionaryEntry().capture,
-        mode: 'merriamWebsterAndLlm'
+        mode: 'merriamWebsterAndLlm',
+        provider: 'gemini',
+        model: 'synthetic-model',
+        generatedAt: '2026-08-12T01:00:00.000Z',
+        userEdited: true
       },
       merriamWebsterReference: {
         referenceWork: 'collegiate',
@@ -451,10 +694,10 @@ describe('KREN rich result view', () => {
     expect(medicalHtml).toContain('data-action="kren.setMerriamWebsterMedicalApiKey" disabled>Set key</button>');
     expect(medicalHtml).toContain('data-action="kren.deleteMerriamWebsterMedicalApiKey">Remove key</button>');
 
-    // Fills exactly MERRIAM_WEBSTER_KEY_LIMIT slots rather than a hard-coded two, and
-    // checks both sides of the boundary. The panel previously printed "stores at most 3"
-    // while disabling the third Set key button, because the message came from the
-    // constant and the disabled state from a literal `>= 2`. One rule, two copies.
+    // Fills exactly MERRIAM_WEBSTER_KEY_LIMIT slots rather than a hard-coded count, and
+    // checks both sides of the boundary. The panel once printed one limit while
+    // disabling the button at another, because the message came from the constant and
+    // the disabled state from a literal. One rule, two copies.
     const presenceOrder = [
       'merriamWebsterCollegiate',
       'merriamWebsterThesaurus',
@@ -627,9 +870,8 @@ describe('KREN rich result view', () => {
       perspective: 'preserve',
       rhetoricalMode: 'recommend',
       variants: [
-        { id: 'natural', label: 'Natural English', text: 'Make better use of our combined strengths.' },
-        { id: 'concise', label: 'Concise', text: 'Combine our strengths.' },
-        { id: 'jargonFree', label: 'Jargon-Free', text: 'Work together more effectively.' }
+        { id: 'minimal', label: 'Minimal Rewrite', text: 'Make better use of our combined strengths.' },
+        { id: 'full', label: 'Full Rewrite', text: 'Work together more effectively.' }
       ]
     };
     const html = renderKrenResultViewHtml({
@@ -643,12 +885,12 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(html).toContain('data-command="copyVariant" data-variant-id="natural"');
-    expect(html).toContain('data-command="replaceVariant" data-variant-id="jargonFree"');
+    expect(html).toContain('data-command="copyVariant" data-variant-id="minimal"');
+    expect(html).toContain('data-command="replaceVariant" data-variant-id="full"');
     expect(html).toContain('Open full details');
     expect(html).not.toContain('data-command="copy">Copy result');
-    expect(html).toContain('data-variant-tab="natural"');
-    expect(html).toContain('data-variant-tab="jargonFree"');
+    expect(html).toContain('data-variant-tab="minimal"');
+    expect(html).toContain('data-variant-tab="full"');
     expect(html).toContain('data-command="clear"');
     expect(html).toContain('KREN Settings');
     expect(html).toContain('data-setting="results.openAtStartup"');
@@ -688,7 +930,8 @@ describe('KREN rich result view', () => {
     expect(html).not.toContain('Paid Gemini');
     expect(html).toContain('data-provider-for="explanation.provider" data-provider-value="gemini"');
     expect(html).toContain('data-provider-for="rewrite.provider" data-provider-value="openai"');
-    expect(html).toContain('data-command="readVariant" data-variant-id="natural"');
+    expect(html).toContain('data-command="readVariant" data-variant-id="minimal"');
+    expect(html).toContain('Smart Grammar Check uses this provider, model, and effort as well.');
     expect(html).toContain('data-command="stopReadAloud"');
     expect(html).not.toContain('speechSynthesis');
     expect(html).toContain('en-US-AvaNeural');
@@ -704,7 +947,6 @@ describe('KREN rich result view', () => {
     expect(html).toContain('All KREN settings');
     expect(html).toContain('data-command="showManual"');
     expect(html).toContain('data-menu-toggle');
-    expect(html).toContain('&#9776;');
     expect(html).toContain('data-command="showStartPage"');
     expect(html).toContain('>Start Page</button>');
     expect(html).toContain("target.closest('.menu-wrap')");
@@ -730,14 +972,8 @@ describe('KREN rich result view', () => {
     expect(() => new Function(script ?? '')).not.toThrow();
   });
 
-  it('renders grammar corrections as opt-in choices', () => {
-    const result: GrammarResult = {
-      ...base,
-      kind: 'grammar',
-      providerId: 'harper',
-      sourceText: 'I has apple.',
-      dialect: 'american',
-      issues: [{
+  it('checks suggestion zero instead of Keep original when a suggestion exists', () => {
+    const result = grammarResult('I has apple.', [{
         id: 'issue-1',
         start: 2,
         end: 5,
@@ -745,26 +981,153 @@ describe('KREN rich result view', () => {
         category: 'Agreement',
         message: 'The verb must agree with the pronoun.',
         suggestions: [{ kind: 'replace', replacement: 'have', label: 'Replace with “have”' }]
-      }]
-    };
-    const html = renderKrenResultViewHtml({
-      cspSource: 'vscode-webview://test',
-      nonce: 'test-nonce',
-      brandImageUri,
-      result,
-      sourceText: result.sourceText,
-      allowReplace: true,
-      settings,
-      proModels
-    });
+      }]);
+    const html = renderGrammarResult(result);
 
+    expect(checkedGrammarChoices(html)).toEqual([
+      { issueId: 'issue-1', suggestionIndex: 0 }
+    ]);
+    // These five predate the preselection change and have nothing to do with it. They are
+    // restored here because the test that carried them was rewritten around the new
+    // default, and dropping an unrelated assertion during a rewrite is how coverage
+    // quietly leaves.
     expect(html).toContain('Harper (offline)');
     expect(html).toContain('Keep original');
     expect(html).toContain('Replace with “have”');
     expect(html).toContain('data-command="applyGrammar"');
     expect(html).toContain('data-command="copyGrammar"');
-    expect(html).toContain('data-grammar-choice="-1" checked');
     expect(html).toContain("command === 'applyGrammar' || command === 'copyGrammar'");
+  });
+
+  it('keeps Keep original checked when a finding has no suggestions', () => {
+    const result = grammarResult('Unclear.', [{
+      id: 'issue-empty',
+      start: 0,
+      end: 7,
+      original: 'Unclear',
+      category: 'Style',
+      message: 'Review this wording.',
+      suggestions: []
+    }]);
+
+    expect(checkedGrammarChoices(renderGrammarResult(result))).toEqual([
+      { issueId: 'issue-empty', suggestionIndex: -1 }
+    ]);
+  });
+
+  it('keeps the later finding on Keep original when first suggestions overlap', () => {
+    const result = grammarResult('abcdef', [
+      {
+        id: 'issue-first',
+        start: 1,
+        end: 4,
+        original: 'bcd',
+        category: 'Grammar',
+        message: 'First finding.',
+        suggestions: [{ kind: 'replace', replacement: 'B', label: 'Use B' }]
+      },
+      {
+        id: 'issue-second',
+        start: 3,
+        end: 5,
+        original: 'de',
+        category: 'Grammar',
+        message: 'Second finding.',
+        suggestions: [{ kind: 'replace', replacement: 'D', label: 'Use D' }]
+      }
+    ]);
+
+    expect(checkedGrammarChoices(renderGrammarResult(result))).toEqual([
+      { issueId: 'issue-first', suggestionIndex: 0 },
+      { issueId: 'issue-second', suggestionIndex: -1 }
+    ]);
+  });
+
+  it('preselects same-offset insertAfter suggestions independently', () => {
+    const issues: GrammarIssue[] = [
+      {
+        id: 'insert-first',
+        start: 0,
+        end: 1,
+        original: 'a',
+        category: 'Punctuation',
+        message: 'First insertion.',
+        suggestions: [{ kind: 'insertAfter', replacement: '!', label: 'Insert !' }]
+      },
+      {
+        id: 'insert-second',
+        start: 0,
+        end: 1,
+        original: 'a',
+        category: 'Punctuation',
+        message: 'Second insertion.',
+        suggestions: [{ kind: 'insertAfter', replacement: '?', label: 'Insert ?' }]
+      }
+    ];
+
+    expect([...preselectedGrammarChoices(grammarResult('ab', issues))])
+      .toEqual(['insert-first', 'insert-second']);
+  });
+
+  it('produces preselected choices that core can apply when findings overlap', () => {
+    const result = grammarResult('abcdef', [
+      {
+        id: 'issue-first',
+        start: 1,
+        end: 4,
+        original: 'bcd',
+        category: 'Grammar',
+        message: 'First finding.',
+        suggestions: [{ kind: 'replace', replacement: 'B', label: 'Use B' }]
+      },
+      {
+        id: 'issue-second',
+        start: 3,
+        end: 5,
+        original: 'de',
+        category: 'Grammar',
+        message: 'Second finding.',
+        suggestions: [{ kind: 'replace', replacement: 'D', label: 'Use D' }]
+      }
+    ]);
+    const choices = [...preselectedGrammarChoices(result)]
+      .map((issueId) => ({ issueId, suggestionIndex: 0 }));
+
+    expect(() => applyCoreGrammarChoices(result, choices)).not.toThrow();
+  });
+
+  it('ships the correction buttons enabled, and omits them when nothing can be applied', () => {
+    const suggested = grammarResult('bad', [{
+      id: 'issue-suggested',
+      start: 0,
+      end: 3,
+      original: 'bad',
+      category: 'Grammar',
+      message: 'Use a correction.',
+      suggestions: [{ kind: 'replace', replacement: 'good', label: 'Use good' }]
+    }]);
+    const withoutSuggestions = grammarResult('unclear', [{
+      id: 'issue-empty',
+      start: 0,
+      end: 7,
+      original: 'unclear',
+      category: 'Style',
+      message: 'Review this wording.',
+      suggestions: []
+    }]);
+
+    const withoutSuggestionsHtml = renderGrammarResult(withoutSuggestions);
+
+    expect({
+      suggested: grammarActionDisabledStates(renderGrammarResult(suggested)),
+      // No correction buttons at all, rather than two that can never be enabled: every
+      // radio in that panel is Keep original and no click can change that.
+      withoutSuggestions: grammarActionDisabledStates(withoutSuggestionsHtml)
+    }).toEqual({
+      suggested: [false, false],
+      withoutSuggestions: []
+    });
+    expect(withoutSuggestionsHtml).toContain('>Copy checked text</button>');
   });
 
   it('renders private grammar vocabulary and automatic-check controls', () => {
@@ -930,5 +1293,23 @@ describe('KREN rich result view', () => {
     for (const option of REWRITE_RHETORICAL_MODES.slice(1)) {
       expect(html).not.toContain(`${defaultLabel} ${option.label}`);
     }
+  });
+});
+
+describe('the attribution line', () => {
+  // One definition, rendered in two places. Every assertion elsewhere derives from the
+  // function, which is right for keeping the two renders in step and means nothing would
+  // notice if the attribution itself were reverted or mangled. This is the only test that
+  // reads the words.
+  it('names the author, and still credits both agents', () => {
+    expect(krenCreditLine('9.9.9'))
+      .toBe('Designed &amp; Developed by T.H. YANG using CLAUDE CODE and CODEX · Version 9.9.9');
+    // The ampersand is escaped because this string goes into markup unescaped.
+    expect(krenCreditLine('9.9.9')).not.toMatch(/&(?!amp;)/u);
+  });
+
+  it('escapes the version, which is the only part that varies', () => {
+    expect(krenCreditLine('<script>')).toContain('&lt;script&gt;');
+    expect(krenCreditLine('<script>')).not.toContain('<script>');
   });
 });

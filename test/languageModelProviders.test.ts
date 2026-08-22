@@ -7,6 +7,7 @@ import {
   rewriteSchema
 } from '../src/providers/openai.js';
 import type { RewriteRequest, TranslationRequest } from '../src/types.js';
+import { REWRITE_VARIANT_IDS } from '@kren/core/rewrite-variants';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -80,8 +81,8 @@ describe('language-model request privacy', () => {
         required: string[]
       } } };
     };
-    expect(schema.properties.variants.minItems).toBe(3);
-    expect(schema.properties.variants.maxItems).toBe(3);
+    expect(schema.properties.variants.minItems).toBe(REWRITE_VARIANT_IDS.length);
+    expect(schema.properties.variants.maxItems).toBe(REWRITE_VARIANT_IDS.length);
     expect(schema.properties.variants.items.required).toContain('changeNote');
   });
 });
