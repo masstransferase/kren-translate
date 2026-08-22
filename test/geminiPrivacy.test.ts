@@ -1,3 +1,4 @@
+import { REWRITE_VARIANTS } from '@kren/core/rewrite-variants';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildGeminiRequestBody,
@@ -114,8 +115,6 @@ describe('Gemini privacy boundary', () => {
     expect(body.systemInstruction.parts[0]?.text).toContain('same language');
     expect(body.systemInstruction.parts[0]?.text).toContain('never translate');
     expect(body.systemInstruction.parts[0]?.text).toContain('British English');
-    expect(body.systemInstruction.parts[0]?.text).toContain('Jargon-Free');
-    expect(body.systemInstruction.parts[0]?.text).toContain('no em dashes or en dashes');
     expect(body.systemInstruction.parts[0]?.text).toContain('precise technical prose');
     expect(body.systemInstruction.parts[0]?.text).toContain('appropriately qualified stance');
     expect(body.systemInstruction.parts[0]?.text).toContain('Rhetorical mode: recommend');
@@ -128,7 +127,7 @@ describe('Gemini privacy boundary', () => {
       sourceLanguage: 'auto',
       targetLanguage: 'auto',
       kind: 'translation',
-      operation: 'rewriteNatural',
+      operation: 'rewriteMinimal',
       englishVariety: 'british',
       domain: 'general',
       ...defaultRewriteAxes,
@@ -136,19 +135,20 @@ describe('Gemini privacy boundary', () => {
       stance: 'neutral'
     };
     const body = buildGeminiRewriteRequestBody(request);
-    expect(body.systemInstruction.parts[0]?.text).toContain(
-      'fluent, native-level prose in the detected language'
-    );
+    // From core rather than quoted here. This assertion held a copy of the instruction and
+    // went stale the moment core reworded it, which is the same one-rule-two-copies shape
+    // that broke Rewrite Text outright on 2026-08-20.
+    expect(body.systemInstruction.parts[0]?.text).toContain(REWRITE_VARIANTS[0]!.instruction);
     expect(body.systemInstruction.parts[0]?.text).not.toContain(
       'fluent native-level English'
     );
     const result = normalizeGeminiRewriteResult({
       detectedLanguage: 'ko',
-      variants: [{ id: 'natural', text: '이 문장을 더 자연스럽게 고쳐 주세요.' }]
+      variants: [{ id: 'minimal', text: '이 문장을 더 자연스럽게 고쳐 주세요.' }]
     }, request, 'gemini');
     expect(result.sourceLanguage).toBe('ko');
     expect(result.targetLanguage).toBe('ko');
-    expect(result.variants[0]?.label).toBe('Natural');
+    expect(result.variants[0]?.label).toBe('Minimal Rewrite');
   });
 
   it('builds Pro rewrite requests with low rather than unsupported minimal thinking', () => {
@@ -173,7 +173,7 @@ describe('Gemini privacy boundary', () => {
     expect(body.generationConfig.thinkingConfig?.thinkingLevel).toBe('low');
   });
 
-  it('normalizes all three rewrite variants in a fixed order', () => {
+  it('accepts exactly the two current ids and rejects a retired id', () => {
     const request: RewriteRequest = {
       text: 'We need to leverage synergies.',
       sourceLanguage: 'en',
@@ -190,19 +190,33 @@ describe('Gemini privacy boundary', () => {
 
     const result = normalizeGeminiRewriteResult({
       variants: [
-        { id: 'jargonFree', text: 'We need to work together more effectively.' },
-        { id: 'natural', text: 'We need to make better use of our combined strengths.' },
-        { id: 'concise', text: 'We need to combine our strengths.' }
+        { id: 'full', text: 'We need to work together more effectively.' },
+        { id: 'minimal', text: 'We need to leverage synergies.' }
       ]
     }, request, 'gemini', '1970-01-01T00:00:00.000Z');
+    let retiredError = '';
+    try {
+      normalizeGeminiRewriteResult({
+        variants: [
+          { id: 'minimal', text: 'We need to leverage synergies.' },
+          { id: 'natural', text: 'We need to use our strengths.' }
+        ]
+      }, request, 'gemini');
+    } catch (error) {
+      retiredError = error instanceof Error ? error.message : String(error);
+    }
 
-    expect(result.variants.map((variant) => variant.id)).toEqual([
-      'natural',
-      'concise',
-      'jargonFree'
-    ]);
-    expect(result.sourceText).toBe(request.text);
-    expect(result.rhetoricalMode).toBe('constructivelyChallenge');
+    expect({
+      ids: result.variants.map((variant) => variant.id),
+      sourceText: result.sourceText,
+      rhetoricalMode: result.rhetoricalMode,
+      retiredError
+    }).toEqual({
+      ids: ['minimal', 'full'],
+      sourceText: request.text,
+      rhetoricalMode: 'constructivelyChallenge',
+      retiredError: 'Gemini did not return all requested rewrite variants. Try again.'
+    });
   });
 
   it('retries a temporarily overloaded model and returns an actionable error', async () => {
@@ -252,11 +266,10 @@ describe('Gemini privacy boundary', () => {
     expect(body.systemInstruction.parts[0]?.text).toContain('include a concise changeNote');
 
     const result = normalizeGeminiRewriteResult({ variants: [
-      { id: 'natural', text: 'Data packages prepared for partners.', changeNote: 'Clarified readiness.' },
-      { id: 'concise', text: 'Partner-ready data packages.', changeNote: 'No substantive change.' },
-      { id: 'jargonFree', text: 'Data packages that partners can use.', changeNote: 'Expanded the compound adjective.' }
+      { id: 'minimal', text: 'Partner-ready data packages.', changeNote: 'No substantive change.' },
+      { id: 'full', text: 'Data packages that partners can use.', changeNote: 'Expanded the compound adjective.' }
     ] }, request, 'gemini');
-    expect(result.variants[0]?.changeNote).toBe('Clarified readiness.');
+    expect(result.variants[0]?.changeNote).toBe('No substantive change.');
   });
 
   it('requests and normalizes one configured quick-menu rewrite variant', () => {
@@ -265,7 +278,7 @@ describe('Gemini privacy boundary', () => {
       sourceLanguage: 'en',
       targetLanguage: 'en',
       kind: 'translation',
-      operation: 'rewriteConcise',
+      operation: 'rewriteFull',
       englishVariety: 'australian',
       domain: 'business',
       ...defaultRewriteAxes,
@@ -273,20 +286,20 @@ describe('Gemini privacy boundary', () => {
       stance: 'direct'
     };
     const body = buildGeminiRewriteRequestBody(request);
-    expect(body.systemInstruction.parts[0]?.text).toContain('"id":"concise"');
-    expect(body.systemInstruction.parts[0]?.text).not.toContain('"id":"natural"');
+    expect(body.systemInstruction.parts[0]?.text).toContain('"id":"full"');
+    expect(body.systemInstruction.parts[0]?.text).not.toContain('"id":"minimal"');
     const result = normalizeGeminiRewriteResult({
-      variants: [{ id: 'concise', text: 'Combine our strengths.' }]
+      variants: [{ id: 'full', text: 'Combine our strengths.' }]
     }, request, 'gemini');
-    expect(result.variants.map((variant) => variant.id)).toEqual(['concise']);
+    expect(result.variants.map((variant) => variant.id)).toEqual(['full']);
     expect(result.domain).toBe('business');
     expect(result.formality).toBe('neutral');
     expect(result.stance).toBe('direct');
   });
 
   it.each([
-    ['rewriteNatural', 'natural'],
-    ['rewriteJargonFree', 'jargonFree']
+    ['rewriteMinimal', 'minimal'],
+    ['rewriteFull', 'full']
   ] as const)('supports the %s quick-menu variant', (operation, expectedId) => {
     const request: RewriteRequest = {
       text: 'We need to leverage synergies.',

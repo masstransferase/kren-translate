@@ -56,16 +56,15 @@ describe('plain-text full details', () => {
       perspective: 'preserve',
       rhetoricalMode: 'persuade',
       variants: [
-        { id: 'natural', label: 'Natural English', text: 'Use our combined strengths.' },
-        { id: 'concise', label: 'Concise', text: 'Combine our strengths.' },
-        { id: 'jargonFree', label: 'Jargon-Free', text: 'Work together effectively.' }
+        { id: 'minimal', label: 'Minimal Rewrite', text: 'Use our combined strengths.' },
+        { id: 'full', label: 'Full Rewrite', text: 'Work together effectively.' }
       ]
     };
 
     const details = resultDetails(result);
 
-    expect(details.indexOf('Natural English')).toBeLessThan(details.indexOf('=============='));
-    expect(details.indexOf('Jargon-Free')).toBeLessThan(details.indexOf('Provider: Gemini'));
+    expect(details.indexOf('Minimal Rewrite')).toBeLessThan(details.indexOf('=============='));
+    expect(details.indexOf('Full Rewrite')).toBeLessThan(details.indexOf('Provider: Gemini'));
     expect(details).toContain('English: International English');
     expect(details).toContain('Domain: Business');
     expect(details).toContain('Formality: Neutral');

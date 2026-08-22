@@ -46,9 +46,8 @@ describe('normalized language-model contract', () => {
       rhetoricalMode: 'preserve'
     };
     const variants = [
-      { id: 'natural', text: 'Use our combined strengths.' },
-      { id: 'concise', text: 'Combine our strengths.' },
-      { id: 'jargonFree', text: 'Work together more effectively.' }
+      { id: 'minimal', text: 'Use our combined strengths.' },
+      { id: 'full', text: 'Work together more effectively.' }
     ];
     expect(normalizeGeminiRewriteResult({ kind: 'rewrite', variants }, request, providerId))
       .toMatchObject({

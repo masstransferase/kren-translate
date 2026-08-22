@@ -27,7 +27,7 @@ import type {
   RewriteRhetoricalMode,
   RewriteStance,
   RewriteVoice
-} from './rewriteAxes.js';
+} from '@kren/core/rewrite-axes';
 
 export type LanguageCode = string;
 export type LookupKind = 'dictionary' | 'translation';
@@ -46,12 +46,11 @@ export type {
   RewriteRhetoricalMode,
   RewriteStance,
   RewriteVoice
-} from './rewriteAxes.js';
+} from '@kren/core/rewrite-axes';
 export type RewriteOperation =
   | 'rewrite'
-  | 'rewriteNatural'
-  | 'rewriteConcise'
-  | 'rewriteJargonFree';
+  | 'rewriteMinimal'
+  | 'rewriteFull';
 
 export interface SelectionAnalysis {
   text: string;

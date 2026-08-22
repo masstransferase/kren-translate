@@ -3,14 +3,16 @@ import { describe, expect, it } from 'vitest';
 import {
   REWRITE_AXIS_SETTINGS,
   REWRITE_RHETORICAL_MODES
-} from '../src/rewriteAxes.js';
-import { USER_DICTIONARY_MAX_IMPORT_ENTRIES } from '../src/userDictionary/importExport.js';
+} from '@kren/core/rewrite-axes';
+import { USER_DICTIONARY_MAX_IMPORT_ENTRIES } from '@kren/core/user-dictionary';
 import {
   USER_DICTIONARY_CAPTURE_MODES,
+  USER_DICTIONARY_MANUAL_CAPTURE_MODE,
   USER_DICTIONARY_PROVIDERS
-} from '../src/userDictionary/contract.js';
+} from '@kren/core/user-dictionary';
 import {
   USER_DICTIONARY_EXAMPLE_COUNTS,
+  USER_DICTIONARY_PROVIDER_CAPTURE_MODES,
   USER_DICTIONARY_THINKING_OR_EFFORTS
 } from '../src/userDictionary/settings.js';
 
@@ -22,6 +24,7 @@ interface MenuItem {
 }
 
 interface Manifest {
+  version: string;
   publisher: string;
   activationEvents: string[];
   categories: string[];
@@ -125,10 +128,18 @@ describe('VS Code menu contributions', () => {
     expect(rhetoricalMode?.enumDescriptions).toHaveLength(REWRITE_RHETORICAL_MODES.length);
   });
 
+  // `satisfies` on the source array rejects a wrong or renamed mode but says nothing about
+  // an omitted one, so a capture mode added to core would silently never reach the setting.
+  it('offers every capture mode core defines except the manual one', () => {
+    expect([...USER_DICTIONARY_PROVIDER_CAPTURE_MODES]).toEqual(
+      USER_DICTIONARY_CAPTURE_MODES.filter((mode) => mode !== USER_DICTIONARY_MANUAL_CAPTURE_MODE)
+    );
+  });
+
   it('keeps every User Dictionary configuration enum in exact source-array order', () => {
     const properties = manifest.contributes.configuration.properties;
     expect(properties['kren.userDictionary.defaultCaptureMode']?.enum)
-      .toEqual([...USER_DICTIONARY_CAPTURE_MODES]);
+      .toEqual([...USER_DICTIONARY_PROVIDER_CAPTURE_MODES]);
     expect(properties['kren.userDictionary.provider']?.enum)
       .toEqual([...USER_DICTIONARY_PROVIDERS]);
     expect(properties['kren.userDictionary.thinkingOrEffort']?.enum)
@@ -281,5 +292,28 @@ describe('VS Code menu contributions', () => {
     const publicGeminiText = JSON.stringify({ geminiCommands, geminiSettings });
     expect(publicGeminiText).not.toMatch(/free[ -]?tier|paid gemini|paid profile/iu);
     expect(publicGeminiText).toContain('Alternate Gemini API Key');
+  });
+});
+
+describe('the version is one fact', () => {
+  // docs/RELEASE_PROCESS.md step 2 requires npm version to update package.json and
+  // package-lock.json together. On 2026-08-22 three releases were cut by editing
+  // package.json as text, so the lockfile sat at 1.3.3 while the manifest said 1.3.6 and
+  // the produced public tree carried the mismatch into a release candidate. npm ci does
+  // not object, and the VSIX takes its name from the manifest, so nothing failed.
+  //
+  // One fact in two files, which is this codebase's recurring defect, so it gets the
+  // same treatment as the others: a check rather than a habit.
+  it('agrees between the manifest and the lockfile', () => {
+    const lock = JSON.parse(readFileSync('package-lock.json', 'utf8')) as {
+      version: string;
+      packages: Record<string, { version?: string }>;
+    };
+
+    expect(lock.version, 'package-lock.json version').toBe(manifest.version);
+    // npm writes the root package a second time under packages[""], and npm version
+    // updates both. A text edit updates neither, and a careless fix updates one.
+    expect(lock.packages['']?.version, 'package-lock.json packages[""] version')
+      .toBe(manifest.version);
   });
 });

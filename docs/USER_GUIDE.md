@@ -2,7 +2,7 @@
 
 KREN is a selection-first language workbench for VS Code. It operates only on text you explicitly select, copy, or submit to a confirmed VS Code language-model tool. Passive hovering, ordinary typing, and opening a file do not call remote providers.
 
-This guide applies to KREN 1.3.3. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
+This guide applies to KREN 1.3.6. KREN offers Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary through the same reference-parameterized integration.
 
 ## Requirements
 
@@ -75,7 +75,7 @@ For VS Code Chat, Claude Code, Codex, terminals, output panels, and other copyab
 
 1. Copy the exact text you want processed.
 2. Click **KREN** in the status bar.
-3. Verify the visible clipboard preview and choose an operation in the top-center Quick Pick. The same menu can show or hide KREN, even when the clipboard is empty. Hiding KREN removes only KREN; anything else in the Secondary Sidebar stays where it is.
+3. Verify the visible clipboard preview and choose an operation in the top-center Quick Pick. The same menu can show KREN or close its panel, even when the clipboard is empty. **Close KREN Panel** removes only KREN; anything else in the Secondary Sidebar stays where it is. It is deliberately not called Hide, because VS Code's own tab menu has a **Hide 'KREN'** entry that does something different: it unpins the tab. Showing or hiding KREN is remembered across restarts. If KREN's tab leaves the sidebar whenever you select another tab there, right-click the KREN tab and choose **Keep 'KREN'**: VS Code drops an unkept tab from the strip as soon as another becomes active, and that setting belongs to VS Code rather than to KREN.
 4. Review the rich result in KREN.
 
 KREN reads the clipboard once after you click the status item. It does not monitor clipboard changes or inspect another extension's private webview.
@@ -156,7 +156,7 @@ Grammar Check uses bundled Harper in a warmed background worker. It requires no 
 
 A correction validates the result generation, document version, complete checked range, and original text before editing. After one correction, KREN rechecks the same passage and refreshes the remaining findings.
 
-The detailed panel starts every issue at **Keep original**. You may select several alternatives and then apply them together. Clipboard checks cannot replace an editor range, so they offer **Copy selected corrections** instead.
+The detailed panel preselects the first suggestion when a finding has one. A finding whose correction would collide with another stays on **Keep original**. KREN changes nothing until you press **Apply selected corrections** or **Copy selected corrections**. Clipboard checks cannot replace an editor range, so they offer copying instead of replacement.
 
 ### Local vocabulary and ignored findings
 
@@ -169,6 +169,10 @@ The detailed panel starts every issue at **Keep original**. You may select sever
 Automatic checking is off by default. When enabled, KREN waits for the configured delay after an edit and checks only the current paragraph. If the paragraph exceeds the configured input limit, KREN checks only the current line. It remains entirely local and does not populate the result panel automatically.
 
 Harper is rule-based. A clean result is not a guarantee that every spelling, grammar, style, or factual problem was detected; review every suggested edit.
+
+### Smart Grammar Check
+
+Smart Grammar Check is on by default. It adds a language-model pass only when you explicitly run Grammar Check, never during automatic paragraph checking. It uses the provider, model, and thinking or effort configured under User Dictionary. Turning it off keeps Grammar Check entirely local. Local Harper findings still appear if the language-model pass fails or returns a correction that changes too much.
 
 ## Translation
 
@@ -184,15 +188,14 @@ KREN never silently falls back across companies. Model discovery and connection 
 
 ## Rewrite Text
 
-Rewrite Text detects the dominant source language and rewrites in that same language. It does not translate. For short or mixed-language text, select the source language manually in Settings. Choose all three variants or request one directly:
+Rewrite Text detects the dominant source language and rewrites in that same language. It does not translate. For short or mixed-language text, select the source language manually in Settings. Choose both variants or request one directly:
 
-- **Natural** for fluent native-level phrasing in the source language.
-- **Concise** for shorter wording that preserves the message.
-- **Jargon-Free** for direct, human wording with necessary domain terminology retained.
+- **Minimal Rewrite** changes as little as possible. It keeps the writer's wording, sentence order, paragraph structure, and voice, corrects grammar and word choice, and changes wording only where the original would not read naturally. It ignores every style setting.
+- **Full Rewrite** applies all ten style axes and may restructure the text.
 
-Configure the source language, a domain (General, Academic, Technical, Business, or Email), a tone, and a rhetorical mode. When English is detected or selected, English variety offers American, British, Australian, Canadian, Indian, and International English. The default, **Follow Grammar Check**, uses the dialect currently selected for Grammar Check. English variety is ignored for non-English text. **Preserve My Voice** and **Preserve Original** are the safest defaults. Formatting protection asks the selected provider to retain Markdown, LaTeX, citations, links, placeholders, filenames, and code. Optional change notes summarize important edits.
+Configure modality, function, domain, English variety, formality, voice, stance, length, perspective, and rhetorical mode for Full Rewrite. When English is detected or selected, English variety offers American, British, Australian, Canadian, Indian, and International English. The default, **Follow Grammar Check**, uses the dialect currently selected for Grammar Check. English variety is ignored for non-English text. **Preserve My Voice** and **Preserve Original** are the safest defaults. Formatting protection asks the selected provider to retain Markdown, LaTeX, citations, links, placeholders, filenames, and code. Optional change notes summarize important edits.
 
-KREN instructs providers not to invent facts, evidence, promises, certainty, examples, greetings, or document context. AI output can still be wrong; verify claims, numbers, citations, terminology, and intended tone before replacement. Editor results provide Copy and guarded Replace controls for each variant. Clipboard results provide Copy only.
+For both variants, KREN instructs providers not to invent facts, evidence, promises, certainty, examples, greetings, document context, buzzwords, cliches, corporate jargon, decorative metaphors, em dashes, or en dashes. Necessary domain terms remain. AI output can still be wrong; verify claims, numbers, citations, terminology, and intended tone before replacement. Editor results provide Copy and guarded Replace controls for each variant. Clipboard results provide Copy only.
 
 Rewrite and Explain depend on the selected provider's model and network availability. A valid request can occasionally fail during a temporary demand spike or connection interruption; repeating it often succeeds. The Alternate Gemini profile defaults to the stable `gemini-3.5-flash` fallback, with its own thinking-level control. High thinking or effort settings can add substantial latency, so Auto or Low is usually the better choice for routine editing.
 

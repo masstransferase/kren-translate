@@ -1,55 +1,40 @@
+import {
+  REWRITE_OUTPUT_RULES,
+  REWRITE_VARIANT_IDS,
+  REWRITE_VARIANTS,
+  rewriteVariantLabel
+} from '@kren/core/rewrite-variants';
 import type { RewriteOperation, RewriteVariantId } from './types.js';
 
-// Rewrite variants used to be repeated as type unions, validators, dropdown options,
-// provider arrays, and a JSON schema enum. A variant added to only the rendering side
-// could produce a normal-looking button whose message was rejected at runtime.
-//
-// One array is now the single source. The shared core type checks every identifier at
-// compile time, while the guard, labels, operations, settings options, and schemas are
-// derived from the array and cannot drift from it.
-//
-// This module deliberately imports nothing from vscode, so it can be unit tested.
+export {
+  REWRITE_OUTPUT_RULES,
+  REWRITE_PRIORITY_RULE,
+  REWRITE_VARIANT_IDS,
+  REWRITE_VARIANTS,
+  REWRITE_WORKED_EXAMPLE,
+  rewriteVariantLabel
+} from '@kren/core/rewrite-variants';
 
-export const REWRITE_VARIANT_LIST = [
-  {
-    id: 'natural',
-    label: 'Natural',
-    englishResultLabel: 'Natural English',
-    operation: 'rewriteNatural',
+const VS_CODE_VARIANT_FIELDS = {
+  minimal: {
+    operation: 'rewriteMinimal',
+    quickPickIcon: '$(edit)'
+  },
+  full: {
+    operation: 'rewriteFull',
     quickPickIcon: '$(sparkle)'
-  },
-  {
-    id: 'concise',
-    label: 'Concise',
-    englishResultLabel: 'Concise',
-    operation: 'rewriteConcise',
-    quickPickIcon: '$(symbol-ruler)'
-  },
-  {
-    id: 'jargonFree',
-    label: 'Jargon-Free',
-    englishResultLabel: 'Jargon-Free',
-    operation: 'rewriteJargonFree',
-    quickPickIcon: '$(clear-all)'
   }
-] as const satisfies readonly {
-  id: RewriteVariantId;
-  label: string;
-  englishResultLabel: string;
+} as const satisfies Record<RewriteVariantId, {
   operation: Exclude<RewriteOperation, 'rewrite'>;
   quickPickIcon: string;
-}[];
+}>;
 
-export type RewriteVariantListId = typeof REWRITE_VARIANT_LIST[number]['id'];
+export const REWRITE_VARIANT_LIST = REWRITE_VARIANTS.map((variant) => ({
+  ...variant,
+  ...VS_CODE_VARIANT_FIELDS[variant.id]
+}));
 
-type AssertNoMissingVariant<T extends never> = T;
-export type RewriteVariantListCoverage = AssertNoMissingVariant<
-  Exclude<RewriteVariantId, RewriteVariantListId>
->;
-
-export const REWRITE_VARIANT_IDS: readonly RewriteVariantListId[] = REWRITE_VARIANT_LIST.map(
-  ({ id }) => id
-);
+export type RewriteVariantListId = typeof REWRITE_VARIANT_IDS[number];
 
 export const REWRITE_VARIANT_ID_SET: ReadonlySet<RewriteVariantListId> = new Set(
   REWRITE_VARIANT_IDS
@@ -63,4 +48,43 @@ export type QuickMenuRewriteVariantId =
 
 export function isRewriteVariantId(value: unknown): value is RewriteVariantListId {
   return typeof value === 'string' && REWRITE_VARIANT_ID_SET.has(value as RewriteVariantListId);
+}
+
+const RETIRED_REWRITE_VARIANT_IDS = ['natural', 'concise', 'jargonFree'] as const;
+
+type RewriteVariantConfigurationTarget = 'global' | 'workspace' | 'workspaceFolder';
+
+interface RewriteVariantConfiguration {
+  inspect<T>(key: string): {
+    globalValue?: T;
+    workspaceValue?: T;
+    workspaceFolderValue?: T;
+  } | undefined;
+  update(
+    key: string,
+    value: RewriteVariantId,
+    target: RewriteVariantConfigurationTarget
+  ): PromiseLike<void>;
+}
+
+export async function migrateRetiredRewriteVariantSettings(
+  configuration: RewriteVariantConfiguration
+): Promise<void> {
+  const settings = ['rewrite.preferredVariant', 'rewrite.quickMenuVariant'] as const;
+  const targets = [
+    ['globalValue', 'global'],
+    ['workspaceValue', 'workspace'],
+    ['workspaceFolderValue', 'workspaceFolder']
+  ] as const;
+
+  for (const setting of settings) {
+    const inspected = configuration.inspect<string>(setting);
+    if (!inspected) continue;
+    for (const [valueKey, target] of targets) {
+      const value = inspected[valueKey];
+      if (RETIRED_REWRITE_VARIANT_IDS.some((retired) => retired === value)) {
+        await configuration.update(setting, 'full', target);
+      }
+    }
+  }
 }

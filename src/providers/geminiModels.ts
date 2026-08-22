@@ -11,6 +11,16 @@ export interface GeminiModelOption {
   displayName: string;
 }
 
+/**
+ * The one place the default Gemini model is written. It used to be a literal repeated in
+ * eight source sites and two package.json settings, so a model upgrade meant ten edits and
+ * any one of them could be missed.
+ *
+ * This is a default, never a constraint: every caller reads a user setting and falls back to
+ * this only when the user has not chosen. The model field stays editable everywhere.
+ */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+
 export const DEFAULT_PRO_MODELS: GeminiModelOption[] = [
   { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro Preview' },
   { id: 'gemini-3.6-flash', displayName: 'Gemini 3.6 Flash' },

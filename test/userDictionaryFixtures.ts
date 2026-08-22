@@ -1,8 +1,8 @@
 import type {
   UserDictionaryEntryV1,
   UserDictionaryStoreV1
-} from '../src/userDictionary/contract.js';
-import { normalizeUserDictionaryTerm } from '../src/userDictionary/normalization.js';
+} from '@kren/core/user-dictionary';
+import { normalizeUserDictionaryTerm } from '@kren/core/user-dictionary';
 
 export function userDictionaryEntry(
   overrides: Partial<UserDictionaryEntryV1> = {}
@@ -94,4 +94,3 @@ export function representativeUserDictionaryStore(): UserDictionaryStoreV1 {
     ]
   };
 }
-

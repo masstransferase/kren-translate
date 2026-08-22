@@ -136,7 +136,7 @@ describe('KREN User Guide', () => {
     for (const file of filesWithExtension('.', '.md')) {
       const content = readFileSync(file, 'utf8');
       expect(content, file).not.toMatch(/\bKren\b/u);
-      expect(content, file).not.toMatch(/[—–]/u);
+      expect(content, file).not.toMatch(/[\u2014\u2013]/u);
     }
   });
 

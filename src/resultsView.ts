@@ -10,12 +10,12 @@ import {
   type RewriteSettingsGroup
 } from './resultViewHtml.js';
 import type { GrammarChoice, KrenResult, RewriteVariantId } from './types.js';
-import { REWRITE_MODALITIES, type RewriteModality } from './rewriteAxes.js';
+import { REWRITE_MODALITIES, type RewriteModality } from '@kren/core/rewrite-axes';
 import {
   isRewriteModeId,
   rewriteModeSettingEntries,
   type RewriteModeId
-} from './rewriteModes.js';
+} from '@kren/core/rewrite-modes';
 import {
   DEFAULT_PRO_MODELS,
   type GeminiModelOption
@@ -333,6 +333,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       KrenResultsViewProvider.enabledContext,
       false
     );
+    await this.rememberSidebarShown(false);
   }
 
   public async reveal(): Promise<void> {
@@ -342,6 +343,23 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       true
     );
     await vscode.commands.executeCommand(`${KrenResultsViewProvider.viewId}.focus`);
+    await this.rememberSidebarShown(true);
+  }
+
+  /**
+   * Writes the shown state to kren.results.openAtStartup, the one place it is recorded.
+   *
+   * The setting and the context are the same fact, so hiding KREN and restarting must not
+   * bring it back and showing it must not be forgotten. A second remembered flag alongside
+   * the setting would be a second copy of one rule, and the two would drift the first time
+   * one path was changed without the other.
+   *
+   * Written only when the value actually differs, because every write lands in the user's
+   * settings.json and hiding a sidebar should not churn a file the owner reads.
+   */
+  private async rememberSidebarShown(shown: boolean): Promise<void> {
+    if (this.actions.settings().openResultsAtStartup === shown) return;
+    await this.actions.updateSetting('results.openAtStartup', shown);
   }
 
   public edgeAudioPlayback(): EdgeAudioPlayback | undefined {

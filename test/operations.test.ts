@@ -250,9 +250,8 @@ describe('English dictionary query validation', () => {
       candidates: [{ content: { parts: [{ text: JSON.stringify({
         detectedLanguage: 'en',
         variants: [
-          { id: 'natural', text: 'Use our combined strengths.' },
-          { id: 'concise', text: 'Combine our strengths.' },
-          { id: 'jargonFree', text: 'Work together effectively.' }
+          { id: 'minimal', text: 'Use our combined strengths.' },
+          { id: 'full', text: 'Work together effectively.' }
         ]
       }) }] } }]
     }), { status: 200 }));
@@ -301,9 +300,17 @@ describe('English dictionary query validation', () => {
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('qualified stance');
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('Rhetorical mode: explain');
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('Write for spoken delivery');
-    expect(requestBody.systemInstruction.parts[0]?.text).not.toContain(
-      'Preserve Markdown, LaTeX commands'
-    );
+    const systemInstruction = requestBody.systemInstruction.parts[0]?.text ?? '';
+    const fullStart = systemInstruction.indexOf('2. Full Rewrite:');
+    expect({
+      minimalProtectsFormatting: systemInstruction.slice(0, fullStart)
+        .includes('Preserve Markdown, LaTeX commands'),
+      spokenFullProtectsFormatting: systemInstruction.slice(fullStart)
+        .includes('Preserve Markdown, LaTeX commands')
+    }).toEqual({
+      minimalProtectsFormatting: true,
+      spokenFullProtectsFormatting: false
+    });
     expect(consentProfile).toBe('pro');
     expect(result.kind).toBe('rewrite');
     expect(result).toMatchObject({
@@ -327,9 +334,8 @@ describe('English dictionary query validation', () => {
       .mockResolvedValueOnce(overloaded())
       .mockResolvedValueOnce(new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: JSON.stringify({ detectedLanguage: 'en', variants: [
-          { id: 'natural', text: 'Data packages prepared for partners.' },
-          { id: 'concise', text: 'Partner-ready data packages.' },
-          { id: 'jargonFree', text: 'Data packages that partners can use.' }
+          { id: 'minimal', text: 'Data packages prepared for partners.' },
+          { id: 'full', text: 'Data packages that partners can use.' }
         ] }) }] } }]
       }), { status: 200 }));
     const runtime: KrenRuntime = {
@@ -378,9 +384,8 @@ describe('English dictionary query validation', () => {
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: JSON.stringify({ detectedLanguage: 'en', variants: [
-          { id: 'natural', text: 'Data packages prepared for partners.' },
-          { id: 'concise', text: 'Partner-ready data packages.' },
-          { id: 'jargonFree', text: 'Data packages that partners can use.' }
+          { id: 'minimal', text: 'Data packages prepared for partners.' },
+          { id: 'full', text: 'Data packages that partners can use.' }
         ] }) }] } }]
       }), { status: 200 }));
     const runtime: KrenRuntime = {
@@ -594,7 +599,7 @@ describe('English dictionary query validation', () => {
 
     await expect(runKrenOperation(
       runtime,
-      'rewriteJargonFree',
+      'rewriteFull',
       { text: 'Leverage synergies.' },
       new AbortController().signal
     )).rejects.toMatchObject({ status: 503 });

@@ -6,20 +6,42 @@ import {
   waitForRetry
 } from '@kren/core/retry';
 import { ProviderError } from '../errors.js';
+import {
+  structuredJsonConfigureAction,
+  structuredJsonOutputText,
+  structuredJsonProviderName,
+  structuredJsonRequestInit,
+  structuredJsonUrl
+} from '../providers/structuredJsonTransport.js';
 import { isPlausibleLanguageCode } from '../languages.js';
 import type { DictionaryResult } from '../types.js';
 import type {
   MerriamWebsterReferenceWork,
   UserDictionaryCaptureMode,
   UserDictionaryEntryV1,
+  UserDictionaryGenerationOptions,
   UserDictionaryProvider
-} from './contract.js';
-import { normalizeUserDictionaryTerm } from './normalization.js';
+} from '@kren/core/user-dictionary';
+import {
+  USER_DICTIONARY_GENERATION_SCHEMA,
+  UserDictionaryMalformedOutputError,
+  assembleUserDictionaryDraft,
+  normalizeUserDictionaryTerm,
+  userDictionaryGenerationInstruction
+} from '@kren/core/user-dictionary';
 import type {
   UserDictionaryCaptureSettings,
   UserDictionaryThinkingOrEffort
 } from './settings.js';
-import { validateUserDictionaryEntry } from './validation.js';
+import { validateUserDictionaryEntry } from '@kren/core/user-dictionary';
+
+export {
+  USER_DICTIONARY_GENERATION_SCHEMA,
+  UserDictionaryMalformedOutputError,
+  assembleUserDictionaryDraft,
+  userDictionaryGenerationInstruction
+};
+export type { UserDictionaryGenerationOptions };
 
 export interface UserDictionaryGenerationRequest {
   instruction: string;
@@ -58,13 +80,6 @@ export interface UserDictionaryCaptureResult {
   fallbackUsed: boolean;
 }
 
-export class UserDictionaryMalformedOutputError extends Error {
-  public constructor() {
-    super('The selected language-model provider returned malformed User Dictionary output. No entry was saved.');
-    this.name = 'UserDictionaryMalformedOutputError';
-  }
-}
-
 interface GeneratedSense {
   partOfSpeech: string;
   definition: string;
@@ -73,16 +88,6 @@ interface GeneratedSense {
   antonyms: string[];
   relatedTerms: string[];
   examples: string[];
-}
-
-interface GeneratedDictionaryContent {
-  language: string;
-  entryType: string;
-  domains: string[];
-  tags: string[];
-  pronunciation: string;
-  senses: GeneratedSense[];
-  aliases: string[];
 }
 
 export interface UserDictionaryEditableFields {
@@ -97,93 +102,22 @@ export interface UserDictionaryEditableFields {
   aliases: string[];
 }
 
-export const USER_DICTIONARY_GENERATION_SCHEMA: Record<string, unknown> = {
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'language', 'entryType', 'domains', 'tags', 'pronunciation', 'senses', 'aliases'
-  ],
-  properties: {
-    language: { type: 'string' },
-    entryType: { type: 'string' },
-    domains: { type: 'array', items: { type: 'string' }, maxItems: 12 },
-    tags: { type: 'array', items: { type: 'string' }, maxItems: 20 },
-    pronunciation: { type: 'string' },
-    senses: {
-      type: 'array',
-      minItems: 1,
-      maxItems: 12,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'partOfSpeech', 'definition', 'usageNote', 'synonyms', 'antonyms',
-          'relatedTerms', 'examples'
-        ],
-        properties: {
-          partOfSpeech: { type: 'string' },
-          definition: { type: 'string' },
-          usageNote: { type: 'string' },
-          synonyms: { type: 'array', items: { type: 'string' }, maxItems: 20 },
-          antonyms: { type: 'array', items: { type: 'string' }, maxItems: 20 },
-          relatedTerms: { type: 'array', items: { type: 'string' }, maxItems: 20 },
-          examples: { type: 'array', items: { type: 'string' }, maxItems: 3 }
-        }
-      }
-    },
-    aliases: { type: 'array', items: { type: 'string' }, maxItems: 20 }
-  }
-};
-
-export function userDictionaryGenerationInstruction(
-  settings: UserDictionaryCaptureSettings
-): string {
-  const language = settings.entryLanguage === 'auto'
-    ? 'Detect the expression language and return its BCP-47 language tag.'
-    : `Use the BCP-47 entry language ${settings.entryLanguage}.`;
-  return [
-    'Create a concise personal dictionary draft for exactly the expression supplied by the user.',
-    'No surrounding document context exists. Do not infer a file, workspace, author, audience, or unstated context.',
-    language,
-    // Stated literally rather than by reference. OpenAI and Anthropic receive
-    // USER_DICTIONARY_GENERATION_SCHEMA, but Gemini cannot, so an instruction that says
-    // "follow the supplied schema" is simply false on that path. The shape is repeated
-    // here because a prompt that describes a schema nobody sent produces malformed output
-    // and a bounded retry loop that never converges.
-    'Return JSON only, with exactly this shape and no other keys:',
-    '{"language":"BCP-47 tag","entryType":"short label","domains":[],"tags":[],' +
-      '"pronunciation":"","senses":[{"partOfSpeech":"","definition":"","usageNote":"",' +
-      '"synonyms":[],"antonyms":[],"relatedTerms":[],"examples":[]}],"aliases":[]}',
-    'Use at least one sense with a non-empty definition. Keep every claim within ordinary lexical knowledge.',
-    settings.includePronunciation
-      ? 'Include a readable pronunciation when appropriate; otherwise return an empty pronunciation string.'
-      : 'Return an empty pronunciation string.',
-    settings.includeSynonyms
-      ? 'Include relevant synonyms, antonyms, and related expressions.'
-      : 'Return empty synonyms, antonyms, and relatedTerms arrays.',
-    settings.includeUsageNotes
-      ? 'Include a short usage note only when it prevents misunderstanding.'
-      : 'Return an empty usageNote string for every sense.',
-    `Return no more than ${settings.numberOfExamples} example${settings.numberOfExamples === 1 ? '' : 's'} per sense.`,
-    settings.includeTechnicalMeanings
-      ? 'Include established technical meanings when they are genuinely applicable.'
-      : 'Do not add a technical sense solely because one might exist.'
-  ].join('\n');
-}
-
 export async function captureUserDictionaryDraft(
   expression: string,
   settings: UserDictionaryCaptureSettings,
   transport: UserDictionaryProviderTransport,
   signal: AbortSignal,
-  options: {
+  options: UserDictionaryGenerationOptions & {
     maxMalformedAttempts?: number;
     now?: () => string;
     uuid?: () => string;
   } = {}
 ): Promise<UserDictionaryEntryV1> {
+  const generation: UserDictionaryGenerationOptions = {
+    termSuppliedByUser: options.termSuppliedByUser === true
+  };
   const request: UserDictionaryGenerationRequest = {
-    instruction: userDictionaryGenerationInstruction(settings),
+    instruction: userDictionaryGenerationInstruction(settings, generation),
     expression
   };
   const attempts = boundedAttempts(options.maxMalformedAttempts ?? 3, 3);
@@ -197,7 +131,8 @@ export async function captureUserDictionaryDraft(
         transport.model,
         value,
         options.now,
-        options.uuid
+        options.uuid,
+        generation
       );
     } catch (error) {
       if (!(error instanceof UserDictionaryMalformedOutputError) || attempt >= attempts - 1) {
@@ -206,60 +141,6 @@ export async function captureUserDictionaryDraft(
     }
   }
   throw new UserDictionaryMalformedOutputError();
-}
-
-export function assembleUserDictionaryDraft(
-  expression: string,
-  settings: UserDictionaryCaptureSettings,
-  provider: UserDictionaryProvider,
-  model: string,
-  value: unknown,
-  now: () => string = () => new Date().toISOString(),
-  uuid: () => string = randomUUID
-): UserDictionaryEntryV1 {
-  const content = validateGeneratedContent(value);
-  const timestamp = now();
-  const entry: UserDictionaryEntryV1 = {
-    schemaVersion: 1,
-    id: uuid(),
-    term: expression,
-    normalizedTerm: normalizeUserDictionaryTerm(expression),
-    language: settings.entryLanguage === 'auto' ? content.language : settings.entryLanguage,
-    entryType: content.entryType,
-    collection: 'Other',
-    domains: content.domains,
-    tags: content.tags,
-    ...(settings.includePronunciation && content.pronunciation
-      ? { pronunciation: { display: content.pronunciation, audioAvailable: false } }
-      : {}),
-    senses: content.senses.map((sense) => ({
-      id: uuid(),
-      ...(sense.partOfSpeech ? { partOfSpeech: sense.partOfSpeech } : {}),
-      definition: sense.definition,
-      ...(settings.includeUsageNotes && sense.usageNote
-        ? { usageNote: sense.usageNote }
-        : {}),
-      synonyms: settings.includeSynonyms ? sense.synonyms : [],
-      antonyms: settings.includeSynonyms ? sense.antonyms : [],
-      relatedTerms: settings.includeSynonyms ? sense.relatedTerms : [],
-      examples: sense.examples.slice(0, settings.numberOfExamples)
-    })),
-    aliases: content.aliases,
-    capture: {
-      mode: settings.captureMode,
-      provider,
-      model,
-      generatedAt: timestamp,
-      userEdited: false
-    },
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-  try {
-    return validateUserDictionaryEntry(entry);
-  } catch {
-    throw new UserDictionaryMalformedOutputError();
-  }
 }
 
 export function attachUserDictionaryMerriamWebsterReference(
@@ -403,30 +284,6 @@ export class HttpUserDictionaryProviderTransport implements UserDictionaryProvid
   }
 }
 
-function validateGeneratedContent(value: unknown): GeneratedDictionaryContent {
-  if (!isRecord(value) || !hasExactFields(value, [
-    'language', 'entryType', 'domains', 'tags', 'pronunciation', 'senses', 'aliases'
-  ])) throw new UserDictionaryMalformedOutputError();
-  if (typeof value.language !== 'string' || !isPlausibleLanguageCode(value.language) ||
-      typeof value.entryType !== 'string' || !value.entryType.trim() ||
-      typeof value.pronunciation !== 'string' ||
-      !isStringArray(value.domains, 12) || !isStringArray(value.tags, 20) ||
-      !isStringArray(value.aliases, 20) || !Array.isArray(value.senses) ||
-      value.senses.length < 1 || value.senses.length > 12) {
-    throw new UserDictionaryMalformedOutputError();
-  }
-  const senses = value.senses.map((sense) => validateGeneratedSense(sense));
-  return {
-    language: value.language,
-    entryType: value.entryType.trim(),
-    domains: cleanStrings(value.domains),
-    tags: cleanStrings(value.tags),
-    pronunciation: value.pronunciation.trim(),
-    senses,
-    aliases: cleanStrings(value.aliases)
-  };
-}
-
 function validateGeneratedSense(value: unknown): GeneratedSense {
   if (!isRecord(value) || !hasExactFields(value, [
     'partOfSpeech', 'definition', 'usageNote', 'synonyms', 'antonyms',
@@ -446,155 +303,6 @@ function validateGeneratedSense(value: unknown): GeneratedSense {
     relatedTerms: cleanStrings(value.relatedTerms),
     examples: cleanStrings(value.examples)
   };
-}
-
-function providerUrl(provider: UserDictionaryProvider, model: string): string {
-  if (provider === 'gemini') {
-    const modelId = model.replace(/^models\//u, '');
-    return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent`;
-  }
-  return provider === 'openai'
-    ? 'https://api.openai.com/v1/responses'
-    : 'https://api.anthropic.com/v1/messages';
-}
-
-function providerRequestInit(
-  provider: UserDictionaryProvider,
-  apiKey: string,
-  model: string,
-  thinkingOrEffort: UserDictionaryThinkingOrEffort,
-  request: UserDictionaryGenerationRequest,
-  signal: AbortSignal
-): RequestInit {
-  if (provider === 'gemini') {
-    const thinking = thinkingOrEffort === 'auto' || thinkingOrEffort === 'none'
-      ? {}
-      : { thinkingConfig: { thinkingLevel: thinkingOrEffort } };
-    return {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: request.instruction }] },
-        contents: [{ role: 'user', parts: [{ text: request.expression }] }],
-        // No schema field. Gemini's structured-output schema is an OpenAPI subset and
-        // rejects `additionalProperties`, which USER_DICTIONARY_GENERATION_SCHEMA sets to
-        // false because OpenAI's strict mode requires it. Sending the schema to Gemini
-        // returns 400 on every model, which is what "failed (400)" meant in testing.
-        //
-        // The instruction states the required shape, exactly as the rewrite provider in
-        // src/providers/gemini.ts does, and KREN validates the parsed result afterwards.
-        // Validation is the real gate in either case: a provider-declared schema is a
-        // hint, and a malformed response still has to be caught locally.
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-          ...thinking
-        }
-      }),
-      signal
-    };
-  }
-  if (provider === 'openai') {
-    const effort = thinkingOrEffort === 'minimal' ? 'low' : thinkingOrEffort;
-    return {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        instructions: request.instruction,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: request.expression }] }],
-        store: false,
-        max_output_tokens: 4096,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'kren_user_dictionary_entry',
-            strict: true,
-            schema: USER_DICTIONARY_GENERATION_SCHEMA
-          }
-        },
-        ...(effort === 'auto' ? {} : { reasoning: { effort } })
-      }),
-      signal
-    };
-  }
-  const effort = thinkingOrEffort === 'auto'
-    ? {}
-    : { effort: thinkingOrEffort === 'none' || thinkingOrEffort === 'minimal'
-      ? 'low'
-      : thinkingOrEffort };
-  return {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      system: request.instruction,
-      messages: [{ role: 'user', content: [{ type: 'text', text: request.expression }] }],
-      output_config: {
-        format: { type: 'json_schema', schema: USER_DICTIONARY_GENERATION_SCHEMA },
-        ...effort
-      }
-    }),
-    signal
-  };
-}
-
-function providerOutputText(provider: UserDictionaryProvider, value: unknown): string | undefined {
-  if (!isRecord(value)) return undefined;
-  if (provider === 'gemini') {
-    const candidates = value.candidates;
-    if (!Array.isArray(candidates)) return undefined;
-    const candidate = candidates[0];
-    if (!isRecord(candidate) || !isRecord(candidate.content) ||
-        !Array.isArray(candidate.content.parts)) return undefined;
-    const text = candidate.content.parts
-      .flatMap((part) => isRecord(part) && typeof part.text === 'string' ? [part.text] : [])
-      .join('')
-      .trim();
-    return text || undefined;
-  }
-  if (provider === 'openai') {
-    if (!Array.isArray(value.output)) return undefined;
-    for (const output of value.output) {
-      if (!isRecord(output) || !Array.isArray(output.content)) continue;
-      for (const content of output.content) {
-        if (isRecord(content) && content.type === 'output_text' &&
-            typeof content.text === 'string' && content.text.trim()) return content.text.trim();
-      }
-    }
-    return undefined;
-  }
-  if (!Array.isArray(value.content)) return undefined;
-  const block = value.content.find((item) =>
-    isRecord(item) && item.type === 'text' && typeof item.text === 'string'
-  );
-  return isRecord(block) && typeof block.text === 'string' && block.text.trim()
-    ? block.text.trim()
-    : undefined;
-}
-
-function providerFailure(
-  provider: UserDictionaryProvider,
-  status: number | undefined,
-  retryable: boolean
-): ProviderError {
-  const label = provider === 'gemini' ? 'Gemini' : provider === 'openai' ? 'OpenAI' : 'Anthropic';
-  const action = provider === 'gemini'
-    ? 'configureGeminiModel' as const
-    : provider === 'openai'
-      ? 'configureOpenAIModel' as const
-      : 'configureAnthropicModel' as const;
-  return new ProviderError(
-    `${label} User Dictionary request failed${status === undefined ? '' : ` (${status})`}. No entry was saved.`,
-    action,
-    retryable,
-    status
-  );
 }
 
 function boundedAttempts(value: number, fallback: number): number {
@@ -618,4 +326,50 @@ function isStringArray(value: unknown, maximum: number): value is string[] {
 
 function cleanStrings(values: string[]): string[] {
   return values.map((value) => value.trim()).filter(Boolean);
+}
+
+function providerUrl(provider: UserDictionaryProvider, model: string): string {
+  return structuredJsonUrl(provider, model);
+}
+
+function providerRequestInit(
+  provider: UserDictionaryProvider,
+  apiKey: string,
+  model: string,
+  thinkingOrEffort: UserDictionaryThinkingOrEffort,
+  request: UserDictionaryGenerationRequest,
+  signal: AbortSignal
+): RequestInit {
+  return structuredJsonRequestInit(
+    {
+      provider,
+      model,
+      thinkingOrEffort,
+      apiKey,
+      schema: USER_DICTIONARY_GENERATION_SCHEMA,
+      schemaName: 'kren_user_dictionary_entry'
+    },
+    { instruction: request.instruction, input: request.expression },
+    signal
+  );
+}
+
+function providerOutputText(provider: UserDictionaryProvider, value: unknown): string | undefined {
+  return structuredJsonOutputText(provider, value);
+}
+
+// The wording stays here rather than in the shared transport, because it names the User
+// Dictionary and promises that no entry was saved. Smart Grammar Check has to say
+// something different, and one message covering both would be true of neither.
+function providerFailure(
+  provider: UserDictionaryProvider,
+  status: number | undefined,
+  retryable: boolean
+): ProviderError {
+  return new ProviderError(
+    `${structuredJsonProviderName(provider)} User Dictionary request failed${status === undefined ? '' : ` (${status})`}. No entry was saved.`,
+    structuredJsonConfigureAction(provider),
+    retryable,
+    status
+  );
 }

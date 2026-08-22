@@ -23,7 +23,7 @@ Passive hovering sends nothing. KREN starts a remote request only after you expl
 | **Korean Dictionary** | Korean headwords with English explanations | Korean Basic Dictionary API key |
 | **Translation** | Automatic English-to-Korean and Korean-to-English direction by default, or a fixed multilingual target | Cloud Translation API or Gemini key |
 | **Explain Nuance** | Meaning, connotation, register, ambiguity, and technical usage | Gemini, OpenAI API, or Anthropic API key |
-| **Rewrite Text** | Auto-detects and preserves the source language; Natural, Concise, and Jargon-Free variants use domain, tone, and rhetorical-mode controls. English variety applies only to English. | Gemini, OpenAI API, or Anthropic API key |
+| **Rewrite Text** | Auto-detects and preserves the source language. Minimal Rewrite corrects the writer's text without style settings. Full Rewrite applies the ten style axes. | Gemini, OpenAI API, or Anthropic API key |
 | **Read Aloud** | Offline Windows voices or optional Edge Online natural voices | Local Windows; Edge mode also needs Python and `edge-tts` |
 
 You need keys only for the online features you choose. This private local build includes no shared credentials and accepts separately issued Merriam-Webster Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary keys. Use only keys issued to you and follow the provider's current reference-access, account, query, and usage terms. KREN does not bypass provider limits. Consumer AI subscriptions do not automatically include developer API access.

@@ -1,5 +1,7 @@
 import { languageName } from './languages.js';
 import { isEnglishLanguageCode } from '@kren/core/languages';
+import { iconSvgMarkup, type IconName } from '@kren/core/icons';
+import { preselectedGrammarChoices as corePreselectedGrammarChoices } from '@kren/core/grammar';
 import { isAllowedPronunciationUrl } from './pronunciation.js';
 import { MERRIAM_WEBSTER_KEY_LIMIT, MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE } from './operations.js';
 import {
@@ -12,6 +14,7 @@ import type { GeminiModelOption } from './providers/geminiModels.js';
 import type {
   DictionaryResult,
   DictionarySection,
+  GrammarIssue,
   GrammarResult,
   KrenResult,
   RewriteResult,
@@ -41,19 +44,20 @@ import {
   type RewriteRhetoricalMode,
   type RewriteStance,
   type RewriteVoice
-} from './rewriteAxes.js';
+} from '@kren/core/rewrite-axes';
 import {
   CUSTOM_REWRITE_MODE_LABEL,
   matchingRewriteMode,
   rewriteModeOptions,
   type RewriteModeAxes,
   type RewriteModeId
-} from './rewriteModes.js';
-import type { UserDictionaryEntryV1 } from './userDictionary/contract.js';
+} from '@kren/core/rewrite-modes';
+import type { UserDictionaryEntryV1 } from '@kren/core/user-dictionary';
 import type { UserDictionaryCaptureResult } from './userDictionary/capture.js';
-import type { UserDictionaryImportPreview } from './userDictionary/importExport.js';
-import type { UserDictionaryPurgePreview } from './userDictionary/purge.js';
+import type { UserDictionaryImportPreview } from '@kren/core/user-dictionary';
+import type { UserDictionaryPurgePreview } from '@kren/core/user-dictionary';
 import {
+  userDictionaryCaptureFilterOptions,
   userDictionaryCaptureModeOptions,
   userDictionaryExampleCountOptions,
   userDictionaryProviderOptions,
@@ -67,8 +71,8 @@ import {
   userDictionarySourceFilterOptions,
   type UserDictionaryListQuery,
   type UserDictionaryViewStatus
-} from './userDictionary/lifecycle.js';
-import { userDictionaryPurgeSelectionOptions } from './userDictionary/purge.js';
+} from '@kren/core/user-dictionary';
+import { userDictionaryPurgeSelectionOptions } from '@kren/core/user-dictionary';
 
 export const REWRITE_SETTINGS_GROUPS = [
   'routing',
@@ -126,6 +130,7 @@ export interface KrenPanelSettings {
   translationProvider: 'googleCloudTranslation' | 'gemini';
   translationTargetLanguage: string;
   grammarDialect: 'american' | 'british' | 'australian' | 'canadian' | 'indian';
+  grammarSmart: boolean;
   grammarAutoCheck: boolean;
   grammarAutoCheckDelayMs: number;
   grammarCustomWordCount: number;
@@ -269,6 +274,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .top-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 1; min-width: 0; }
     .top-actions { display: flex; align-items: center; gap: 5px; }
     .icon-button { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border-color: transparent; color: var(--vscode-foreground); background: transparent; font-size: 1rem; }
+    .icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     .icon-button:hover { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
     .brand { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 1.05rem; font-weight: 800; letter-spacing: .05em; }
     .brand-logo { width: 36px; height: 36px; flex: 0 0 auto; border-radius: 8px; object-fit: cover; }
@@ -337,9 +343,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .empty { padding: 28px 18px; text-align: center; color: var(--vscode-descriptionForeground); }
     .settings-screen h2 { margin: 0 0 4px; font-size: 1.2rem; }
     .settings-intro { margin: 0 0 16px; color: var(--vscode-descriptionForeground); }
-    /* Icon-only controls. A square target so the glyph is not squeezed by the text
-       padding the other buttons need, and a slightly larger glyph so a speaker and a
-       filled square read clearly at this size. */
+    /* Icon-only controls. A square target keeps the drawing from being squeezed by the
+       text padding the other buttons need. */
     .icon-button { min-width: 32px; padding: 4px 8px; font-size: 1rem; line-height: 1.2; }
     .settings-group { margin-bottom: 14px; padding: 13px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); border-radius: 8px; background: var(--vscode-editor-background); }
     .settings-group h3 { margin: 0; font-size: .9rem; }
@@ -854,9 +859,9 @@ function renderHeader(
       ${provider}
     </div>
     <div class="top-actions">
-      ${canClear ? '<button class="icon-button" data-command="clear" title="Clear KREN result" aria-label="Clear KREN result">&#10005;</button>' : ''}
+      ${canClear ? iconButton('clear', '', 'Clear KREN result', 'Clear KREN result', 'clear', false, false, 'icon-button') : ''}
       <div class="menu-wrap">
-        <button class="icon-button menu-button" data-menu-toggle title="KREN menu" aria-label="Open KREN menu" aria-haspopup="true" aria-expanded="false">&#9776;</button>
+        ${iconButton(undefined, 'data-menu-toggle', 'KREN menu', 'Open KREN menu', 'menu', false, false, 'icon-button menu-button', ' aria-haspopup="true" aria-expanded="false"')}
         <div class="menu-popover hidden" data-menu-popover role="menu">
           <button class="menu-item" data-command="showStartPage" role="menuitem">Start Page</button>
           <button class="menu-item" data-command="showUserDictionary" role="menuitem">User Dictionary</button>
@@ -876,7 +881,7 @@ function renderManual(
   return `${renderHeader('', false, brandImageUri)}
     <button class="secondary" data-command="showResult" aria-label="Back to KREN result">&#8592; Back to KREN</button>
     <h2>KREN User Manual</h2>
-    <p class="settings-intro">Version ${escapeHtml(version)} · KREN works only with text you explicitly select, copy, or submit.</p>
+    <p class="settings-intro">Version ${escapeHtml(version)} · KREN sends only text you explicitly select, copy, or submit. Automatic paragraph checking is the one feature that reads text you did not select, and it never leaves your machine.</p>
 
     <p>User Dictionary is ${userDictionaryEnabled ? 'enabled' : 'disabled'}. Generated entries remain editable drafts until you explicitly save them.</p>
 
@@ -909,8 +914,8 @@ function renderManual(
       <li><strong>Korean Dictionary Search:</strong> Basic Korean Dictionary definitions and English explanations, attributed to the National Institute of Korean Language under CC BY-SA.</li>
       <li><strong>Translate:</strong> automatic input detection and your selected output language.</li>
       <li><strong>Explain Meaning or Nuance:</strong> contextual meaning, connotation, register, ambiguity, and technical usage.</li>
-      <li><strong>Grammar Check:</strong> private, offline English spelling and grammar review in a background worker, with user-selected corrections, a local custom dictionary, privacy-preserving ignored findings, and optional current-paragraph auto-check.</li>
-      <li><strong>Rewrite Text:</strong> Detects and preserves the source language. Natural, Concise, and Jargon-Free variants use the selected channel, subject, register, shape, and intent axes; English variety applies only to English.</li>
+      <li><strong>Grammar Check:</strong> English spelling and grammar review in a local background worker, with user-selected corrections, a local custom dictionary, privacy-preserving ignored findings, and optional current-paragraph auto-check. Smart Grammar Check, on by default, adds a language-model pass to the passage you explicitly check.</li>
+      <li><strong>Rewrite Text:</strong> Detects and preserves the source language. Minimal Rewrite corrects the writer's text without applying style settings. Full Rewrite applies the selected channel, subject, register, shape, and intent axes; English variety applies only to English.</li>
       <li><strong>Read Aloud:</strong> speak a cleaned copy of selected text without changing the document.</li>
     </ul>
 
@@ -918,14 +923,15 @@ function renderManual(
     <p>Dictionary Search is ordered English, Synonyms, Medical, then Korean. Enter a separate key for each selected Merriam-Webster reference, up to two at once. Removing one key enables a different reference work immediately. English and Medical Dictionary results preserve provider hierarchy rather than reducing entries to three meanings. For a multi-word English Dictionary expression only, KREN can use Google Cloud Translation after Merriam-Webster returns no entry; Medical Dictionary never uses that fallback. Provider errors never trigger translation fallback. Dictionary results are lookup-only and cannot replace editor text.</p>
 
     <h3>Grammar Check workflow</h3>
-    <p>Select English text and run Grammar Check. KREN underlines findings without forcing this panel open. Right-click an underline and choose <strong>Quick Fix...</strong> for corrections, Add to local dictionary, Ignore this finding, or More details. Every edit revalidates the unchanged checked range and then rechecks it. The panel starts each finding at Keep original; clipboard checks can copy corrections but cannot replace an editor range.</p>
-    <p>Automatic paragraph checking is off by default and remains local. Added words and privacy-preserving ignored hashes are stored in VS Code global storage; checked passages are not stored. Harper is rule-based, so review every suggestion.</p>
+    <p>Select English text and run Grammar Check. KREN underlines findings without forcing this panel open. Right-click an underline and choose <strong>Quick Fix...</strong> for corrections, Add to local dictionary, Ignore this finding, or More details. Every edit revalidates the unchanged checked range and then rechecks it. The panel preselects the first suggestion when a finding has one, but a finding whose correction would collide with another stays on Keep original. KREN changes nothing until you press Apply or Copy. Clipboard checks can copy corrections but cannot replace an editor range.</p>
+    <p>Automatic paragraph checking is off by default and is <strong>always local</strong>. It runs while you type rather than when you ask, so it never sends anything, whatever Smart Grammar Check is set to. Added words and privacy-preserving ignored hashes are stored in VS Code global storage; checked passages are not stored. Harper is rule-based, so review every suggestion.</p>
+    <p>Smart Grammar Check is on by default, and turning it off keeps Grammar Check entirely local. It sends the passage you explicitly check, together with KREN's fixed instruction, using the User Dictionary provider, model, and thinking or effort setting. Nothing else from your document is included, and KREN asks for confirmation before the first request to a provider exactly as every other online action does. A correction that rewrites too much of the passage is discarded rather than shown, and local findings always appear even when the provider fails. It never applies to automatic paragraph checking.</p>
 
     <h3>Translation and explanation</h3>
     <p>Translation detects input automatically. The default Auto English-Korean target sends English to Korean and Korean to English; a fixed output language remains available. Google Translate powers Cloud Translation API results, which display the required linked attribution and an available disclaimer. Explanation can use a selected language or English/Korean bilingual output. Gemini, OpenAI, and Anthropic are selected independently for Explain and Rewrite. Gemini also offers independently selected Default or Alternate profiles for Explain and Rewrite. KREN never silently sends text to a different company, and model discovery or connection tests send no selected document text.</p>
 
     <h3>Rewrite Text</h3>
-    <p>Rewrite Text detects and preserves the source language; it does not translate. For short or mixed-language text, select the source language manually in Settings. Choose Natural, Concise, Jargon-Free, or all three. Modality, function, domain, formality, voice, stance, length, perspective, and rhetorical mode apply across languages. English variety applies only to English. Preserve is the safest default for register, shape, and intent alike. Spoken modality suppresses formatting protection without changing the stored formatting setting. Formatting protection for Written covers Markdown, LaTeX, citations, links, placeholders, filenames, and code. AI output can still be wrong; verify facts, numbers, citations, terminology, language, and intended style before replacement.</p>
+    <p>Rewrite Text detects and preserves the source language; it does not translate. Minimal Rewrite changes as little as possible, keeping the writer's wording, sentence order, paragraph structure, and voice while correcting grammar and unnatural word choice. It ignores all style settings. Full Rewrite applies modality, function, domain, formality, voice, stance, length, perspective, rhetorical mode, and English variety, and restructuring is expected. English variety applies only to English. Preserve is the safest default for register, shape, and intent alike. Spoken modality suppresses Full Rewrite formatting protection without changing the stored formatting setting. Formatting protection covers Markdown, LaTeX, citations, links, placeholders, filenames, and code. AI output can still be wrong; verify facts, numbers, citations, terminology, language, and intended style before replacement.</p>
     <p>Rewrite and Explain depend on remote model availability. Repeating a request often resolves a temporary provider or network failure. High thinking or effort settings can take substantially longer; Auto or Low is usually sufficient for routine editing.</p>
 
     <h3>Copy and replacement safety</h3>
@@ -967,7 +973,7 @@ function renderManual(
 
     <h3>Known limitations</h3>
     <ul>
-      <li>Grammar Check is English-focused and rule-based. Rewrite Text supports multilingual input and does not translate it.</li>
+      <li>Grammar Check is English-focused, and local checking is rule-based. Smart Grammar Check, when on, adds a language-model pass to the passage you explicitly check. Rewrite Text supports multilingual input and does not translate it.</li>
       <li>Korean Dictionary accepts one Korean headword; the other dictionary products are English-specific. Medical Dictionary provides terminology definitions, not clinical guidance.</li>
       <li>Read Aloud is limited to a local Windows extension host, and Edge Online relies on an unofficial service interface.</li>
       <li>Models, access, quotas, pricing, permitted use, and retention can change. AI output is informational, not professional advice.</li>
@@ -989,18 +995,33 @@ function renderTranslation(result: Extract<KrenResult, { kind: 'translation' }>)
     ${fallbackNote}<p class="translation">${escapeHtml(result.translatedText)}</p>${alternatives}${note}`;
 }
 
+/**
+ * Which findings this panel opens on, as a set of issue ids.
+ *
+ * The rule is core's, not this panel's. The Word task pane opens on the same choices, and
+ * the collision rule that keeps the set applicable has to read the same insertion
+ * convention as `applyGrammarChoices`, which is in the same core file. This wrapper exists
+ * only because the markup asks `has(id)` per radio while core answers in the shape its own
+ * apply function takes. It is given the whole result rather than the issues alone because
+ * core checks each finding against the text it was found in.
+ */
+export function preselectedGrammarChoices(result: GrammarResult): Set<string> {
+  return new Set(corePreselectedGrammarChoices(result).map((choice) => choice.issueId));
+}
+
 function renderGrammar(result: GrammarResult): string {
   if (!result.issues.length) {
     return '<p><strong>No spelling or grammar issues found.</strong></p><p class="muted">Harper is a local rule-based checker; a clean result is not a guarantee that every possible issue was detected.</p>';
   }
-  return `<p class="grammar-summary"><strong>${result.issues.length}</strong> possible issue${result.issues.length === 1 ? '' : 's'} found. Keep original is selected by default; KREN changes nothing until you choose corrections below.</p>
+  const preselected = preselectedGrammarChoices(result);
+  return `<p class="grammar-summary"><strong>${result.issues.length}</strong> possible issue${result.issues.length === 1 ? '' : 's'} found. KREN preselects the first suggestion when a finding has one and it does not collide with another selected correction. A colliding finding stays on Keep original. KREN changes nothing until you press Apply or Copy.</p>
     ${result.issues.map((issue, issueIndex) => `<fieldset class="grammar-issue">
       <legend>${issueIndex + 1}. ${escapeHtml(issue.category)}</legend>
       <div>${escapeHtml(issue.message)}</div>
       <div class="grammar-problem">${escapeHtml(issue.original || '(insertion point)')}</div>
       <div class="grammar-options">
-        <label class="grammar-option"><input type="radio" name="grammar-${escapeHtml(issue.id)}" data-grammar-issue="${escapeHtml(issue.id)}" data-grammar-choice="-1" checked> <span>Keep original</span></label>
-        ${issue.suggestions.map((suggestion, suggestionIndex) => `<label class="grammar-option"><input type="radio" name="grammar-${escapeHtml(issue.id)}" data-grammar-issue="${escapeHtml(issue.id)}" data-grammar-choice="${suggestionIndex}"> <span>${escapeHtml(suggestion.label)}</span></label>`).join('')}
+        <label class="grammar-option"><input type="radio" name="grammar-${escapeHtml(issue.id)}" data-grammar-issue="${escapeHtml(issue.id)}" data-grammar-choice="-1"${preselected.has(issue.id) ? '' : ' checked'}> <span>Keep original</span></label>
+        ${issue.suggestions.map((suggestion, suggestionIndex) => `<label class="grammar-option"><input type="radio" name="grammar-${escapeHtml(issue.id)}" data-grammar-issue="${escapeHtml(issue.id)}" data-grammar-choice="${suggestionIndex}"${preselected.has(issue.id) && suggestionIndex === 0 ? ' checked' : ''}> <span>${escapeHtml(suggestion.label)}</span></label>`).join('')}
       </div>
       <div class="settings-buttons">
         ${/spell/iu.test(issue.category) && /^[\p{L}][\p{L}\p{M}'’-]*$/u.test(issue.original.trim()) ? `<button class="secondary" data-command="addGrammarWord" data-grammar-issue="${escapeHtml(issue.id)}">Add to local dictionary</button>` : ''}
@@ -1010,11 +1031,18 @@ function renderGrammar(result: GrammarResult): string {
 }
 
 function grammarActions(result: GrammarResult, allowReplace: boolean): string {
+  // Findings with nothing to apply still get the plain Copy button rather than a pair of
+  // correction buttons that can never be enabled, because every radio in that panel is
+  // Keep original and no click can change that.
   if (!result.issues.some((issue) => issue.suggestions.length > 0)) {
     return '<button data-command="copy" data-copy-confirm>Copy checked text</button><button class="secondary" data-command="details">Open full details</button>';
   }
-  return `${allowReplace ? '<button data-command="applyGrammar" data-grammar-action disabled>Apply selected corrections</button>' : ''}
-    <button class="secondary" data-command="copyGrammar" data-grammar-action data-copy-confirm disabled>Copy selected corrections</button>
+  // Past that guard at least one correction is always preselected, because the first
+  // finding that has a suggestion has nothing earlier to collide with. So these two ship
+  // enabled and the script disables them if the user turns every finding back to Keep
+  // original. They used to ship disabled, which was right when nothing was preselected.
+  return `${allowReplace ? '<button data-command="applyGrammar" data-grammar-action>Apply selected corrections</button>' : ''}
+    <button class="secondary" data-command="copyGrammar" data-grammar-action data-copy-confirm>Copy selected corrections</button>
     <button class="secondary" data-command="details">Open full details</button>`;
 }
 
@@ -1119,10 +1147,12 @@ function renderSettings(
     settings.credentialPresence?.merriamWebsterMedical,
     settings.credentialPresence?.merriamWebsterThesaurus
   ].filter(Boolean).length;
-  // Compared against MERRIAM_WEBSTER_KEY_LIMIT, not a literal. This was `>= 2` while the
-  // limit constant said 3, so the panel printed "KREN stores at most 3" and disabled the
-  // third Set key button in the same row. One rule, two copies, which is the defect this
-  // codebase keeps producing: the visible half and the enforcing half drifted apart.
+  // Compared against MERRIAM_WEBSTER_KEY_LIMIT, not a literal. This once held a literal
+  // of its own, so the sentence the panel printed came from the constant while the
+  // disabled state came from the literal, and the two disagreed in the same row. One
+  // rule, two copies, which is the defect this codebase keeps producing: the visible
+  // half and the enforcing half drifted apart. The number lives in the constant only,
+  // which is also what keeps it out of source that is shared between channels.
   const merriamWebsterLimitReason = merriamWebsterKeyCount >= MERRIAM_WEBSTER_KEY_LIMIT
     ? MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE
     : undefined;
@@ -1148,8 +1178,8 @@ function renderSettings(
     <details class="settings-group" open>
       <summary><h3>Startup and panel</h3></summary>
       ${toggleSetting(
-        'Open KREN Sidebar at startup',
-        'Experimental and off by default. Opens the KREN Secondary Sidebar after VS Code finishes starting.',
+        'Reopen KREN at startup',
+        'On reopens the KREN Secondary Sidebar shortly after VS Code starts. Show KREN turns this on and Close KREN Panel turns it off, so it follows what you last chose. Whether the KREN tab stays put when you select Claude Code or Codex is VS Code’s own per-tab Keep setting, not this one.',
         'results.openAtStartup',
         settings.openResultsAtStartup
       )}
@@ -1169,6 +1199,7 @@ function renderSettings(
         ['australian', 'Australian English'], ['canadian', 'Canadian English'],
         ['indian', 'Indian English']
       ])}
+      ${toggleSetting('Smart Grammar Check', 'Add a language-model pass when you run Grammar Check, catching what rules cannot. On by default; turn it off to keep Grammar Check entirely local. Uses the User Dictionary provider, model, and thinking or effort setting. Never applies to automatic paragraph checking.', 'grammar.smart', settings.grammarSmart)}
       ${toggleSetting('Automatic paragraph checking', 'After typing pauses, check only the current paragraph locally. Off by default.', 'grammar.autoCheck', settings.grammarAutoCheck)}
       ${selectSetting('Automatic-check delay', 'Wait after the last edit before checking the current paragraph.', 'grammar.autoCheckDelayMs', String(settings.grammarAutoCheckDelayMs), [
         ['500', '0.5 seconds'], ['900', '0.9 seconds (recommended)'], ['1500', '1.5 seconds'], ['2500', '2.5 seconds']
@@ -1269,12 +1300,12 @@ function renderSettings(
         'variants',
         'VARIANTS',
         settingsSummary([
-          ['Preferred', rewriteVariantLabel(settings.preferredRewriteVariant), settings.preferredRewriteVariant === REWRITE_VARIANT_LIST[0].id],
-          ['Quick menu', settings.quickMenuRewriteVariant === ALL_REWRITE_VARIANTS_ID ? 'All 3 Variants' : rewriteVariantLabel(settings.quickMenuRewriteVariant), settings.quickMenuRewriteVariant === ALL_REWRITE_VARIANTS_ID]
+          ['Preferred', rewriteVariantLabel(settings.preferredRewriteVariant), settings.preferredRewriteVariant === REWRITE_VARIANT_LIST[0]!.id],
+          ['Quick menu', settings.quickMenuRewriteVariant === ALL_REWRITE_VARIANTS_ID ? 'Both Variants' : rewriteVariantLabel(settings.quickMenuRewriteVariant), settings.quickMenuRewriteVariant === ALL_REWRITE_VARIANTS_ID]
         ]),
         `${selectSetting('Preferred rewrite style', 'The style shown first; switch styles from tabs in each result.', 'rewrite.preferredVariant', settings.preferredRewriteVariant, rewriteVariantOptions())}
-        ${selectSetting('Quick-menu rewrite', 'This choice is listed first; All 3, Natural, Concise, and Jargon-Free remain available.', 'rewrite.quickMenuVariant', settings.quickMenuRewriteVariant, [
-          [ALL_REWRITE_VARIANTS_ID, 'All 3 Variants'], ...rewriteVariantOptions()
+        ${selectSetting('Quick-menu rewrite', 'This choice is listed first; Both Variants, Minimal Rewrite, and Full Rewrite remain available.', 'rewrite.quickMenuVariant', settings.quickMenuRewriteVariant, [
+          [ALL_REWRITE_VARIANTS_ID, 'Both Variants'], ...rewriteVariantOptions()
         ])}`,
         activeRewriteSettingsGroup
       )}
@@ -1315,7 +1346,7 @@ function renderSettings(
       ${selectSetting('Volume', 'Local playback volume or Edge synthesis volume.', 'readAloud.volume', String(settings.readAloudVolume), [
         ['25', '25%'], ['50', '50%'], ['75', '75%'], ['100', '100%']
       ])}
-      <div class="settings-buttons"><button class="secondary" data-command="runCommand" data-action="kren.previewReadAloud">Preview voice</button><button class="secondary" data-command="runCommand" data-action="kren.stopReadAloud">Stop reading</button></div>
+      <div class="settings-buttons">${readAloudIconButton('runCommand', 'data-action="kren.previewReadAloud"', 'voice preview')}${stopSpeechIconButton('runCommand', 'data-action="kren.stopReadAloud"')}</div>
       <p class="settings-intro">The editor command always removes common Markdown and citation markers from a temporary in-memory copy. It never modifies the document.</p>
     </details>
     <details class="settings-group" open>
@@ -1332,7 +1363,8 @@ function renderSettings(
       ${!hasSelectedUserDictionaryMerriamWebsterKey(settings) ? '<div class="model-note">Merriam-Webster + LLM is unavailable until the Collegiate key is set. The mode remains visible and KREN will not select it for you.<div class="settings-buttons"><button class="secondary" data-command="runCommand" data-action="kren.setMerriamWebsterCollegiateApiKey">Set key</button></div></div>' : ''}
       ${toggleSetting('Fall back after a genuine no-match', 'Show the independent LLM-only draft only when Merriam-Webster returns no match. Operational failures never trigger this fallback.', 'userDictionary.fallbackOnMerriamWebsterNoMatch', settings.userDictionaryFallbackOnMerriamWebsterNoMatch)}
       ${selectSetting('LLM provider', 'Uses this dedicated profile and the existing credential for the selected provider.', 'userDictionary.provider', settings.userDictionaryProvider, userDictionaryProviderOptions())}
-      ${textSetting('Model', 'Editable model identifier used only for User Dictionary generation.', 'userDictionary.model', settings.userDictionaryModel)}
+      ${textSetting('Model', 'Editable model identifier for User Dictionary generation.', 'userDictionary.model', settings.userDictionaryModel)}
+      <p class="model-note">Smart Grammar Check uses this provider, model, and effort as well.</p>
       ${selectSetting('Thinking or effort', 'Sent when supported by the selected provider and model.', 'userDictionary.thinkingOrEffort', settings.userDictionaryThinkingOrEffort, userDictionaryThinkingOrEffortOptions())}
       ${textSetting('Entry language', 'Use auto, or a BCP-47 language tag such as en, ko, or en-US.', 'userDictionary.entryLanguage', settings.userDictionaryEntryLanguage)}
       ${toggleSetting('Include pronunciation when appropriate', 'Adds a pronunciation field when the model can supply one responsibly.', 'userDictionary.includePronunciation', settings.userDictionaryIncludePronunciation)}
@@ -1361,7 +1393,7 @@ function renderSettings(
       ${credentialRow('Merriam-Webster Medical', 'kren.setMerriamWebsterMedicalApiKey', 'kren.deleteMerriamWebsterMedicalApiKey', Boolean(settings.credentialPresence?.merriamWebsterMedical), undefined, undefined, true, merriamWebsterLimitReason)}
       ${credentialRow('Korean Dictionary', 'kren.setKoreanDictionaryApiKey', 'kren.deleteKoreanDictionaryApiKey', Boolean(settings.credentialPresence?.koreanDictionary), 'kren.testKoreanDictionary', 'Test')}
       <div class="settings-buttons">
-        <button class="secondary" data-command="runCommand" data-action="kren.deleteAllApiKeys"${Object.values(settings.credentialPresence ?? {}).some(Boolean) ? '' : ' disabled'}>Delete all stored API keys</button>
+        ${deleteIconButton('runCommand', 'data-action="kren.deleteAllApiKeys"', 'Delete all stored API keys', !Object.values(settings.credentialPresence ?? {}).some(Boolean), true)}
         <button class="secondary" data-command="runCommand" data-action="workbench.action.openSettings">All KREN settings</button>
       </div>
     </details>`;
@@ -1403,7 +1435,8 @@ function renderUserDictionary(
   const filters = state.entries.length === 0 ? '' : renderUserDictionaryFilters(query, filterValues);
   const selectedCount = selectedIds.size;
   const previews = `${state.importPreview ? renderUserDictionaryImportPreview(state.importPreview) : ''}${state.purgePreview ? renderUserDictionaryPurgePreview(state.purgePreview) : ''}`;
-  return `${header}<h2>User Dictionary</h2><p class="settings-intro">${state.entries.length} entr${state.entries.length === 1 ? 'y' : 'ies'}, alphabetized case-insensitively by display term. ${visible.length} shown.</p><div class="settings-buttons"><button data-command="runCommand" data-action="kren.addToUserDictionary">+ Add</button><button class="secondary" data-command="deleteSelectedUserDictionaryEntries"${selectedCount === 0 ? ' disabled' : ''}>Delete selected (${selectedCount})</button><button class="secondary" data-command="exportUserDictionary" data-export-format="json" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export selected JSON</button><button class="secondary" data-command="exportUserDictionary" data-export-format="markdown" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export selected Markdown</button><button class="secondary" data-command="previewUserDictionaryImport">Import</button></div><p class="model-note">JSON is lossless backup and restore. Markdown is human-readable and lossy by design.</p>${filters}${state.entries.length > 0 ? renderUserDictionaryPurgeControl() : ''}${previews}<div class="dictionary-layout"><section class="card dictionary-list"><h3 class="card-title">Entries</h3><div class="card-body">${list}</div></section><section class="card dictionary-detail"><h3 class="card-title">Details</h3><div class="card-body">${details}</div></section></div>`;
+  const deleteSelectedLabel = `Delete selected (${selectedCount}) User Dictionary entr${selectedCount === 1 ? 'y' : 'ies'}`;
+  return `${header}<h2>User Dictionary</h2><p class="settings-intro">${state.entries.length} entr${state.entries.length === 1 ? 'y' : 'ies'}, alphabetized case-insensitively by display term. ${visible.length} shown.</p><div class="settings-buttons"><button data-command="runCommand" data-action="kren.addToUserDictionary">+ Add</button>${deleteIconButton('deleteSelectedUserDictionaryEntries', '', deleteSelectedLabel, selectedCount === 0)}<button class="secondary" data-command="exportUserDictionary" data-export-format="json" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export selected JSON</button><button class="secondary" data-command="exportUserDictionary" data-export-format="markdown" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export selected Markdown</button><button class="secondary" data-command="previewUserDictionaryImport">Import</button></div><p class="model-note">JSON is lossless backup and restore. Markdown is human-readable and lossy by design.</p>${filters}${state.entries.length > 0 ? renderUserDictionaryPurgeControl() : ''}${previews}<div class="dictionary-layout"><section class="card dictionary-list"><h3 class="card-title">Entries</h3><div class="card-body">${list}</div></section><section class="card dictionary-detail"><h3 class="card-title">Details</h3><div class="card-body">${details}</div></section></div>`;
 }
 
 function renderUserDictionaryPurgeControl(): string {
@@ -1422,7 +1455,7 @@ function renderUserDictionaryFilters(
   const sourceOptions = userDictionarySourceFilterOptions().map(([id, label]) =>
     `<option value="${id}"${id === (query.source ?? 'all') ? ' selected' : ''}>${escapeHtml(label)}</option>`
   ).join('');
-  const captureOptions = userDictionaryCaptureModeOptions().map(([id, label]) =>
+  const captureOptions = userDictionaryCaptureFilterOptions().map(([id, label]) =>
     `<option value="${id}"${id === query.captureMode ? ' selected' : ''}>${escapeHtml(label)}</option>`
   ).join('');
   return `<section class="dictionary-filters" aria-label="User Dictionary search and filters"><input type="search" data-dictionary-search placeholder="Search term, aliases, meanings, tags, and collections" value="${escapeHtml(query.search ?? '')}"><select data-dictionary-filter="language" aria-label="Filter by language"><option value="">All languages</option>${options(values.languages, query.language)}</select><select data-dictionary-filter="collection" aria-label="Filter by collection"><option value="">All collections</option>${options(values.collections, query.collection)}</select><select data-dictionary-filter="entryType" aria-label="Filter by entry type"><option value="">All entry types</option>${options(values.entryTypes, query.entryType)}</select><select data-dictionary-filter="captureMode" aria-label="Filter by capture mode"><option value="">All capture modes</option>${captureOptions}</select><select data-dictionary-filter="source" aria-label="Filter by source availability">${sourceOptions}</select></section>`;
@@ -1438,7 +1471,8 @@ function renderUserDictionaryPurgePreview(preview: UserDictionaryPurgePreview): 
   const terms = preview.terms.length > 0
     ? `<ul>${preview.terms.map((term) => `<li>${escapeHtml(term)}</li>`).join('')}</ul>`
     : '<p>No entries are affected.</p>';
-  return `<section class="card purge-preview"><h3 class="card-title">Purge preview</h3><div class="card-body"><p><strong>${preview.count} entr${preview.count === 1 ? 'y' : 'ies'} will be deleted.</strong> Confirmation deletes exactly these previewed identifiers, even if time passes or entry ages change.</p>${terms}<div class="settings-buttons"><button data-command="confirmUserDictionaryPurge"${preview.count === 0 ? ' disabled' : ''}>${preview.selection === 'all' ? 'Continue to REMOVE ALL confirmation' : 'Confirm previewed purge'}</button><button class="secondary" data-command="cancelUserDictionaryPurge">Cancel</button></div></div></section>`;
+  const deleteLabel = `Delete ${preview.count} previewed User Dictionary entr${preview.count === 1 ? 'y' : 'ies'}`;
+  return `<section class="card purge-preview"><h3 class="card-title">Purge preview</h3><div class="card-body"><p><strong>${preview.count} entr${preview.count === 1 ? 'y' : 'ies'} will be deleted.</strong> Confirmation deletes exactly these previewed identifiers, even if time passes or entry ages change.</p>${terms}<div class="settings-buttons">${deleteIconButton('confirmUserDictionaryPurge', '', deleteLabel, preview.count === 0)}<button class="secondary" data-command="cancelUserDictionaryPurge">Cancel</button></div></div></section>`;
 }
 
 function hasSelectedUserDictionaryMerriamWebsterKey(settings: KrenPanelSettings): boolean {
@@ -1447,7 +1481,12 @@ function hasSelectedUserDictionaryMerriamWebsterKey(settings: KrenPanelSettings)
 
 function renderUserDictionaryDetails(entry: UserDictionaryEntryV1): string {
   const senses = entry.senses.map((sense, index) => `<div class="dictionary-sense"><strong>${index + 1}${sense.partOfSpeech ? `. ${escapeHtml(sense.partOfSpeech)}` : ''}</strong><p>${escapeHtml(sense.definition)}</p>${sense.usageNote ? `<p class="muted">${escapeHtml(sense.usageNote)}</p>` : ''}${sense.synonyms.length > 0 ? `<p><strong>Synonyms:</strong> ${escapeHtml(sense.synonyms.join(', '))}</p>` : ''}${sense.examples.map((example) => `<blockquote>${escapeHtml(example)}</blockquote>`).join('')}</div>`).join('');
-  return `<h2>${escapeHtml(entry.term)}</h2><p class="dictionary-meta">${escapeHtml(entry.entryType)} | ${escapeHtml(entry.language)} | ${escapeHtml(entry.collection)}</p>${entry.pronunciation?.display ? `<p><strong>Pronunciation:</strong> ${escapeHtml(entry.pronunciation.display)}</p>` : ''}<h3>Meanings</h3>${senses}<p class="dictionary-meta">Generated by ${escapeHtml(entry.capture.provider)} / ${escapeHtml(entry.capture.model)}. Updated ${escapeHtml(entry.updatedAt)}.</p><div class="settings-buttons">${readAloudIconButton('readUserDictionaryEntry', `data-entry-id="${escapeHtml(entry.id)}"`, entry.term)}${stopSpeechIconButton()}<button data-command="editUserDictionaryEntry" data-entry-id="${escapeHtml(entry.id)}">Edit</button><button class="secondary" data-command="deleteUserDictionaryEntry" data-entry-id="${escapeHtml(entry.id)}">Delete</button></div>`;
+  const entryAttribute = `data-entry-id="${escapeHtml(entry.id)}"`;
+  const entryLabel = `User Dictionary entry ${entry.term}`;
+  const provenance = entry.capture.mode === 'manual'
+    ? 'Manual or imported entry.'
+    : `Generated by ${escapeHtml(entry.capture.provider)} / ${escapeHtml(entry.capture.model)}.`;
+  return `<h2>${escapeHtml(entry.term)}</h2><p class="dictionary-meta">${escapeHtml(entry.entryType)} | ${escapeHtml(entry.language)} | ${escapeHtml(entry.collection)}</p>${entry.pronunciation?.display ? `<p><strong>Pronunciation:</strong> ${escapeHtml(entry.pronunciation.display)}</p>` : ''}<h3>Meanings</h3>${senses}<p class="dictionary-meta">${provenance} Updated ${escapeHtml(entry.updatedAt)}.</p><div class="settings-buttons">${readAloudIconButton('readUserDictionaryEntry', entryAttribute, entry.term)}${stopSpeechIconButton()}${editIconButton('editUserDictionaryEntry', entryAttribute, `Edit ${entryLabel}`)}${deleteIconButton('deleteUserDictionaryEntry', entryAttribute, `Delete ${entryLabel}`)}</div>`;
 }
 
 function renderUserDictionaryDraft(
@@ -1467,16 +1506,16 @@ function renderUserDictionaryDraft(
     : '';
   const senses = entry?.senses.map((sense, index) => `<fieldset class="dictionary-sense" data-dictionary-sense><legend>Sense ${index + 1}</legend>${draftField('Part of speech', 'partOfSpeech', sense.partOfSpeech ?? '')}${draftArea('Definition', 'definition', sense.definition)}${draftArea('Usage note', 'usageNote', sense.usageNote ?? '')}${draftArea('Synonyms, comma or line separated', 'synonyms', sense.synonyms.join('\n'))}${draftArea('Antonyms, comma or line separated', 'antonyms', sense.antonyms.join('\n'))}${draftArea('Related terms, comma or line separated', 'relatedTerms', sense.relatedTerms.join('\n'))}${draftArea('Examples, one per line', 'examples', sense.examples.join('\n'))}</fieldset>`).join('') ?? '';
   const combinedDisabled = !hasSelectedUserDictionaryMerriamWebsterKey(settings);
-  const modeOptions = userDictionaryCaptureModeOptions().map(([id, label]) =>
+  const modeOptions = `${capture.captureMode === 'manual' ? '<option value="manual" selected disabled>Manual or imported</option>' : ''}${userDictionaryCaptureModeOptions().map(([id, label]) =>
     `<option value="${escapeHtml(id)}"${id === capture.captureMode ? ' selected' : ''}${id === 'merriamWebsterAndLlm' && combinedDisabled ? ' disabled' : ''}>${escapeHtml(label)}</option>`
-  ).join('');
+  ).join('')}`;
   const mode = `<label class="setting"><span><span class="setting-title">Capture mode</span><span class="setting-description">Changing mode regenerates the draft after confirmation. Merriam-Webster + LLM requires the Collegiate key.</span></span><select data-draft-capture-mode>${modeOptions}</select></label>`;
   const reference = renderUserDictionaryMerriamWebsterReview(capture);
   const fallback = capture.fallbackUsed
     ? '<div class="duplicate-notice"><strong>LLM-only fallback shown.</strong> Merriam-Webster returned a genuine no-match and the fallback setting is enabled.</div>'
     : '';
   const personal = entry
-    ? `<section class="card personal-draft"><h3 class="card-title">PERSONAL KREN ENTRY</h3><div class="card-body">${duplicate}<form>${draftField('Expression', 'term', entry.term)}${draftField('Language', 'language', entry.language)}${draftField('Entry type', 'entryType', entry.entryType)}${draftField('Collection', 'collection', entry.collection)}${draftArea('Pronunciation', 'pronunciation', entry.pronunciation?.display ?? '')}${draftArea('Domains, one per line', 'domains', entry.domains.join('\n'))}${draftArea('Tags, one per line', 'tags', entry.tags.join('\n'))}${draftArea('Aliases, one per line', 'aliases', entry.aliases.join('\n'))}${senses}<div class="actions"><button type="button" data-command="saveUserDictionaryDraft">Save personal entry</button><button type="button" class="secondary" data-command="regenerateUserDictionaryDraft">Regenerate</button><button type="button" class="secondary" data-command="cancelUserDictionaryDraft">Cancel</button></div></form></div></section>`
+    ? `<section class="card personal-draft"><h3 class="card-title">PERSONAL KREN ENTRY</h3><div class="card-body">${duplicate}<form>${draftField('Expression', 'term', entry.term)}${draftField('Language', 'language', entry.language)}${draftField('Entry type', 'entryType', entry.entryType)}${draftField('Collection', 'collection', entry.collection)}${draftArea('Pronunciation', 'pronunciation', entry.pronunciation?.display ?? '')}${draftArea('Domains, one per line', 'domains', entry.domains.join('\n'))}${draftArea('Tags, one per line', 'tags', entry.tags.join('\n'))}${draftArea('Aliases, one per line', 'aliases', entry.aliases.join('\n'))}${senses}<div class="actions"><button type="button" data-command="saveUserDictionaryDraft">Save personal entry</button><button type="button" class="secondary" data-command="regenerateUserDictionaryDraft"${capture.captureMode === 'manual' ? ' disabled' : ''}>Regenerate</button><button type="button" class="secondary" data-command="cancelUserDictionaryDraft">Cancel</button></div></form></div></section>`
     : `<section class="card personal-draft"><h3 class="card-title">PERSONAL KREN ENTRY</h3><div class="card-body"><p>The independent LLM draft is not shown because Merriam-Webster returned no match and fallback is off.</p><p class="model-note">Enable Fall back after a genuine no-match in User Dictionary settings, then regenerate. Nothing can be saved from this review.</p><div class="actions"><button type="button" class="secondary" data-command="regenerateUserDictionaryDraft">Regenerate</button><button type="button" class="secondary" data-command="cancelUserDictionaryDraft">Cancel</button></div></div></section>`;
   return `<section class="dictionary-draft"><h2>${state.editingId ? 'Edit User Dictionary Entry' : 'Add to User Dictionary'}</h2><p class="settings-intro">Review every personal field. Nothing is stored until Save, and only the personal entry is stored.</p>${mode}${combinedDisabled ? '<p class="model-note">Merriam-Webster + LLM is disabled because the selected reference-work key is not set.</p>' : ''}${reference}${fallback}${personal}</section>`;
 }
@@ -1543,26 +1582,62 @@ function rewriteVariantLabel(id: RewriteVariantListId): string {
   return REWRITE_VARIANT_LIST.find((variant) => variant.id === id)?.label ?? id;
 }
 
-// Icon-only speech controls, defined once and used by both the rewrite variants and the
-// User Dictionary entry. An icon button carries no text, so the accessible name has to be
+// Icon-only controls are defined once and used by the header, rewrite variants, settings,
+// and User Dictionary. An icon button carries no text, so the accessible name has to be
 // supplied explicitly: title for the pointer, aria-label for a screen reader. Leaving
 // either off turns the control into an unlabelled square for anyone not using a mouse.
-//
-// U+25A0 BLACK SQUARE rather than U+23F9 STOP BUTTON, because the latter is rendered as a
-// colour emoji by several Windows fonts and would not match the speaker glyph beside it.
 function readAloudIconButton(command: string, dataAttribute: string, subject: string): string {
-  return `<button class="secondary icon-button" data-command="${command}" ${dataAttribute} title="Read aloud" aria-label="Read ${escapeHtml(subject)} aloud">&#128266;</button>`;
+  return iconButton(command, dataAttribute, 'Read aloud', `Read ${subject} aloud`, 'speaker');
 }
 
-function stopSpeechIconButton(): string {
-  return '<button class="secondary icon-button" data-command="stopReadAloud" title="Stop reading" aria-label="Stop reading">&#9632;</button>';
+function stopSpeechIconButton(command = 'stopReadAloud', dataAttribute = ''): string {
+  return iconButton(command, dataAttribute, 'Stop reading', 'Stop reading', 'stop');
+}
+
+function editIconButton(command: string, dataAttribute: string, label: string): string {
+  return iconButton(command, dataAttribute, label, label, 'edit');
+}
+
+function deleteIconButton(
+  command: string,
+  dataAttribute: string,
+  label: string,
+  disabled = false,
+  accessibleAttributesFirst = false
+): string {
+  return iconButton(
+    command,
+    dataAttribute,
+    label,
+    label,
+    'delete',
+    disabled,
+    accessibleAttributesFirst
+  );
+}
+
+function iconButton(
+  command: string | undefined,
+  dataAttribute: string,
+  title: string,
+  ariaLabel: string,
+  icon: IconName,
+  disabled = false,
+  accessibleAttributesFirst = false,
+  className = 'secondary icon-button',
+  trailingAttributes = ''
+): string {
+  const accessibleAttributes = ` title="${escapeHtml(title)}" aria-label="${escapeHtml(ariaLabel)}"`;
+  const actionAttributes = dataAttribute ? ` ${dataAttribute}` : '';
+  const commandAttribute = command === undefined ? '' : ` data-command="${escapeHtml(command)}"`;
+  return `<button class="${className}"${commandAttribute}${accessibleAttributesFirst ? accessibleAttributes : actionAttributes}${accessibleAttributesFirst ? actionAttributes : accessibleAttributes}${trailingAttributes}${disabled ? ' disabled' : ''}>${iconSvgMarkup(icon)}</button>`;
 }
 
 // One definition of the credit line. It was written out twice in this file and pinned
 // twice more in tests, so changing the attribution meant editing four places and the
 // tests only caught it because they happened to quote the whole string.
 export function krenCreditLine(version: string): string {
-  return `Designed by Masstransferase &amp; developed using CLAUDE CODE and CODEX · Version ${escapeHtml(version)}`;
+  return `Designed &amp; Developed by T.H. YANG using CLAUDE CODE and CODEX · Version ${escapeHtml(version)}`;
 }
 
 function credentialRow(

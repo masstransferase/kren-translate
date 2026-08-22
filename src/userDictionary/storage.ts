@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { UserDictionaryStoreV1 } from './contract.js';
-import { exportUserDictionaryJson, importUserDictionaryJson } from './importExport.js';
-import { emptyUserDictionaryStore } from './validation.js';
+import type { UserDictionaryStoreV1 } from '@kren/core/user-dictionary';
+import { exportUserDictionaryJson, importUserDictionaryJson } from '@kren/core/user-dictionary';
+import { emptyUserDictionaryStore } from '@kren/core/user-dictionary';
 
 export const USER_DICTIONARY_STORAGE_ERROR_CODES = [
   'corruptStore',

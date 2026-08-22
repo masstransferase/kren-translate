@@ -6,32 +6,13 @@ import {
 import {
   REWRITE_FORMALITIES,
   rewriteAxisInstruction
-} from '../src/rewriteAxes.js';
-import { REWRITE_MODES } from '../src/rewriteModes.js';
+} from '@kren/core/rewrite-axes';
+import { REWRITE_MODES } from '@kren/core/rewrite-modes';
+import {
+  REWRITE_OUTPUT_RULES,
+  REWRITE_VARIANTS
+} from '@kren/core/rewrite-variants';
 import type { RewriteRequest } from '../src/types.js';
-
-const legacyDefaultInstructionLines = [
-  'Rewrite only the exact text supplied by the user.',
-  'Detect the dominant natural language of the supplied text. Return its BCP-47 language code in detectedLanguage. Rewrite in that same language and never translate it.',
-  'Preserve intentional mixed-language terms, names, quotations, code, and necessary domain terminology.',
-  'Preserve its factual meaning, claims, qualifications, numbers, citations, and necessary domain terminology.',
-  'Correct grammar and awkward phrasing, but do not add facts, evidence, promises, certainty, examples, or document context.',
-  'Never intensify a claim beyond the evidence or qualifications present in the supplied text.',
-  'Return JSON only. Every variant must be complete and usable on its own.',
-  'Use general-purpose prose in the source language without imposing a specialized domain style.',
-  'Only when detectedLanguage is English, use standard American English spelling, punctuation, vocabulary, idiom, and usage consistently.',
-  'When detectedLanguage is not English, ignore the English-variety setting and use natural conventions for the detected language.',
-  "Preserve the writer's recognizable voice, cadence, emphasis, and personality as far as the requested variant allows.",
-  'Rhetorical mode: preserve the original communicative intent. Do not turn an observation into an explanation, persuasion, recommendation, or challenge.',
-  'Preserve Markdown, LaTeX commands, citations, links, placeholders, code identifiers, filenames, inline code, and fenced code blocks exactly unless grammar inside ordinary prose requires a change.',
-  'Produce exactly three meaning-preserving variants:',
-  '1. Natural: fluent, native-level writing in the detected language that follows the configured tone and rhetorical mode while preserving the original level of detail.',
-  '2. Concise: tighter and more direct writing in the detected language while retaining every important point.',
-  '3. Jargon-Free: Write clear, natural, human-like prose in the detected language. Remove buzzwords, cliches, corporate jargon, and unnecessary specialist jargon. Keep precise domain terminology only when it is needed for correctness. Use no em dashes or en dashes. Use commas, parentheses, colons, semicolons, or separate sentences instead. Use no metaphors unless removing one would change the intended meaning.',
-  'Do not include commentary or change notes.',
-  'Return exactly this JSON shape and order:',
-  '{"kind":"rewrite","detectedLanguage":"BCP-47 code","variants":[{"id":"natural","label":"Natural","text":"rewritten text"},{"id":"concise","label":"Concise","text":"rewritten text"},{"id":"jargonFree","label":"Jargon-Free","text":"rewritten text"}]}'
-] as const;
 
 const defaultRequest = {
   text: 'Only this selected text.',
@@ -77,9 +58,79 @@ describe('rewrite prompt defaults', () => {
     }
   );
 
-  it('keeps the legacy set of instruction sentences on a fresh install', () => {
-    expect(rewriteSystemInstruction(defaultRequest).split('\n').sort())
-      .toEqual([...legacyDefaultInstructionLines].sort());
+  it('attaches every style axis to Full Rewrite and none to Minimal Rewrite', () => {
+    const styled = request({
+      function: 'proposal',
+      domain: 'scientific',
+      englishVariety: 'british',
+      formality: 'formal',
+      voice: 'objective',
+      stance: 'cautious',
+      perspective: 'impersonal',
+      rhetoricalMode: 'explain',
+      modality: 'spoken',
+      length: 'compress'
+    });
+    const prompt = rewriteSystemInstruction(styled);
+    const minimalInstruction = REWRITE_VARIANTS[0].instruction;
+    const fullInstruction = REWRITE_VARIANTS[1].instruction;
+    const minimalStart = prompt.indexOf(minimalInstruction);
+    const fullStart = prompt.indexOf(fullInstruction);
+    const axisMarkers = [
+      'suitable for a proposal',
+      'precise scientific prose',
+      'standard British English',
+      'formal, precise wording',
+      'objective voice',
+      'appropriately qualified stance',
+      'impersonal perspective',
+      'Rhetorical mode: explain',
+      'Write for spoken delivery',
+      'shorter than the supplied text'
+    ];
+    const minimalSection = prompt.slice(minimalStart, fullStart);
+    const fullSection = prompt.slice(fullStart);
+    const minimalOnly = rewriteSystemInstruction({ ...styled, operation: 'rewriteMinimal' });
+    const fullOnly = rewriteSystemInstruction({ ...styled, operation: 'rewriteFull' });
+
+    expect({
+      includesSharedInstructions: [
+        prompt.includes(minimalInstruction),
+        prompt.includes(fullInstruction)
+      ],
+      sharedOrder: minimalStart >= 0 && fullStart > minimalStart,
+      axesAfterFull: axisMarkers.every((marker) => prompt.indexOf(marker) > fullStart),
+      axesInMinimalSection: axisMarkers.filter((marker) => minimalSection.includes(marker)),
+      axesInFullSection: axisMarkers.filter((marker) => fullSection.includes(marker)),
+      axesInMinimalOnly: axisMarkers.filter((marker) => minimalOnly.includes(marker)),
+      axesInFullOnly: axisMarkers.filter((marker) => fullOnly.includes(marker))
+    }).toEqual({
+      includesSharedInstructions: [true, true],
+      sharedOrder: true,
+      axesAfterFull: true,
+      axesInMinimalSection: [],
+      axesInFullSection: axisMarkers,
+      axesInMinimalOnly: [],
+      axesInFullOnly: axisMarkers
+    });
+  });
+
+  it('states every shared output rule once for the whole request', () => {
+    const prompt = rewriteSystemInstruction(defaultRequest);
+    const ruleCounts = REWRITE_OUTPUT_RULES.map((rule) =>
+      prompt.split(rule).length - 1
+    );
+    const sharedRuleMarker = 'The following output rules apply to every requested variant:';
+
+    expect({
+      ruleCounts,
+      markerCount: prompt.split(sharedRuleMarker).length - 1,
+      beforeVariants: prompt.indexOf(sharedRuleMarker) < prompt.indexOf('Produce exactly two')
+    }).toEqual({
+      ruleCounts: REWRITE_OUTPUT_RULES.map(() => 1),
+      markerCount: 1,
+      beforeVariants: true
+    });
   });
 
   it('assembles axis instructions in the approved load-bearing order', () => {
@@ -96,6 +147,9 @@ describe('rewrite prompt defaults', () => {
       length: 'compress'
     }));
     const markers = [
+      'Produce exactly two variants',
+      REWRITE_VARIANTS[0].instruction,
+      REWRITE_VARIANTS[1].instruction,
       'suitable for a proposal',
       'precise scientific prose',
       'standard British English',
@@ -107,7 +161,6 @@ describe('rewrite prompt defaults', () => {
       'Rhetorical mode: explain',
       'Write for spoken delivery',
       'shorter than the supplied text',
-      'Produce exactly three meaning-preserving variants',
       'Do not include commentary or change notes',
       'Return exactly this JSON shape and order'
     ];
@@ -117,11 +170,22 @@ describe('rewrite prompt defaults', () => {
   });
 
   it('suppresses formatting only for spoken modality and states the spoken rules', () => {
-    const written = rewriteSystemInstruction(request({ modality: 'written' }));
-    const spoken = rewriteSystemInstruction(request({ modality: 'spoken' }));
+    const written = rewriteSystemInstruction(request({
+      operation: 'rewriteFull',
+      modality: 'written'
+    }));
+    const spoken = rewriteSystemInstruction(request({
+      operation: 'rewriteFull',
+      modality: 'spoken'
+    }));
+    const minimal = rewriteSystemInstruction(request({
+      operation: 'rewriteMinimal',
+      modality: 'spoken'
+    }));
 
     expect(written).toContain('Preserve Markdown, LaTeX commands');
     expect(spoken).not.toContain('Preserve Markdown, LaTeX commands');
+    expect(minimal).toContain('Preserve Markdown, LaTeX commands');
     expect(spoken).toContain('Keep clauses near 20 words or fewer');
     expect(spoken).toContain('Use no parentheses, semicolons, em dashes, or en dashes');
     expect(spoken).toContain('shown above');
@@ -199,8 +263,8 @@ describe('rewrite prompt defaults', () => {
     const defects = [
       'A parenthetical (aside).',
       'Two clauses; one sentence.',
-      'An em dash — is silent.',
-      'An en dash – is silent.',
+      'An em dash \u2014 is silent.',
+      'An en dash \u2013 is silent.',
       'The value is 15%.',
       'The value is 15&.'
     ];

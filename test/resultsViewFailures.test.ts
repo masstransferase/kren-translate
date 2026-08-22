@@ -25,7 +25,7 @@ vi.mock('vscode', () => ({
 
 import { copyTextResult, notify } from '../src/extension.js';
 import { KrenResultsViewProvider } from '../src/resultsView.js';
-import { REWRITE_MODES, rewriteModeSettingEntries } from '../src/rewriteModes.js';
+import { REWRITE_MODES, rewriteModeSettingEntries } from '@kren/core/rewrite-modes';
 import { userDictionaryEntry } from './userDictionaryFixtures.js';
 
 type MessageListener = (message: unknown) => void;
@@ -100,7 +100,7 @@ function createHarness(overrides: Record<string, unknown> = {}) {
       alternateFallbackEnabled: true,
       alternateFallbackModel: 'gemini-3.5-flash',
       alternateFallbackThinkingLevel: 'low',
-      preferredRewriteVariant: 'natural',
+      preferredRewriteVariant: 'minimal',
       quickMenuRewriteVariant: 'all',
       rewriteModality: 'written',
       rewriteFunction: 'general',
@@ -209,10 +209,10 @@ describe('results webview failure reporting', () => {
       length: 'preserve',
       perspective: 'preserve',
       rhetoricalMode: 'preserve',
-      variants: [{ id: 'natural', label: 'Natural', text: 'Copied result.' }]
+      variants: [{ id: 'minimal', label: 'Minimal Rewrite', text: 'Copied result.' }]
     }, 'Source text.', false);
 
-    harness.dispatch({ command: 'copyVariant', variantId: 'natural' });
+    harness.dispatch({ command: 'copyVariant', variantId: 'minimal' });
     harness.dispatch({ command: 'details' });
 
     await vi.waitFor(() => expect(harness.actions.details).toHaveBeenCalledOnce());
@@ -342,10 +342,10 @@ describe('results webview failure reporting', () => {
       length: 'preserve',
       perspective: 'preserve',
       rhetoricalMode: 'preserve',
-      variants: [{ id: 'natural', label: 'Natural', text: 'Spoken text.' }]
+      variants: [{ id: 'minimal', label: 'Minimal Rewrite', text: 'Spoken text.' }]
     }, 'Source text.', false);
 
-    harness.dispatch({ command: 'readVariant', variantId: 'natural' });
+    harness.dispatch({ command: 'readVariant', variantId: 'minimal' });
     await settleMessages();
 
     expect(showErrorMessage).toHaveBeenCalledWith(expect.stringContaining(failure.message));
@@ -373,10 +373,10 @@ describe('results webview failure reporting', () => {
       length: 'preserve',
       perspective: 'preserve',
       rhetoricalMode: 'preserve',
-      variants: [{ id: 'natural', label: 'Natural', text: 'Spoken text.' }]
+      variants: [{ id: 'minimal', label: 'Minimal Rewrite', text: 'Spoken text.' }]
     }, 'Source text.', false);
 
-    harness.dispatch({ command: 'readVariant', variantId: 'natural' });
+    harness.dispatch({ command: 'readVariant', variantId: 'minimal' });
     await settleMessages();
     expect(harness.webview.html).toContain('Modality (inferred)');
     expect(harness.webview.html).toContain('data-command="pinInferredModality"');
@@ -608,6 +608,74 @@ describe('hiding KREN', () => {
 
     expect(executeCommand).toHaveBeenCalledWith('setContext', 'kren.resultsEnabled', true);
   });
+
+  // The owner reported on 2026-08-22 that selecting Claude Code in the Secondary Sidebar
+  // removed KREN's tab entirely. VS Code had recorded the container as
+  // {"id":"workbench.view.extension.kren-results","pinned":false}, alone among the five
+  // containers in that bar, because activation gated its only view off before the
+  // workbench built the bar. An unpinned container shows only while it is the active tab.
+  //
+  // kren.results.openAtStartup is now the one record of the shown state, so these two
+  // assertions are what stop a second copy of that fact appearing.
+  it('records the shown state on the setting that restores it', async () => {
+    const harness = createHarness();
+
+    await harness.provider.reveal();
+
+    expect(harness.actions.updateSetting)
+      .toHaveBeenCalledWith('results.openAtStartup', true);
+  });
+
+  // Overriding settings wholesale would drop every other field the renderer reads, so the
+  // defaults are carried and only the one under test is changed.
+  const harnessWithSidebarShown = (): ReturnType<typeof createHarness> => {
+    const defaults = createHarness().actions.settings();
+    return createHarness({ settings: () => ({ ...defaults, openResultsAtStartup: true }) });
+  };
+
+  it('clears the same setting on hide, so a restart does not bring KREN back', async () => {
+    const harness = harnessWithSidebarShown();
+
+    await harness.provider.hide();
+
+    expect(harness.actions.updateSetting)
+      .toHaveBeenCalledWith('results.openAtStartup', false);
+  });
+
+  it('restores the last shown state at activation rather than always starting hidden', () => {
+    // Activation used to clear the context unconditionally, so a KREN that had been shown
+    // came back hidden after every restart and the openAtStartup setting was the only way
+    // to get it back. Seeding from that setting makes show and hide survive a restart.
+    //
+    // This guarantees nothing about the workbench pin. An earlier version of this comment
+    // claimed the timing of this call decided whether KREN's tab stayed in the tab strip
+    // when another tab was selected. It does not: the pin lives in the workbench's own
+    // per-tab state and only the tab context menu changes it. The claim was wrong and the
+    // behaviour it promised never appeared, which is why it is written down here.
+    //
+    // Anchored on the setContext call in activate() rather than on the file, because a
+    // false anywhere else in extension.ts is none of this test's business.
+    const source = readFileSync('src/extension.ts', 'utf8');
+    const activation = source.slice(
+      source.indexOf('export async function activate('),
+      source.indexOf('activeExtensionContext = context;')
+    );
+    expect(activation).not.toBe('');
+    expect(activation).toContain('KrenResultsViewProvider.enabledContext');
+    expect(activation).toContain("get<boolean>('results.openAtStartup', false)");
+    // The literal that caused it. Present again, the tab vanishes again.
+    expect(activation).not.toMatch(/enabledContext,\s*false/u);
+  });
+
+  it('does not rewrite the setting when it already says what is wanted', async () => {
+    // Every write lands in the owner's settings.json. Showing a sidebar that is already
+    // shown must not churn a file they read.
+    const harness = harnessWithSidebarShown();
+
+    await harness.provider.reveal();
+
+    expect(harness.actions.updateSetting).not.toHaveBeenCalled();
+  });
 });
 
 // The command identifier changed in 1.3.3. A hand-written keybinding on the old name
@@ -624,5 +692,27 @@ describe('the retired hide identifier', () => {
 
     expect(contributed).toContain('kren.hideResults');
     expect(contributed).not.toContain('kren.hideSecondarySidebar');
+  });
+
+  // VS Code's own Secondary Sidebar tab menu carries an entry reading Hide 'KREN', which
+  // unpins the container and drops the tab from the strip as soon as another tab is
+  // selected. Confirmed in the installed workbench bundle on 2026-08-22: that label is
+  // nls message 5941, Hide '{0}', and its action toggles compositeBar.pin/unpin.
+  //
+  // KREN's own command was titled Hide KREN, one word away from it and doing something
+  // else entirely. The owner spent an afternoon on a vanishing tab that was most likely
+  // one wrong click in that menu, so KREN's label must not read as VS Code's.
+  it('does not title its own command so it reads like the workbench unpin entry', () => {
+    const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      contributes: { commands: Array<{ command: string; title: string }> };
+    };
+    const hide = manifest.contributes.commands.find((c) => c.command === 'kren.hideResults');
+
+    expect(hide?.title).toBe('Close KREN Panel');
+    // The shape, not just today's string: any title starting with Hide collides again.
+    for (const command of manifest.contributes.commands) {
+      expect(command.title, `${command.command} must not read as the workbench entry`)
+        .not.toMatch(/^Hide/u);
+    }
   });
 });
