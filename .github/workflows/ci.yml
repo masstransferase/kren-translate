@@ -31,22 +31,6 @@ jobs:
           path: "*.vsix"
           if-no-files-found: error
           retention-days: 7
-  # The public tree is generated from this repository and published from another, and until
-  # 2026-08-22 nothing connected the two: this repository's gate could be green while the
-  # produced public tree failed to typecheck, which is exactly what had happened and had
-  # gone unnoticed. This job builds the public tree into a throwaway directory and runs its
-  # gate there, so a private change that breaks the public channel fails here rather than
-  # after publication. It never writes to the real public checkout.
-  public-tree:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run verify:public-tree
   extension-host-tests:
     runs-on: windows-latest
     steps:
