@@ -1307,7 +1307,7 @@
   },
   "dependencies": {
     "@kren/core": "file:vendor/kren-core-0.13.13.tgz",
-    "fast-xml-parser": "^5.10.1",
+    "fast-xml-parser": "^5.11.1",
     "harper.js": "^2.4.0"
   },
   "overrides": {
