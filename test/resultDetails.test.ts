@@ -106,6 +106,7 @@ describe('plain-text full details', () => {
     const result: TranslationResult = {
       ...base,
       kind: 'translation',
+      operation: 'translate' as const,
       providerId: 'googleCloudTranslation',
       sourceText: 'hello',
       translatedText: 'hello translated'

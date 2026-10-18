@@ -3,6 +3,8 @@ import path from 'node:path';
 
 const watch = process.argv.includes('--watch');
 const projectRoot = import.meta.dirname;
+const outputArgument = process.argv.find(arg => arg.startsWith('--outdir='));
+const outputRoot = outputArgument ? path.resolve(outputArgument.slice('--outdir='.length)) : path.join(projectRoot, 'dist');
 const commonOptions = {
   // Pinned to this script's directory rather than left to process.cwd(), so the build
   // does not depend on where it was invoked from.
@@ -31,16 +33,16 @@ const commonOptions = {
 const builds = [{
   ...commonOptions,
   entryPoints: [path.join(projectRoot, 'src', 'extension.ts')],
-  outfile: path.join(projectRoot, 'dist', 'extension.js'),
+  outfile: path.join(outputRoot, 'extension.js'),
   external: ['vscode']
 }, {
   ...commonOptions,
   entryPoints: [path.join(projectRoot, 'src', 'workers', 'grammarWorker.ts')],
-  outfile: path.join(projectRoot, 'dist', 'grammar-worker.js')
+  outfile: path.join(outputRoot, 'grammar-worker.js')
 }, {
   ...commonOptions,
   entryPoints: [path.join(projectRoot, 'test', 'integration', 'grammar.test.ts')],
-  outfile: path.join(projectRoot, 'dist', 'test', 'grammar.test.js'),
+  outfile: path.join(outputRoot, 'test', 'grammar.test.js'),
   external: ['vscode']
 }];
 

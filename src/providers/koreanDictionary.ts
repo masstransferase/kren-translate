@@ -46,7 +46,7 @@ export class KoreanDictionaryProvider implements DictionaryProvider {
     const error = recordValue(document.error);
     if (error) {
       const code = stringValue(error.error_code);
-      const message = stringValue(error.message) ?? 'Dictionary request failed.';
+      const message = 'Korean Basic Dictionary rejected the request (200). Check the dictionary settings.';
       if (code === '020' || code === '021') {
         throw new ProviderError(message, 'setDictionaryKey');
       }

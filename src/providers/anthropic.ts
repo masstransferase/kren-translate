@@ -1,9 +1,7 @@
+import { readProviderListedIds } from './geminiModels.js';
+import { requestWithRetry } from '../requestCenter.js';
+import { providerHttpError } from './httpError.js';
 import { ProviderError } from '../errors.js';
-import {
-  isRetryableLanguageModelStatus as retryableStatus,
-  retryDelayMs,
-  waitForRetry
-} from '@kren/core/retry';
 import type {
   LanguageModelProvider,
   RewriteRequest,
@@ -48,7 +46,7 @@ export class AnthropicProvider implements LanguageModelProvider {
       systemInstruction(request),
       request.text,
       explanationSchema(),
-      signal
+      signal, request.operation === 'translate' ? 'translation' : 'explanation'
     );
     return normalizeGeminiResult(value, request, this.id);
   }
@@ -61,7 +59,7 @@ export class AnthropicProvider implements LanguageModelProvider {
       rewriteSystemInstruction(request),
       request.text,
       rewriteSchema(request),
-      signal
+      signal, 'rewrite'
     );
     return {
       ...normalizeGeminiRewriteResult(value, request, this.id),
@@ -73,7 +71,8 @@ export class AnthropicProvider implements LanguageModelProvider {
     system: string,
     text: string,
     schema: Record<string, unknown>,
-    signal: AbortSignal
+    signal: AbortSignal,
+    feature: string
   ): Promise<unknown> {
     const body = JSON.stringify(buildAnthropicRequestBody(
       this.model,
@@ -82,53 +81,22 @@ export class AnthropicProvider implements LanguageModelProvider {
       schema,
       this.effort
     ));
-    const attempts = Math.max(1, Math.min(5, Math.floor(this.maxAttempts || 3)));
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      let response: Response;
-      try {
-        response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': this.apiKey,
-            'anthropic-version': '2023-06-01'
-          },
-          body,
-          signal
-        });
-      } catch (error) {
-        if (signal.aborted) throw error;
-        if (attempt < attempts - 1) {
-          await waitForRetry(1000 * 2 ** attempt, signal);
-          continue;
-        }
-        throw new ProviderError('Anthropic API could not be reached.', 'configureAnthropicModel', true);
+    return requestWithRetry({
+      request: { feature, provider: this.id, model: this.model }, signal,
+      maxAttempts: Math.max(1, Math.min(5, Math.floor(this.maxAttempts || 3))),
+      send: () => fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' }, body, signal
+      }),
+      failure: ({ status, retryable }) => new ProviderError(status === undefined ? 'Anthropic API could not be reached.'
+        : providerHttpError('Anthropic', status), status === 401 || status === 403 ? 'setAnthropicKey' : 'configureAnthropicModel', retryable, status),
+      refused: () => new ProviderError('Anthropic returned no usable text output.', undefined, false, undefined, 'refused'),
+      decode: envelope => {
+        const payload = (envelope ?? {}) as AnthropicResponse;
+        const raw = payload.content?.find(block => block.type === 'text' && typeof block.text === 'string')?.text;
+        if (typeof raw !== 'string' || !raw.trim()) throw new ProviderError('Anthropic returned no usable text output.', undefined, false, undefined, 'structuredOutput');
+        return parseJson(raw.trim(), 'Anthropic');
       }
-      const payload = (await response.json().catch(() => ({}))) as AnthropicResponse;
-      if (!response.ok) {
-        const detail = typeof payload.error?.message === 'string' ? ` ${payload.error.message}` : '';
-        if (retryableStatus(response.status) && attempt < attempts - 1) {
-          await waitForRetry(retryDelayMs(attempt, response.headers.get('retry-after')), signal);
-          continue;
-        }
-        const action = response.status === 401 || response.status === 403
-          ? 'setAnthropicKey' as const
-          : 'configureAnthropicModel' as const;
-        throw new ProviderError(
-          `Anthropic request failed (${response.status}).${detail}`,
-          action,
-          retryableStatus(response.status),
-          response.status
-        );
-      }
-      const raw = payload.content
-        ?.find((block) => block.type === 'text' && typeof block.text === 'string')?.text;
-      if (typeof raw !== 'string' || !raw.trim()) {
-        throw new ProviderError('Anthropic returned no usable text output.');
-      }
-      return parseJson(raw.trim(), 'Anthropic');
-    }
-    throw new ProviderError('Anthropic request failed after retries.', undefined, true);
+    });
   }
 }
 
@@ -167,9 +135,8 @@ export async function listAnthropicModels(
     error?: { message?: unknown };
   };
   if (!response.ok) {
-    const detail = typeof payload.error?.message === 'string' ? ` ${payload.error.message}` : '';
     throw new ProviderError(
-      `Anthropic model discovery failed (${response.status}).${detail}`,
+      providerHttpError('Anthropic', response.status),
       response.status === 401 || response.status === 403
         ? 'setAnthropicKey'
         : 'configureAnthropicModel'
@@ -180,4 +147,13 @@ export async function listAnthropicModels(
       id: item.id,
       displayName: typeof item.display_name === 'string' ? item.display_name : item.id
     }] : []);
+}
+/** Preserve picker behavior while rejecting inconclusive availability responses. */
+export async function listAnthropicModelsUnfiltered(apiKey: string, signal: AbortSignal): Promise<Array<{ id: string }>> {
+  const response = await fetch('https://api.anthropic.com/v1/models?limit=1000', {
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, signal
+  });
+  if (!response.ok) throw new ProviderError(providerHttpError('Anthropic', response.status),
+    response.status === 401 || response.status === 403 ? 'setAnthropicKey' : 'configureAnthropicModel');
+  return readProviderListedIds(response, 'data');
 }

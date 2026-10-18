@@ -52,11 +52,13 @@ export function renderResultMarkdown(
   };
   markdown.supportHtml = true;
 
-  if (result.providerId === 'merriamWebsterCollegiate' ||
+  if (assetBaseUri && (result.providerId === 'merriamWebsterCollegiate' ||
       result.providerId === 'merriamWebsterMedical' ||
-      result.providerId === 'merriamWebsterThesaurus') {
+      result.providerId === 'merriamWebsterThesaurus')) {
+    const logoUri = vscode.Uri.joinPath(assetBaseUri, 'mw-logo-lightbg.png').toString()
+      .replace(/&/gu, '&amp;').replace(/"/gu, '&quot;');
     markdown.appendMarkdown(
-      '<img src="https://dictionaryapi.com/images/info/branding-guidelines/MWLogo_LightBG_120x120_2x.png" width="50" height="50" alt="Merriam-Webster logo">\n\n'
+      `<img src="${logoUri}" width="50" height="50" alt="Merriam-Webster logo">\n\n`
     );
   }
 

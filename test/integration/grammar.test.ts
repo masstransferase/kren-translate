@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 
 declare function suite(name: string, callback: () => void): void;
 declare function test(name: string, callback: () => Promise<void>): void;
+declare function suiteSetup(callback: () => Promise<void>): void;
 
 // The extension identity is publisher-dependent: "local" when sideloaded and
 // "masstransferase" once published to the Marketplace. Looking it up by a
@@ -13,6 +14,12 @@ function findKrenExtension(): vscode.Extension<unknown> | undefined {
 }
 
 suite('KREN native Grammar Check', () => {
+  // 2026-10-16: Smart Grammar (on by default) first asks for provider consent. Since V228 that
+  // question is KREN's own popup, which waits for a click; VS Code's test host used to cancel
+  // its native modal at once. This suite covers the local Harper check, so turn Smart off.
+  suiteSetup(async () => {
+    await vscode.workspace.getConfiguration('kren').update('grammar.smart', false, vscode.ConfigurationTarget.Global);
+  });
   test('publishes diagnostics, offers Quick Fixes, applies one, and rechecks', async () => {
     const extension = findKrenExtension();
     assert.ok(extension, 'KREN extension was not discovered by the Extension Development Host.');

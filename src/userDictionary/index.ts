@@ -1,4 +1,4 @@
-export * from '@kren/core/user-dictionary';
+export * from './providerContract.js';
 export {
   HttpUserDictionaryProviderTransport,
   applyUserDictionaryDraftEdits,

@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { explicitTextSubmission } from '../src/submission.js';
 import {
+  canStoreMerriamWebsterKey,
   isEnglishDictionaryQuery,
   KREN_SECRET_KEYS,
   MERRIAM_WEBSTER_KEY_LIMIT,
   MERRIAM_WEBSTER_SECRET_KEYS,
+  resolveRewriteOutputLanguage,
   runKrenOperation,
   storeMerriamWebsterKey,
   type KrenRuntime
@@ -55,6 +58,54 @@ describe('Merriam-Webster key limit', () => {
       expect(await storeMerriamWebsterKey(storage, beyond, 'configured-beyond')).toBe(false);
       expect(values.has(beyond)).toBe(false);
     }
+  });
+
+  /*
+   * The gate itself, by name.
+   *
+   * A mutation replacing the whole condition with `return true` passed this suite on
+   * 2026-08-28. That is not a defect: at a limit equal to the number of reference works
+   * there is no fourth key to refuse, so the refusal is unreachable and only a build whose
+   * limit is lower exercises it. What was missing is any test naming the function, so its
+   * other clause went unasserted too.
+   *
+   * The relationship is asserted rather than assumed, because it is what makes the refusal
+   * unreachable. Adding a fourth reference work would make it reachable here and, without
+   * this, still untested.
+   */
+  it('allows replacing a key that is already stored, even at the limit', async () => {
+    const { values, storage } = memorySecretStorage();
+    const keys = MERRIAM_WEBSTER_SECRET_KEYS.slice(0, MERRIAM_WEBSTER_KEY_LIMIT);
+    for (const key of keys) await storeMerriamWebsterKey(storage, key, `first-${key}`);
+    expect(values.size).toBe(keys.length);
+
+    // Already stored, so replacing it stores nothing new and must be allowed.
+    const existing = keys[0]!;
+    expect(await canStoreMerriamWebsterKey(storage, existing)).toBe(true);
+    expect(await storeMerriamWebsterKey(storage, existing, 'replacement')).toBe(true);
+    expect(values.get(existing)).toBe('replacement');
+    expect(values.size, 'a replacement added a key instead of replacing one').toBe(keys.length);
+  });
+
+  it('allows a new key while fewer than the limit are stored', async () => {
+    const { storage } = memorySecretStorage();
+    const [first, second] = MERRIAM_WEBSTER_SECRET_KEYS;
+    await storeMerriamWebsterKey(storage, first!, 'one');
+    expect(await canStoreMerriamWebsterKey(storage, second!)).toBe(true);
+  });
+
+  it('records why the refusal is unreachable at this limit', () => {
+    expect(
+      MERRIAM_WEBSTER_KEY_LIMIT,
+      'the limit now exceeds the reference works, which cannot be enforced'
+    ).toBeLessThanOrEqual(MERRIAM_WEBSTER_SECRET_KEYS.length);
+    /*
+     * While these are equal every reference work can hold a key and the refusal never
+     * fires. Below that, it does, and the test above this one asserts it. If a fourth
+     * reference work is ever added this stops being equal, the refusal becomes reachable,
+     * and `beyond` above starts exercising it.
+     */
+    expect(MERRIAM_WEBSTER_SECRET_KEYS.length).toBeGreaterThanOrEqual(MERRIAM_WEBSTER_KEY_LIMIT);
   });
 
   it('allows add, remove, and add-different without a restart', async () => {
@@ -133,6 +184,23 @@ describe('English dictionary query validation', () => {
       translatedText: '없애다'
     });
     expect(reserved).toBe(10);
+    // 2026-10-02: Callers without a drawer choice retain the global target setting.
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).target).toBe('ko');
+  });
+
+  it('rejects an invalid Dictionary fallback output language using the stored-code validator', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
+    const runtime: KrenRuntime = {
+      getSecret: async () => 'placeholder',
+      getSetting: <T>(_key: string, fallback: T): T => fallback,
+      reserveCloudCharacters: vi.fn(),
+      beforeGeminiRequest: async () => undefined
+    };
+    await expect(runKrenOperation(runtime, 'englishDictionary',
+      { text: 'get rid of', targetLanguage: 'invalid language!' }, new AbortController().signal))
+      .rejects.toThrow('Invalid output language code');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(runtime.reserveCloudCharacters).not.toHaveBeenCalled();
   });
 
   it('does not translate an unmatched phrase when the fallback is disabled', async () => {
@@ -158,10 +226,39 @@ describe('English dictionary query validation', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('reports the requested word as a miss instead of returning a suggested word result', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(['ereyesterday']), { status: 200 })
+    );
+    const runtime: KrenRuntime = {
+      getSecret: async (key) => key === KREN_SECRET_KEYS.merriamWebsterCollegiate
+        ? 'mw-key'
+        : undefined,
+      getSetting: <T>(_key: string, fallback: T): T => fallback,
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+
+    await expect(runKrenOperation(
+      runtime,
+      'englishDictionary',
+      { text: 'race' },
+      new AbortController().signal
+    )).rejects.toThrow('returned no entry for “race”');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * The Auto output mode was removed on 2026-08-28: it changed the target with the input,
+   * which is a second detection the reader could not see on the control. A stored copy of it
+   * is read as the default rather than raising an error, because KREN wrote that value
+   * itself and a reader never typed it. The migration clears it at activation; this covers
+   * the window before that runs.
+   */
   it.each([
-    { text: 'Translate this sentence.', expectedTarget: 'ko' },
-    { text: '이 문장을 번역하세요.', expectedTarget: 'en' }
-  ])('automatically routes $text to $expectedTarget', async ({ text, expectedTarget }) => {
+    { text: 'Translate this sentence.', expectedTarget: 'ko-KR' },
+    { text: '이 문장을 번역하세요.', expectedTarget: 'ko-KR' }
+  ])('reads a stored auto-en-ko as the default for $text', async ({ text, expectedTarget }) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({
         data: { translations: [{ translatedText: 'translated', detectedSourceLanguage: 'auto' }] }
@@ -263,7 +360,10 @@ describe('English dictionary query validation', () => {
           'rewrite.geminiProfile': 'pro',
           'gemini.alternateModel': 'gemini-3.1-pro-preview',
           'gemini.alternateThinkingLevel': 'high',
-          'grammar.dialect': 'british',
+          // Set directly, not through Grammar Check. followGrammar was removed on
+          // 2026-08-24 because that coupling meant changing Grammar Check silently changed
+          // what Rewrite Text produced.
+          'rewrite.englishVariety': 'british',
           'rewrite.domain': 'academic',
           'rewrite.modality': 'spoken',
           'rewrite.function': 'proposal',
@@ -291,7 +391,8 @@ describe('English dictionary query validation', () => {
       generationConfig: { thinkingConfig: { thinkingLevel: string } };
     };
     expect(requestBody.contents[0]?.parts[0]?.text).toBe('Leverage synergies.');
-    expect(requestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
+    // 2026-10-11: V221 keeps the selected model/profile but lowers thinking on this short input.
+    expect(requestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('low');
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('disciplined academic prose');
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('British English');
     expect(requestBody.systemInstruction.parts[0]?.text).toContain('suitable for a proposal');
@@ -347,6 +448,8 @@ describe('English dictionary query validation', () => {
           'gemini.alternateFallbackEnabled': true,
           'gemini.alternateFallbackModel': 'gemini-3.5-flash',
           'gemini.alternateFallbackThinkingLevel': 'medium',
+          // 2026-10-14: this probes the explicit same-provider fallback with switching off.
+          'llm.providerSwitch': false,
           'gemini.retry.maxAttempts': 2
         };
         return (settings[key] ?? fallback) as T;
@@ -365,19 +468,20 @@ describe('English dictionary query validation', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('gemini-3.1-pro-preview');
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.1-pro-preview');
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('gemini-3.5-flash');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('gemini-3.6-flash'); // 2026-10-11: stored retired Flash resolves at request time.
     const fallbackRequestBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)) as {
       generationConfig: { thinkingConfig: { thinkingLevel: string } };
     };
     expect(fallbackRequestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('medium');
     expect(result).toMatchObject({
       kind: 'rewrite',
-      modelId: 'gemini-3.5-flash',
+      // 2026-10-11: results show the resolved retired model.
+      modelId: 'gemini-3.6-flash',
       fallbackFromModel: 'gemini-3.1-pro-preview'
     });
   });
 
-  it('uses the configured alternate Gemini fallback after malformed structured output', async () => {
+  it('retries malformed Fast output with Thorough thinking on the feature model', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: '{not valid json' }] } }]
@@ -413,12 +517,13 @@ describe('English dictionary query validation', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('gemini-3.1-pro-preview');
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.5-flash');
+    // 2026-10-11: V221 retries validation once on the feature's own model.
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.1-pro-preview');
     expect(result).toMatchObject({
       kind: 'rewrite',
-      modelId: 'gemini-3.5-flash',
-      fallbackFromModel: 'gemini-3.1-pro-preview'
+      modelId: 'gemini-3.1-pro-preview'
     });
+    expect(result).not.toHaveProperty('fallbackFromModel');
   });
 
   it('does not use the alternate-profile fallback for a non-transient request error', async () => {
@@ -486,7 +591,8 @@ describe('English dictionary query validation', () => {
       generationConfig: { thinkingConfig: { thinkingLevel: string } };
     };
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('gemini-3.1-pro-preview');
-    expect(requestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('high');
+    // 2026-10-11: V221 keeps the selected model/profile but lowers thinking on this short input.
+    expect(requestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('low');
     expect(consentProfile).toBe('pro');
     expect(result).toMatchObject({ providerId: 'gemini', modelId: 'gemini-3.1-pro-preview' });
   });
@@ -531,14 +637,15 @@ describe('English dictionary query validation', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('gemini-3.1-pro-preview');
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.5-flash');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('gemini-3.6-flash'); // 2026-10-11: stored retired Flash resolves at request time.
     const fallbackRequestBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
       generationConfig: { thinkingConfig: { thinkingLevel: string } };
     };
     expect(fallbackRequestBody.generationConfig.thinkingConfig.thinkingLevel).toBe('minimal');
     expect(result).toMatchObject({
       providerId: 'gemini',
-      modelId: 'gemini-3.5-flash',
+      // 2026-10-11: results show the resolved retired model.
+      modelId: 'gemini-3.6-flash',
       fallbackFromModel: 'gemini-3.1-pro-preview'
     });
   });
@@ -605,5 +712,88 @@ describe('English dictionary query validation', () => {
     )).rejects.toMatchObject({ status: 503 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('api.openai.com');
+  });
+});
+
+// Harper carries English rules and an English dictionary. Run on French it reports every
+// word as a misspelling, because every word is outside its dictionary, and a page of wrong
+// findings is worse than none. Auto-detect is the only setting that can refuse to run it;
+// naming a dialect is an instruction to check this text as English and is always honoured.
+describe('the Grammar Check input language', () => {
+  function grammarRuntime(dialect: string): KrenRuntime {
+    return {
+      getSecret: async () => undefined,
+      getSetting: <T>(key: string, fallback: T): T =>
+        (key === 'grammar.dialect' ? dialect : fallback) as T,
+      reserveCloudCharacters: async () => undefined,
+      beforeGeminiRequest: async () => undefined
+    };
+  }
+
+  async function check(dialect: string, text: string) {
+    const result = await runKrenOperation(
+      grammarRuntime(dialect),
+      'grammar',
+      explicitTextSubmission(text),
+      new AbortController().signal
+    );
+    if (result.kind !== 'grammar') throw new Error('expected a grammar result');
+    return result;
+  }
+
+  it('runs the offline checker on English under Auto-detect', async () => {
+    const result = await check('auto', 'I has an apple and she go to school.');
+    expect(result.issues.length).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('skips the offline checker on text that is not English', async () => {
+    const french = await check('auto', 'Il est arrive a la fete sans avoir ete invite par personne.');
+    expect(french.issues).toEqual([]);
+    const korean = await check('auto', '그는 초대도 없이 파티에 나타났다. 아무도 신경 쓰지 않았다.');
+    expect(korean.issues).toEqual([]);
+  });
+
+  // Reversed 2026-08-24. The rule was "an explicit dialect means check this as English, even
+  // where the detector disagrees". The owner ran Grammar Check on a Korean sentence with
+  // American English selected: Harper found nothing, because it has no Korean rules, and
+  // Smart Grammar Check corrected the Korean happily. Neither half did what the setting
+  // promised and nothing said so.
+  it('refuses text that is not in the language the reader said it was in', async () => {
+    for (const text of [
+      '그는 초대도 없이 파티에 나타났다. 아무도 신경 쓰지 않았다.',
+      'Il est arrive a la fete sans avoir ete invite par personne.'
+    ]) {
+      await expect(check('american', text)).rejects.toThrow(/does not look like English/u);
+    }
+  });
+
+  it('names the setting and the one-click fix in the refusal', async () => {
+    // Refused rather than warned, because a warning has to be followed by running the check
+    // anyway, which is the behaviour being complained about. The refusal costs no provider
+    // call, so it has to say what to change instead.
+    await expect(check('american', '그는 초대도 없이 파티에 나타났다. 아무도 신경 쓰지 않았다.'))
+      .rejects.toThrow(/Auto-detect/u);
+  });
+
+  it('makes no language claim under Auto-detect, so there is nothing to contradict', async () => {
+    const korean = await check('auto', '그는 초대도 없이 파티에 나타났다. 아무도 신경 쓰지 않았다.');
+    expect(korean.issues).toEqual([]);
+  });
+});
+
+describe('the Rewrite Text output language', () => {
+  it('keeps any recognised choice untouched', () => {
+    expect(resolveRewriteOutputLanguage('sameAsSource')).toBe('sameAsSource');
+    expect(resolveRewriteOutputLanguage('british')).toBe('british');
+    expect(resolveRewriteOutputLanguage('international')).toBe('international');
+  });
+
+  it('migrates the retired followGrammar value to the default', () => {
+    // Removed 2026-08-24 because it named the Grammar Check setting rather than a language.
+    // A reader who chose it still has it stored, and an unrecognised value reaching the
+    // request matches no instruction, which looks like a rewrite that ignores the axis.
+    expect(resolveRewriteOutputLanguage('followGrammar')).toBe('sameAsSource');
+    expect(resolveRewriteOutputLanguage(undefined)).toBe('sameAsSource');
+    expect(resolveRewriteOutputLanguage('nonsense')).toBe('sameAsSource');
   });
 });

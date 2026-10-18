@@ -2,27 +2,27 @@ import {
   USER_DICTIONARY_CAPTURE_MODES,
   USER_DICTIONARY_PROVIDERS,
   type UserDictionaryCaptureMode,
-  type UserDictionaryProviderCaptureMode,
-  type UserDictionaryProvider
-} from '@kren/core/user-dictionary';
+  type UserDictionaryProviderCaptureMode
+} from './providerContract.js';
+import type { LanguageModelRoutingProvider as UserDictionaryProvider } from '../languageModelRouting.js';
 import { DEFAULT_GEMINI_MODEL } from '../providers/geminiModels.js';
+import {
+  LANGUAGE_MODEL_ROUTING_EFFORTS,
+  languageModelRoutingEffortOptions,
+  languageModelRoutingProviderOptions,
+  type LanguageModelRoutingEffort
+} from '../languageModelRouting.js';
 
 interface UserDictionaryOption<T extends string | number> {
   id: T;
   label: string;
 }
 
-export const USER_DICTIONARY_THINKING_OR_EFFORTS = [
-  { id: 'auto', label: 'Auto' },
-  { id: 'none', label: 'None' },
-  { id: 'minimal', label: 'Minimal' },
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' }
-] as const satisfies readonly UserDictionaryOption<string>[];
+// The same six levels every KREN feature that calls a language model offers. Defined in
+// languageModelRouting.ts and read here, so User Dictionary and Translation cannot drift.
+export const USER_DICTIONARY_THINKING_OR_EFFORTS = LANGUAGE_MODEL_ROUTING_EFFORTS;
 
-export type UserDictionaryThinkingOrEffort =
-  typeof USER_DICTIONARY_THINKING_OR_EFFORTS[number]['id'];
+export type UserDictionaryThinkingOrEffort = LanguageModelRoutingEffort;
 
 export const USER_DICTIONARY_EXAMPLE_COUNTS = [
   { id: 0, label: '0' },
@@ -92,7 +92,7 @@ export function userDictionaryThinkingOrEffortOptions(): Array<[
   UserDictionaryThinkingOrEffort,
   string
 ]> {
-  return USER_DICTIONARY_THINKING_OR_EFFORTS.map((option) => [option.id, option.label]);
+  return languageModelRoutingEffortOptions();
 }
 
 export function userDictionaryExampleCountOptions(): Array<[
@@ -125,8 +125,5 @@ export function userDictionaryCaptureFilterOptions(): Array<[
 }
 
 export function userDictionaryProviderOptions(): Array<[UserDictionaryProvider, string]> {
-  return USER_DICTIONARY_PROVIDERS.map((id) => [
-    id,
-    id === 'gemini' ? 'Google Gemini' : id === 'openai' ? 'OpenAI API' : 'Anthropic Claude API'
-  ]);
+  return languageModelRoutingProviderOptions();
 }

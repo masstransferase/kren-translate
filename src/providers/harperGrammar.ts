@@ -33,16 +33,28 @@ export async function warmHarperGrammar(): Promise<void> {
   });
 }
 
+/**
+ * `run` false returns the same result shape with no findings and never starts the worker.
+ *
+ * Harper carries English rules and an English dictionary. On Korean it finds nothing, and on
+ * French or Spanish it reports every word as a misspelling, because every word is outside
+ * its dictionary. A caller that has decided the text is not English wants no findings rather
+ * than a page of wrong ones, and it still wants a grammar result, because Smart Grammar
+ * Check merges into it.
+ */
 export async function checkGrammarWithHarper(
   text: string,
   dialect: GrammarDialect,
-  signal: AbortSignal
+  signal: AbortSignal,
+  run = true
 ): Promise<GrammarResult> {
   signal.throwIfAborted();
-  const issues = await client().request<GrammarIssue[]>({
-    type: 'check',
-    payload: { text, dialect, ...preferences }
-  }, signal);
+  const issues = run
+    ? await client().request<GrammarIssue[]>({
+      type: 'check',
+      payload: { text, dialect, ...preferences }
+    }, signal)
+    : [];
   signal.throwIfAborted();
   return {
     kind: 'grammar',

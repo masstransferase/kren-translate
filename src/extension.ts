@@ -1,3 +1,15 @@
+import { runFeatureRequest, providerCredentialAction, requestFailure, CURRENT_REQUEST_POLICIES, recordedRequestOutcome, presentRequestFailure } from './requestCenter.js';
+import { EnvironmentChecks, availabilityNames, listEnvironmentGeminiModels } from './environmentCheck.js';
+import { postProviderSwitchSettings } from './resultsViewSettings.js';
+import { GoogleChirpSpeech, SpeechCenter, type TutorSpeechFallback } from './speech/speechCenter.js';
+import { EdgeOnlineSpeechAdapter, LocalWindowsSpeechAdapter } from './speech/windowsSpeechAdapters.js';
+import { WindowsNativeAudioPlayer } from './speech/speechCenter.js';
+import { normalizedReadAloudChirpVoice } from './readAloudChirp.js';
+import { configureLanguageModelUsage, languageModelUsageToday, LanguageModelUsageRecorder } from './languageModelUsage.js';
+import { configureProviderExhaustion, ProviderExhaustionState, DEFAULT_PROVIDER_ORDER, clearProviderExhaustionForCredential, resetProviderExhaustion } from './languageModelSwitching.js';
+import { modeEffort } from './tutor/thinkingMode.js';
+import { normalizeModelSetting } from './providers/geminiModels.js';
+import { listGroqModels, listGroqModelsUnfiltered, GROQ_MODELS, routedModel } from './providers/openAICompatible.js';
 import path from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import * as vscode from 'vscode';
@@ -9,8 +21,9 @@ import {
 import { errorMessage, ProviderError } from './errors.js';
 import { FileCloudTranslationUsage } from './fileCloudTranslationUsage.js';
 import { HoverStore } from './hoverStore.js';
+import { TUTOR_DEFAULTS } from './tutor/defaults.js';
+import { generateCloudflareSituationPicture, generateSituationPicture } from './providers/situationPicture.js';
 import {
-  AUTO_ENGLISH_KOREAN_TARGET,
   isPlausibleLanguageCode,
   KREN_LANGUAGES,
   languageName
@@ -20,13 +33,33 @@ import {
   isMerriamWebsterSecretKey,
   KREN_SECRET_KEYS,
   MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE,
+  featureModel,
   runKrenOperation,
+  runTutorAudioTranscription,
+  runTutorStructuredRequest,
+  runTutorTranslation,
   runUserDictionaryCapture,
   storeMerriamWebsterKey,
+  REPLAY_SUBJECTS,
   type KrenOperation,
   type KrenRuntime
 } from './operations.js';
+import {
+  geminiRefreshTarget,
+  type GeminiRefreshProfile
+} from './geminiProfileRefresh.js';
+import {
+  DEFAULT_TRANSLATION_TARGET,
+  EXPLANATION_SAME_AS_SOURCE,
+  TRANSLATION_AUTO_SOURCE
+} from './types.js';
+import { krenConfigurationKeys, krenResetPlan } from './resetKren.js';
 import { resultDetails, resultText } from './render.js';
+import {
+  describeClipboardDecision,
+  rewriteClipboardText,
+  shouldCopyRewriteToClipboard
+} from './rewriteClipboard.js';
 import {
   mergeSmartGrammarIssues,
   smartGrammarIssues,
@@ -35,10 +68,13 @@ import {
 import { explicitTextSubmission } from './submission.js';
 import {
   KrenResultsViewProvider,
+  type KrenResultsViewPanel,
   type KrenPanelCommand,
-  type KrenPanelSettingKey
+  type KrenPanelSettingKey,
+  type TutorVoiceDefaultSettingKey
 } from './resultsView.js';
 import type { KrenPanelSettings } from './resultViewHtml.js';
+import { postLanguageModelUsage, postTutorHintPrefetchSetting, postTutorPictureStyleSetting, reconcileTutorPictureProviderChange } from './resultsViewSettings.js';
 import {
   ALL_REWRITE_VARIANTS_ID,
   isRewriteVariantId,
@@ -48,19 +84,25 @@ import {
 } from './rewriteVariants.js';
 import {
   isRewriteAxisSetting,
+  isRewriteOtherLanguage,
   migrateLegacyRewriteSettings,
   REWRITE_AXIS_DEFAULTS,
+  REWRITE_DOMAINS,
   type RewriteConfigurationTarget
 } from '@kren/core/rewrite-axes';
 import { KoreanDictionaryProvider } from './providers/koreanDictionary.js';
 import {
   DEFAULT_GEMINI_MODEL,
   DEFAULT_PRO_MODELS,
+  geminiModelCatalog,
+  listGeminiImageModels,
+  listGeminiLiveModels,
   listGeminiProModels,
+  type GeminiModelCatalogProtections,
   type GeminiModelOption
 } from './providers/geminiModels.js';
-import { listOpenAIModels } from './providers/openai.js';
-import { listAnthropicModels } from './providers/anthropic.js';
+import { listOpenAIModels, listOpenAIModelsUnfiltered } from './providers/openai.js';
+import { listAnthropicModels, listAnthropicModelsUnfiltered } from './providers/anthropic.js';
 import type {
   DictionaryRequest,
   GrammarChoice,
@@ -72,7 +114,7 @@ import {
   prepareTextForSpeech,
   WindowsReadAloudPlayer
 } from './windowsReadAloud.js';
-import { WindowsEdgeReadAloudPlayer } from './windowsEdgeReadAloud.js';
+import { WindowsEdgeReadAloudPlayer } from './speech/speechCenter.js';
 import {
   addHarperWord,
   applyGrammarChoices,
@@ -84,7 +126,28 @@ import {
   normalizeCustomWord
 } from './providers/harperGrammar.js';
 import { GrammarCodeActions, type GrammarDiagnosticState } from './grammarCodeActions.js';
-import { USER_DICTIONARY_MAX_IMPORT_ENTRIES } from '@kren/core/user-dictionary';
+import {
+  customModelIdentifiers,
+  KNOWN_TUTOR_LIVE_MODEL_IDS,
+  migratedTutorLiveCustomModels,
+  READ_ALOUD_PROVIDER_DEFAULT,
+  READ_ALOUD_EDGE_VOICE_DEFAULT,
+  RESULTS_OPEN_AT_STARTUP_DEFAULT,
+  CLOUDFLARE_IMAGE_MODEL_DEFAULT,
+  TUTOR_LIVE_MODEL_DEFAULT,
+  validatedPanelSetting
+} from './panelSettings.js';
+import { languageModelCredentialSlot, TRANSLATION_ROUTING_DEFAULTS } from './languageModelRouting.js';
+import {
+  EDGE_SPEECH_AUTO_LOCALE,
+  resolveEdgeSpeechVoice
+} from '@kren/core/edge-speech';
+import type { GrammarIssue } from '@kren/core/contracts';
+import { TUTOR_ROUTING_DEFAULTS } from './tutor/state.js';
+import {
+  sentenceAroundSelection,
+  USER_DICTIONARY_MAX_IMPORT_ENTRIES
+} from './userDictionary/providerContract.js';
 import {
   normalizeUserDictionaryTerm,
   exportUserDictionaryJson,
@@ -105,8 +168,10 @@ import {
 
 const GEMINI_KEY = KREN_SECRET_KEYS.gemini;
 const GEMINI_PRO_KEY = KREN_SECRET_KEYS.geminiPro;
+const GROQ_KEY = KREN_SECRET_KEYS.groq;
 const OPENAI_KEY = KREN_SECRET_KEYS.openai;
 const ANTHROPIC_KEY = KREN_SECRET_KEYS.anthropic;
+const GOOGLE_CLOUD_TEXT_TO_SPEECH_KEY = KREN_SECRET_KEYS.googleCloudTextToSpeech;
 const GOOGLE_CLOUD_TRANSLATION_KEY = KREN_SECRET_KEYS.googleCloudTranslation;
 const DICTIONARY_KEY = KREN_SECRET_KEYS.koreanDictionary;
 const MW_COLLEGIATE_KEY = KREN_SECRET_KEYS.merriamWebsterCollegiate;
@@ -117,9 +182,16 @@ const OPENAI_CONSENT = 'kren.openai.paidConsent.v2';
 const ANTHROPIC_CONSENT = 'kren.anthropic.paidConsent.v2';
 const CLOUD_DEFAULT_MIGRATION = 'kren.migration.cloudTranslationDefault.v1';
 const GEMINI_FALLBACK_MODEL_MIGRATION = 'kren.migration.geminiFallbackModel.v1';
-const AUTO_TRANSLATION_TARGET_MIGRATION = 'kren.migration.autoTranslationTarget.v1';
+const KOREAN_TRANSLATION_TARGET_MIGRATION = 'kren.migration.koreanTranslationTarget.v1';
+const BILINGUAL_EXPLANATION_MIGRATION = 'kren.migration.bilingualExplanation.v1';
 const LEGACY_CLOUD_USAGE_KEY = 'kren.googleCloudTranslation.usage.v1';
 const EDGE_TTS_CONSENT = 'kren.edgeTts.onlineConsent.v1';
+/**
+ * The reader's AI English Tutor conversation choices. Held here rather than in VS Code
+ * settings because they are panel controls rather than configuration, and the panel validates
+ * every value on the way back in, so a stale entry selects the current default instead.
+ */
+const TUTOR_CONVERSATION_PREFERENCES = 'kren.tutor.conversationPreferences.v1';
 const GRAMMAR_CUSTOM_WORDS = 'kren.grammar.customWords.v1';
 const GRAMMAR_IGNORED_LINTS = 'kren.grammar.ignoredLints.v1';
 
@@ -132,15 +204,19 @@ interface LastResult {
 
 let lastResult: LastResult | undefined;
 let outputChannel: vscode.OutputChannel;
+let resultRequestGeneration = 0;
 let cloudTranslationUsage: FileCloudTranslationUsage;
-let resultsView: KrenResultsViewProvider;
+let resultsView: KrenResultsViewPanel;
 let readAloudPlayer: WindowsReadAloudPlayer;
 let edgeReadAloudPlayer: WindowsEdgeReadAloudPlayer;
+let chirpSpeech: GoogleChirpSpeech;
+let nativeAudioPlayer: WindowsNativeAudioPlayer;
+let readAloudChirpSpeech: GoogleChirpSpeech;
 let grammarCodeActions: GrammarCodeActions;
 let readAloudVoices: string[] = [];
 let readAloudVoicesPromise: Promise<void> | undefined;
 let extensionVersion = '0.0.0';
-let readAloudSession = 0;
+let speechCenter: SpeechCenter;
 let automaticGrammarTimer: NodeJS.Timeout | undefined;
 let activeExtensionContext: vscode.ExtensionContext;
 let storedSecretKeys = new Set<string>();
@@ -149,12 +225,25 @@ let userDictionaryStoragePath = '';
 
 type NotificationKind = 'information' | 'warning' | 'error';
 
+function showKrenWarningMessage(message: string, optionsOrChoice?: vscode.MessageOptions | string, ...choices: string[]): Thenable<string | undefined> {
+  if (resultsView?.showWarningMessage) return resultsView.showWarningMessage(message, optionsOrChoice, ...choices);
+  return typeof optionsOrChoice === 'object'
+    ? vscode.window.showWarningMessage(message, optionsOrChoice, ...choices)
+    : vscode.window.showWarningMessage(message, ...(typeof optionsOrChoice === 'string' ? [optionsOrChoice, ...choices] : choices));
+}
+function showKrenErrorMessage(message: string, optionsOrChoice?: vscode.MessageOptions | string, ...choices: string[]): Thenable<string | undefined> {
+  if (resultsView?.showErrorMessage) return resultsView.showErrorMessage(message, optionsOrChoice, ...choices);
+  return typeof optionsOrChoice === 'object'
+    ? vscode.window.showErrorMessage(message, optionsOrChoice, ...choices)
+    : vscode.window.showErrorMessage(message, ...(typeof optionsOrChoice === 'string' ? [optionsOrChoice, ...choices] : choices));
+}
+
 export function notify(kind: NotificationKind, message: string): void {
   const notification = kind === 'information'
     ? vscode.window.showInformationMessage(message)
     : kind === 'warning'
-      ? vscode.window.showWarningMessage(message)
-      : vscode.window.showErrorMessage(message);
+      ? showKrenWarningMessage(message)
+      : showKrenErrorMessage(message);
   void Promise.resolve(notification).catch(() => undefined);
 }
 
@@ -186,7 +275,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await vscode.commands.executeCommand(
     'setContext',
     KrenResultsViewProvider.enabledContext,
-    vscode.workspace.getConfiguration('kren').get<boolean>('results.openAtStartup', false)
+    vscode.workspace.getConfiguration('kren').get<boolean>('results.openAtStartup', RESULTS_OPEN_AT_STARTUP_DEFAULT)
   );
   activeExtensionContext = context;
   extensionVersion = String(context.extension.packageJSON.version ?? '0.0.0');
@@ -210,6 +299,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const hoverStore = new HoverStore(vscode.Uri.joinPath(context.extensionUri, 'media'));
   readAloudPlayer = new WindowsReadAloudPlayer();
   edgeReadAloudPlayer = new WindowsEdgeReadAloudPlayer();
+  nativeAudioPlayer = new WindowsNativeAudioPlayer(new WindowsEdgeReadAloudPlayer(), {
+    log: line => outputChannel.appendLine(line)
+  });
+  chirpSpeech = new GoogleChirpSpeech(slot => context.secrets.get(slot), {
+    beginSession: () => nativeAudioPlayer.beginSession(),
+    play: (audio, volume, onStarted) => nativeAudioPlayer.play(audio, volume, onStarted),
+    stop: () => nativeAudioPlayer.stop(),
+    failureCause: () => nativeAudioPlayer.failureCause()
+  }, message => notify('warning', message), fetch, line => outputChannel.appendLine(line));
+  readAloudChirpSpeech = new GoogleChirpSpeech(slot => context.secrets.get(slot), {
+    beginSession: () => nativeAudioPlayer.beginSession(),
+    play: (audio, volume, onStarted) => nativeAudioPlayer.play(audio, volume, onStarted),
+    stop: () => nativeAudioPlayer.stop(),
+    failureCause: () => nativeAudioPlayer.failureCause()
+  }, message => notify('warning', message), fetch, line => outputChannel.appendLine(line));
+  speechCenter = new SpeechCenter(chirpSpeech, readAloudChirpSpeech,
+    new EdgeOnlineSpeechAdapter(edgeReadAloudPlayer), new LocalWindowsSpeechAdapter(readAloudPlayer), {
+      configuration: () => vscode.workspace.getConfiguration('kren'),
+      trusted: () => vscode.workspace.isTrusted,
+      consent: () => ensureEdgeTtsConsent(context),
+      active: value => vscode.commands.executeCommand('setContext', 'kren.readAloudActive', value),
+      status: provider => vscode.window.setStatusBarMessage(provider === 'edgeOnline'
+        ? '$(cloud-download) KREN: Generating and reading Edge voice...'
+        : '$(unmute) KREN: Reading aloud...'),
+      hold: () => resultsView.holdTutorSpeech(),
+      started: () => resultsView.tutorSpeechPlaybackStarted(),
+      liveSpeaking: () => resultsView.tutorLiveSpeaking(),
+      conversation: () => resultsView.tutorSpeechConversationIdentity(),
+      speakerVoice: () => resultsView.tutorSpeechVoice(),
+      playback: () => resultsView.edgeAudioPlayback(),
+      notify, showKrenErrorMessage, copyText: text => vscode.env.clipboard.writeText(text),
+      log: line => outputChannel.appendLine(line)
+    });
+
   grammarCodeActions = new GrammarCodeActions();
   configureHarperGrammar({
     customWords: context.globalState.get<string[]>(GRAMMAR_CUSTOM_WORDS, []),
@@ -217,11 +340,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   await migrateTranslationProviderToCloud(context);
   await migrateDeprecatedGeminiFallback(context);
-  await migrateTranslationTargetToAutomatic(context);
+  await migrateAutoTranslationTargetToKorean(context);
+  await migrateBilingualExplanation(context);
+  await migrateTutorLiveCustomModels();
   await migrateRewriteAxes();
   registerKrenChatTools(context, extensionRuntime(context));
   resultsView = new KrenResultsViewProvider({
     notify,
+    invalidateResultRequests: () => { resultRequestGeneration += 1; },
     copy: copyLastResult,
     details: showDetails,
     replace: replaceLastResult,
@@ -229,7 +355,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     replaceText: replaceLastResultWith,
     applyGrammarChoices: (choices, replace) => applySelectedGrammarChoices(choices, replace),
     manageGrammarIssue: (issueId, action) => managePanelGrammarIssue(context, issueId, action),
-    readAloudText: (text) => readAloudText(context, text),
+    readAloudText: (text, language, settingsSource, edgeVoice) =>
+      readAloudText(context, text, language, settingsSource, edgeVoice).then(() => {}),
     stopReadAloud: () => { stopReadAloud(false); },
     clear: () => {
       lastResult = undefined;
@@ -251,27 +378,115 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       exportUserDictionary(format, entryIds),
     regenerateUserDictionaryEntry: (expression, captureMode) =>
       regenerateUserDictionaryDraft(context, expression, captureMode),
+    readSelectedEditorPassage,
+    generateTutor: (request, route, signal) =>
+      runTutorStructuredRequest(extensionRuntime(context), route, request, signal),
+    generateSituationPicture: async (scene, signal, reference) => {
+      const runtime = extensionRuntime(context);
+      const style = readPanelSettings().tutorConversationPictureStyle ?? TUTOR_DEFAULTS.configuration['tutor.conversation.pictureStyle'];
+      if (readPanelSettings().tutorPictureProvider === 'cloudflare') {
+        const accountId = await runtime.getSecret(KREN_SECRET_KEYS.cloudflareAccountId);
+        const token = await runtime.getSecret(KREN_SECRET_KEYS.cloudflareApiToken);
+        const model = readPanelSettings().tutorCloudflareImageModel;
+        return generateCloudflareSituationPicture(scene, accountId ?? '', token ?? '', signal, reference, model, style);
+      }
+      const key = await runtime.getSecret(KREN_SECRET_KEYS.geminiPro);
+      if (!key) throw new Error('Gemini situation picture needs a Gemini Paid API key.');
+      await runtime.beforeGeminiRequest('pro');
+      return generateSituationPicture(scene, key, signal, reference, vscode.workspace.getConfiguration('kren').get('tutor.imageModel', TUTOR_DEFAULTS.configuration['tutor.imageModel']), style);
+    },
+    transcribeTutorAudio: (audio, signal, provider) =>
+      runTutorAudioTranscription(extensionRuntime(context), audio, signal, undefined, provider),
+    runTutorTool: (operation, text, signal, targetLanguage, retry) => {
+      const settings = readPanelSettings();
+      return operation === 'translate'
+        ? runTutorTranslation(extensionRuntime(context), { provider: settings.tutorProvider,
+          model: settings.tutorProvider === 'gemini' && settings.tutorProfile === 'pro' ? settings.tutorAlternateModel : settings.tutorModel,
+          fastModel: settings.tutorHintModel, thinkingOrEffort: settings.tutorThinkingOrEffort, geminiProfile: settings.tutorProfile,
+          fallbackEnabled: false, fallbackModel: '', fallbackThinkingOrEffort: 'auto' }, text, signal, targetLanguage, retry)
+        : runKrenOperation(extensionRuntime(context), operation, { text, targetLanguage }, signal);
+    },
     updateSetting: updatePanelSetting,
+    updateTutorVoiceSetting,
     runCommand: runPanelCommand,
+    rerunOperation: (operation, sourceText) =>
+      rerunOperation(context, hoverStore, operation, sourceText),
     log: (message) => outputChannel.appendLine(message),
+    readTutorPreferences: () => context.globalState.get<unknown>(TUTOR_CONVERSATION_PREFERENCES),
+    writeTutorPreferences: (preferences) => {
+      void context.globalState.update(TUTOR_CONVERSATION_PREFERENCES, preferences);
+    },
     settings: readPanelSettings,
-    refreshProModels: () => refreshProModels(context),
+    refreshGeminiImageModels: () => refreshGeminiImageModels(context),
+    refreshGeminiModels: () => refreshGeminiProfileModels(context, 'default'),
+    refreshGeminiLiveModels: () => refreshGeminiLiveProfileModels(context),
+    refreshProModels: () => refreshGeminiProfileModels(context, 'alternate'),
+    refreshGroqModels: () => refreshGroqModels(context),
     refreshOpenAIModels: () => refreshOpenAIModels(context),
     refreshAnthropicModels: () => refreshAnthropicModels(context),
     refreshReadAloudVoices
   }, context.extensionUri);
+  resultsView.environmentChecks = new EnvironmentChecks({
+    pythonCommand: () => vscode.workspace.getConfiguration('kren').get<string>('readAloud.edgePythonCommand', 'python'),
+    trusted: () => vscode.workspace.isTrusted,
+    vscodeVersion: vscode.version,
+    vscodeMinimum: context.extension.packageJSON.engines.vscode,
+    detectHandy: () => resultsView.handy.detect(),
+    dailyEnabled: () => vscode.workspace.getConfiguration('kren').get<boolean>('updates.dailyCheck', true),
+    store: context.globalState,
+    manual: {
+      getKey: provider => provider === 'googleChirp'
+        ? context.secrets.get(KREN_SECRET_KEYS.googleCloudTextToSpeech).then(key => key || context.secrets.get(KREN_SECRET_KEYS.googleCloudTranslation))
+        : context.secrets.get(KREN_SECRET_KEYS[provider === 'cloudflare' ? 'cloudflareApiToken' : provider]),
+      models: () => updateAvailabilityNames().models,
+      edgeVoices: () => updateAvailabilityNames().edgeVoices,
+      chirpVoices: () => updateAvailabilityNames().chirpVoices,
+      listers: { gemini: listEnvironmentGeminiModels, geminiPro: listEnvironmentGeminiModels,
+        openai: listOpenAIModelsUnfiltered, anthropic: listAnthropicModelsUnfiltered, groq: listGroqModelsUnfiltered }
+    },
+    changed: () => resultsView.environmentChecksChanged(),
+    confirm: async command => {
+      const choice = await showKrenWarningMessage(`Run ${command}?`, { modal: true }, 'Update');
+      return choice === 'Update';
+    },
+    progress: async task => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+      title: 'Updating edge-tts. Please wait.' }, task),
+    report: message => notify('warning', message),
+    log: line => outputChannel.appendLine(line)
+  });
+  function updateAvailabilityNames() {
+    const config = vscode.workspace.getConfiguration('kren');
+    const properties = context.extension.packageJSON.contributes.configuration.properties;
+    return availabilityNames((key, fallback) => config.get<string>(key, properties[`kren.${key}`]?.default ?? fallback),
+      (key, fallback) => properties[`kren.${key}`]?.default ?? fallback);
+  }
+  // Defer the silent daily check so activation and panel registration never wait for it.
+  const environmentTimer = setTimeout(() => {
+    void resultsView.environmentChecks?.daily().catch(() => undefined);
+  }, 0);
+  context.subscriptions.push({ dispose: () => clearTimeout(environmentTimer) });
+  configureLanguageModelUsage(new LanguageModelUsageRecorder(context.globalState,
+    line => outputChannel.appendLine(line), () => {
+      postLanguageModelUsage(resultsView);
+    }));
+  configureProviderExhaustion(new ProviderExhaustionState(context.globalState, undefined, () => postLanguageModelUsage(resultsView)));
   const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.text = '$(book) KREN';
   statusItem.tooltip = 'KREN actions, clipboard tools, and Secondary Sidebar';
   statusItem.command = 'kren.useClipboard';
   statusItem.show();
 
+  let previousPictureProvider = readPanelSettings().tutorPictureProvider;
   context.subscriptions.push(
     outputChannel,
     statusItem,
     resultsView,
     readAloudPlayer,
     edgeReadAloudPlayer,
+    chirpSpeech,
+    nativeAudioPlayer,
+    readAloudChirpSpeech,
+    speechCenter,
     grammarCodeActions,
     vscode.languages.registerCodeActionsProvider(
       { scheme: '*' },
@@ -280,7 +495,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.window.registerWebviewViewProvider(
       KrenResultsViewProvider.viewId,
-      resultsView
+      resultsView,
+      { webviewOptions: { retainContextWhenHidden: true } }
     ),
     vscode.languages.registerHoverProvider({ scheme: '*' }, hoverStore),
     vscode.commands.registerCommand('kren.translateSelection', () =>
@@ -365,6 +581,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kren.openUserDictionary', () =>
       openUserDictionary()
     ),
+    vscode.commands.registerCommand('kren.openTutor', () => resultsView.showTutor()),
     vscode.commands.registerCommand('kren.hideResults', () => resultsView.hide()),
     // Deprecated alias for the identifier used before 1.3.3, kept registered but no
     // longer contributed in package.json, so it stays out of the Command Palette while a
@@ -388,17 +605,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       resultsView.playPronunciation(audioUrl, headword)
     ),
     vscode.commands.registerCommand('kren.setGeminiApiKey', () =>
-      setSecret(context, GEMINI_KEY, 'Enter your default Gemini API key')
+      setSecret(context, GEMINI_KEY, 'Enter your Gemini Free Tier API key')
     ),
     vscode.commands.registerCommand('kren.deleteGeminiApiKey', () =>
-      deleteSecret(context, GEMINI_KEY, 'Default Gemini API key deleted.')
+      deleteSecret(context, GEMINI_KEY, 'Gemini Free Tier API key deleted.')
     ),
     vscode.commands.registerCommand('kren.setGeminiProApiKey', () =>
-      setSecret(context, GEMINI_PRO_KEY, 'Enter your alternate Gemini API key')
+      setSecret(context, GEMINI_PRO_KEY, 'Enter your Gemini Paid API key')
     ),
     vscode.commands.registerCommand('kren.deleteGeminiProApiKey', () =>
-      deleteSecret(context, GEMINI_PRO_KEY, 'Alternate Gemini API key deleted.')
+      deleteSecret(context, GEMINI_PRO_KEY, 'Gemini Paid API key deleted.')
     ),
+    vscode.commands.registerCommand('kren.setGroqApiKey', () => setSecret(context, GROQ_KEY, 'Enter your Groq API key')),
+    vscode.commands.registerCommand('kren.deleteGroqApiKey', () => deleteSecret(context, GROQ_KEY, 'Groq API key deleted.')),
+    vscode.commands.registerCommand('kren.testGroqConnection', () => testLanguageModelConnection(context, 'Groq', GROQ_KEY, 'kren.setGroqApiKey', listGroqModels)),
     vscode.commands.registerCommand('kren.setOpenAIApiKey', () =>
       setSecret(context, OPENAI_KEY, 'Enter your OpenAI API key')
     ),
@@ -407,6 +627,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand('kren.testOpenAIConnection', () =>
       testLanguageModelConnection(context, 'OpenAI', OPENAI_KEY, 'kren.setOpenAIApiKey', listOpenAIModels)
+    ),
+    vscode.commands.registerCommand('kren.setCloudflareAccountId', () =>
+      setSecret(context, KREN_SECRET_KEYS.cloudflareAccountId, 'Enter your Cloudflare account ID')
+    ),
+    vscode.commands.registerCommand('kren.deleteCloudflareAccountId', () =>
+      deleteSecret(context, KREN_SECRET_KEYS.cloudflareAccountId, 'Cloudflare account ID deleted.')
+    ),
+    vscode.commands.registerCommand('kren.setCloudflareApiToken', () =>
+      setSecret(context, KREN_SECRET_KEYS.cloudflareApiToken, 'Enter your Cloudflare API token')
+    ),
+    vscode.commands.registerCommand('kren.deleteCloudflareApiToken', () =>
+      deleteSecret(context, KREN_SECRET_KEYS.cloudflareApiToken, 'Cloudflare API token deleted.')
     ),
     vscode.commands.registerCommand('kren.setAnthropicApiKey', () =>
       setSecret(context, ANTHROPIC_KEY, 'Enter your Anthropic API key')
@@ -422,6 +654,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'kren.setAnthropicApiKey',
         listAnthropicModels
       )
+    ),
+    vscode.commands.registerCommand('kren.testGoogleCloudTextToSpeech', async () => {
+      const config = vscode.workspace.getConfiguration('kren');
+      const message = await chirpSpeech.test({
+        voice: config.get<string>('tutor.liveFemaleVoice', 'Callirrhoe'),
+        ratePercent: config.get<number>('tutor.readAloud.edgeRatePercent', 0),
+        volume: config.get<number>('tutor.readAloud.volume', 100)
+      });
+      notify(message === 'Google Cloud Text-to-Speech works.' ? 'information' : 'warning', message);
+    }),
+    vscode.commands.registerCommand('kren.setGoogleCloudTextToSpeechApiKey', () =>
+      setSecret(context, GOOGLE_CLOUD_TEXT_TO_SPEECH_KEY, 'Enter your Google Cloud Text-to-Speech API key')
+    ),
+    vscode.commands.registerCommand('kren.deleteGoogleCloudTextToSpeechApiKey', () =>
+      deleteSecret(context, GOOGLE_CLOUD_TEXT_TO_SPEECH_KEY, 'Google Cloud Text-to-Speech API key deleted.')
     ),
     vscode.commands.registerCommand('kren.setGoogleCloudTranslationApiKey', () =>
       setGoogleCloudTranslationKey(context)
@@ -476,6 +723,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kren.deleteAllApiKeys', () =>
       deleteAllApiKeys(context)
     ),
+    vscode.commands.registerCommand('kren.restoreDefaultSettings', () =>
+      restoreDefaultSettings(context)
+    ),
+    vscode.commands.registerCommand('kren.resetKren', () => resetKren(context)),
     vscode.commands.registerCommand('kren.testKoreanDictionary', () =>
       testKoreanDictionary(context)
     ),
@@ -485,10 +736,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       scheduleAutomaticGrammarCheck(context, event.document);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('kren')) resultsView.refresh();
+      if (event.affectsConfiguration('kren.llm')) postProviderSwitchSettings(resultsView);
+      // 2026-10-11: pass style changes to the mounted control without rebuilding the conversation.
+      if (event.affectsConfiguration('kren.tutor.conversation.pictureStyle')) {
+        postTutorPictureStyleSetting(resultsView);
+      }
+      // 2026-10-10: The take-home switch patches the mounted conversation and preserves its answer box.
+      if (event.affectsConfiguration('kren.tutor.conversation.hintPrefetch')) postTutorHintPrefetchSetting(resultsView);
+      if (event.affectsConfiguration('kren.tutor.conversation.takeHome')) {
+        resultsView.refreshTutorTakeHomeSetting();
+      }
+      // 2026-10-04: Theme changes patch each mounted webview and preserve active input.
+      if (event.affectsConfiguration('kren.tutor.pictureProvider')) {
+        reconcileTutorPictureProviderChange(resultsView, previousPictureProvider);
+        previousPictureProvider = readPanelSettings().tutorPictureProvider;
+      }
+      if (event.affectsConfiguration('kren') && !event.affectsConfiguration('kren.display.panelTheme') &&
+          !event.affectsConfiguration('kren.tutor.conversation.pictureStyle') &&
+          !event.affectsConfiguration('kren.tutor.conversation.takeHome') &&
+          !event.affectsConfiguration('kren.tutor.conversation.hintPrefetch') &&
+          !event.affectsConfiguration('kren.llm')) resultsView.refresh();
     }),
     context.secrets.onDidChange((event) => {
       if (!Object.values(KREN_SECRET_KEYS).includes(event.key as typeof GEMINI_KEY)) return;
+      clearProviderExhaustionForCredential(event.key);
       void context.secrets.get(event.key).then((value) => {
         if (value) storedSecretKeys.add(event.key);
         else storedSecretKeys.delete(event.key);
@@ -497,7 +768,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  if (vscode.workspace.getConfiguration('kren').get<boolean>('results.openAtStartup', false)) {
+  if (vscode.workspace.getConfiguration('kren').get<boolean>('results.openAtStartup', RESULTS_OPEN_AT_STARTUP_DEFAULT)) {
     const startupRevealTimer = setTimeout(() => {
       void resultsView.reveal().catch((error: unknown) => {
         outputChannel.appendLine(
@@ -512,8 +783,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 function readPanelSettings(): KrenPanelSettings {
-  const config = vscode.workspace.getConfiguration('kren');
+  const configuration = vscode.workspace.getConfiguration('kren');
+  const config = { get: <T>(key: string, fallback: T): T => normalizeModelSetting(key, configuration.get<T>(key, fallback)) };
   return {
+    languageModelUsageToday: languageModelUsageToday(),
+    llmProviderSwitch: config.get('llm.providerSwitch', true),
+    llmProviderOrder: config.get('llm.providerOrder', [...DEFAULT_PROVIDER_ORDER]),
     userDictionaryEnabled: config.get<boolean>('userDictionary.enabled', false),
     userDictionaryCaptureMode: config.get<KrenPanelSettings['userDictionaryCaptureMode']>(
       'userDictionary.defaultCaptureMode',
@@ -527,13 +802,21 @@ function readPanelSettings(): KrenPanelSettings {
       'userDictionary.provider',
       'gemini'
     ),
-    userDictionaryModel: config.get<string>(
+    userDictionaryModel: routedModel(config.get<string>('userDictionary.provider', 'gemini'), config.get<string>(
       'userDictionary.model',
       DEFAULT_GEMINI_MODEL
+    )),
+    userDictionaryAlternateModel: config.get<string>(
+      'userDictionary.alternateModel',
+      'gemini-3.1-pro-preview'
     ),
     userDictionaryThinkingOrEffort: config.get<KrenPanelSettings['userDictionaryThinkingOrEffort']>(
       'userDictionary.thinkingOrEffort',
       'low'
+    ),
+    userDictionarySmartWordCapture: config.get<boolean>(
+      'userDictionary.smartWordCapture',
+      true
     ),
     userDictionaryEntryLanguage: config.get<string>('userDictionary.entryLanguage', 'auto'),
     userDictionaryIncludePronunciation: config.get<boolean>(
@@ -557,38 +840,95 @@ function readPanelSettings(): KrenPanelSettings {
       true
     ),
     userDictionaryStoragePath,
-    openResultsAtStartup: config.get<boolean>('results.openAtStartup', false),
+    openResultsAtStartup: config.get<boolean>('results.openAtStartup', RESULTS_OPEN_AT_STARTUP_DEFAULT),
     translationProvider: config.get<'googleCloudTranslation' | 'gemini'>(
       'translationProvider',
       'googleCloudTranslation'
     ),
+    translationSourceLanguage: config.get<string>('translation.sourceLanguage', TRANSLATION_AUTO_SOURCE),
     translationTargetLanguage: config.get<string>(
       'translation.targetLanguage',
-      AUTO_ENGLISH_KOREAN_TARGET
+      DEFAULT_TRANSLATION_TARGET
     ),
+    translationRoutingProvider: config.get<KrenPanelSettings['translationRoutingProvider']>(
+      'translation.provider',
+      TRANSLATION_ROUTING_DEFAULTS.provider
+    ),
+    translationModel: routedModel(config.get<string>('translation.provider', 'gemini'), config.get<string>(
+      'translation.model',
+      TRANSLATION_ROUTING_DEFAULTS.model
+    )),
+    translationAlternateModel: config.get<string>(
+      'translation.alternateModel',
+      'gemini-3.1-pro-preview'
+    ),
+    translationThinkingOrEffort: config.get<KrenPanelSettings['translationThinkingOrEffort']>(
+      'translation.thinkingOrEffort',
+      TRANSLATION_ROUTING_DEFAULTS.thinkingOrEffort
+    ),
+    translationProfile: config.get<KrenPanelSettings['translationProfile']>(
+      'translation.geminiProfile',
+      'standard'
+    ),
+    translationFallbackEnabled: config.get<boolean>('translation.fallbackEnabled', false),
+    translationFallbackModel: config.get<string>(
+      'translation.fallbackModel',
+      DEFAULT_GEMINI_MODEL
+    ),
+    translationFallbackThinkingOrEffort:
+      config.get<KrenPanelSettings['translationFallbackThinkingOrEffort']>(
+        'translation.fallbackThinkingOrEffort',
+        'low'
+      ),
     grammarDialect: config.get<KrenPanelSettings['grammarDialect']>(
       'grammar.dialect',
       'american'
     ),
-    grammarSmart: config.get<boolean>('grammar.smart', false),
+    grammarSmart: config.get<boolean>('grammar.smart', GRAMMAR_SMART_DEFAULT),
     grammarAutoCheck: config.get<boolean>('grammar.autoCheck', false),
     grammarAutoCheckDelayMs: config.get<number>('grammar.autoCheckDelayMs', 900),
     grammarCustomWordCount: activeExtensionContext.globalState.get<string[]>(GRAMMAR_CUSTOM_WORDS, []).length,
     grammarIgnoredFindingCount: ignoredLintCount(
       activeExtensionContext.globalState.get<string>(GRAMMAR_IGNORED_LINTS, '')
     ),
-    explanationOutputLanguage: config.get<string>('explanation.outputLanguage', 'bilingual'),
+    explanationOutputLanguage: config.get<string>(
+      'explanation.outputLanguage',
+      EXPLANATION_SAME_AS_SOURCE
+    ),
     explanationProvider: config.get<KrenPanelSettings['explanationProvider']>(
       'explanation.provider',
       'gemini'
     ),
+    explanationModel: routedModel(config.get<string>('explanation.provider', 'gemini'), config.get<string>('explanation.model', DEFAULT_GEMINI_MODEL)),
+    explanationAlternateModel: config.get<string>('explanation.alternateModel', 'gemini-3.1-pro-preview'),
+    explanationThinkingOrEffort:
+      config.get<KrenPanelSettings['explanationThinkingOrEffort']>(
+        'explanation.thinkingOrEffort',
+        'auto'
+      ),
     explanationProfile: config.get<'standard' | 'pro'>(
       'explanation.geminiProfile',
       'standard'
     ),
+    explanationFallbackEnabled: config.get<boolean>('explanation.fallbackEnabled', true),
+    explanationFallbackModel: config.get<string>(
+      'explanation.fallbackModel',
+      DEFAULT_GEMINI_MODEL
+    ),
+    explanationFallbackThinkingOrEffort:
+      config.get<KrenPanelSettings['explanationFallbackThinkingOrEffort']>(
+        'explanation.fallbackThinkingOrEffort',
+        'low'
+      ),
     rewriteProvider: config.get<KrenPanelSettings['rewriteProvider']>(
       'rewrite.provider',
       'gemini'
+    ),
+    rewriteModel: routedModel(config.get<string>('rewrite.provider', 'gemini'), config.get<string>('rewrite.model', DEFAULT_GEMINI_MODEL)),
+    rewriteAlternateModel: config.get<string>('rewrite.alternateModel', 'gemini-3.1-pro-preview'),
+    rewriteThinkingOrEffort: config.get<KrenPanelSettings['rewriteThinkingOrEffort']>(
+      'rewrite.thinkingOrEffort',
+      'auto'
     ),
     rewriteSourceLanguage: config.get<string>('rewrite.sourceLanguage', 'auto'),
     rewriteModality: config.get<KrenPanelSettings['rewriteModality']>(
@@ -599,6 +939,7 @@ function readPanelSettings(): KrenPanelSettings {
       'rewrite.function',
       REWRITE_AXIS_DEFAULTS.function
     ),
+    rewriteOtherOutputLanguage: config.get<string>('rewrite.otherOutputLanguage', 'ko'),
     rewriteEnglishVariety: config.get<KrenPanelSettings['rewriteEnglishVariety']>(
       'rewrite.englishVariety',
       REWRITE_AXIS_DEFAULTS.englishVariety
@@ -619,6 +960,13 @@ function readPanelSettings(): KrenPanelSettings {
       'low'
     ),
     rewriteProfile: config.get<'standard' | 'pro'>('rewrite.geminiProfile', 'standard'),
+    rewriteFallbackEnabled: config.get<boolean>('rewrite.fallbackEnabled', true),
+    rewriteFallbackModel: config.get<string>('rewrite.fallbackModel', DEFAULT_GEMINI_MODEL),
+    rewriteFallbackThinkingOrEffort:
+      config.get<KrenPanelSettings['rewriteFallbackThinkingOrEffort']>(
+        'rewrite.fallbackThinkingOrEffort',
+        'low'
+      ),
     alternateModel: config.get<string>('gemini.alternateModel', 'gemini-3.1-pro-preview'),
     alternateThinkingLevel: config.get<'low' | 'medium' | 'high'>(
       'gemini.alternateThinkingLevel',
@@ -633,10 +981,75 @@ function readPanelSettings(): KrenPanelSettings {
       'gemini.alternateFallbackThinkingLevel',
       'low'
     ),
-    preferredRewriteVariant: config.get<KrenPanelSettings['preferredRewriteVariant']>(
-      'rewrite.preferredVariant',
-      REWRITE_VARIANT_LIST[0]!.id
+    tutorConversationPictureStyle: validatedPanelSetting('tutor.conversation.pictureStyle', config.get('tutor.conversation.pictureStyle', TUTOR_DEFAULTS.configuration['tutor.conversation.pictureStyle'])) as KrenPanelSettings['tutorConversationPictureStyle'] ?? TUTOR_DEFAULTS.configuration['tutor.conversation.pictureStyle'],
+    tutorConversationHintPrefetch: config.get<boolean>('tutor.conversation.hintPrefetch', TUTOR_DEFAULTS.configuration['tutor.conversation.hintPrefetch']),
+    tutorConversationTakeHome: config.get<boolean>('tutor.conversation.takeHome', TUTOR_DEFAULTS.configuration['tutor.conversation.takeHome']),
+    userDictionaryProfile: config.get<KrenPanelSettings['userDictionaryProfile']>(
+      'userDictionary.geminiProfile',
+      'standard'
     ),
+    userDictionaryFallbackEnabled:
+      config.get<boolean>('userDictionary.fallbackEnabled', false),
+    userDictionaryFallbackModel: config.get<string>(
+      'userDictionary.fallbackModel',
+      DEFAULT_GEMINI_MODEL
+    ),
+    userDictionaryFallbackThinkingOrEffort:
+      config.get<KrenPanelSettings['userDictionaryFallbackThinkingOrEffort']>(
+        'userDictionary.fallbackThinkingOrEffort',
+        'low'
+      ),
+    tutorProvider: config.get<KrenPanelSettings['tutorProvider']>(
+      'tutor.provider',
+      TUTOR_DEFAULTS.configuration['tutor.provider']
+    ),
+    tutorPictureProvider: config.get<'gemini' | 'cloudflare'>('tutor.pictureProvider', 'gemini'),
+    tutorCloudflareImageModel: validatedPanelSetting('tutor.cloudflareImageModel',
+      config.get<string>('tutor.cloudflareImageModel', CLOUDFLARE_IMAGE_MODEL_DEFAULT)) as string | undefined ?? CLOUDFLARE_IMAGE_MODEL_DEFAULT,
+    tutorImageModel: config.get<string>('tutor.imageModel', TUTOR_DEFAULTS.configuration['tutor.imageModel']),
+    tutorModel: routedModel(config.get<string>('tutor.provider', 'gemini'), config.get<string>('tutor.model', TUTOR_DEFAULTS.configuration['tutor.model'])),
+    tutorAlternateModel: config.get<string>('tutor.alternateModel', TUTOR_DEFAULTS.configuration['tutor.alternateModel']),
+    tutorThinkingOrEffort: config.get<KrenPanelSettings['tutorThinkingOrEffort']>(
+      'tutor.thinkingOrEffort',
+      TUTOR_DEFAULTS.configuration['tutor.thinkingOrEffort']
+    ),
+    tutorProfile: config.get<KrenPanelSettings['tutorProfile']>(
+      'tutor.geminiProfile',
+      TUTOR_DEFAULTS.configuration['tutor.geminiProfile']
+    ),
+    tutorFallbackEnabled: config.get<boolean>('tutor.fallbackEnabled', TUTOR_DEFAULTS.configuration['tutor.fallbackEnabled']),
+    tutorFallbackModel: config.get<string>('tutor.fallbackModel', TUTOR_DEFAULTS.configuration['tutor.fallbackModel']),
+    tutorFallbackThinkingOrEffort:
+      config.get<KrenPanelSettings['tutorFallbackThinkingOrEffort']>(
+        'tutor.fallbackThinkingOrEffort',
+        TUTOR_DEFAULTS.configuration['tutor.fallbackThinkingOrEffort']
+      ),
+    tutorReadAloudProvider: config.get<KrenPanelSettings['tutorReadAloudProvider']>(
+      'tutor.readAloud.provider',
+      TUTOR_DEFAULTS.configuration['tutor.readAloud.provider']
+    ),
+    tutorEdgeReadAloudLocale: config.get<string>('tutor.readAloud.edgeLocale', TUTOR_DEFAULTS.configuration['tutor.readAloud.edgeLocale']),
+    tutorEdgeReadAloudVoice: config.get<string>(
+      'tutor.readAloud.edgeVoice',
+      TUTOR_DEFAULTS.configuration['tutor.readAloud.edgeVoice']
+    ),
+    tutorEdgeReadAloudFemaleVoice: config.get<string>(
+      'tutor.readAloud.edgeFemaleVoice',
+      TUTOR_DEFAULTS.configuration['tutor.readAloud.edgeFemaleVoice']
+    ),
+    tutorEdgeReadAloudMaleVoice: config.get<string>(
+      'tutor.readAloud.edgeMaleVoice',
+      TUTOR_DEFAULTS.configuration['tutor.readAloud.edgeMaleVoice']
+    ),
+    tutorEdgeReadAloudRatePercent: config.get<number>('tutor.readAloud.edgeRatePercent', TUTOR_DEFAULTS.configuration['tutor.readAloud.edgeRatePercent']),
+    tutorLiveFemaleVoice: config.get<string>('tutor.liveFemaleVoice', TUTOR_DEFAULTS.configuration['tutor.liveFemaleVoice']),
+    tutorLiveMaleVoice: config.get<string>('tutor.liveMaleVoice', TUTOR_DEFAULTS.configuration['tutor.liveMaleVoice']),
+    tutorReadAloudVoice: config.get<string>(
+      'tutor.readAloud.voice',
+      TUTOR_DEFAULTS.configuration['tutor.readAloud.voice']
+    ),
+    tutorReadAloudRate: config.get<number>('tutor.readAloud.rate', TUTOR_DEFAULTS.configuration['tutor.readAloud.rate']),
+    tutorReadAloudVolume: config.get<number>('tutor.readAloud.volume', TUTOR_DEFAULTS.configuration['tutor.readAloud.volume']),
     quickMenuRewriteVariant: config.get<KrenPanelSettings['quickMenuRewriteVariant']>(
       'rewrite.quickMenuVariant',
       ALL_REWRITE_VARIANTS_ID
@@ -671,6 +1084,7 @@ function readPanelSettings(): KrenPanelSettings {
     ),
     preserveFormatting: config.get<boolean>('rewrite.preserveFormatting', true),
     includeChangeNotes: config.get<boolean>('rewrite.includeChangeNotes', false),
+    rewriteCopyToClipboard: config.get<boolean>('rewrite.copyToClipboard', false),
     multiWordTranslationFallback: config.get<boolean>(
       'dictionary.multiWordTranslationFallback',
       true
@@ -696,11 +1110,13 @@ function readPanelSettings(): KrenPanelSettings {
     readAloudVoices,
     readAloudProvider: config.get<KrenPanelSettings['readAloudProvider']>(
       'readAloud.provider',
-      'windowsLocal'
+      READ_ALOUD_PROVIDER_DEFAULT
     ),
+    edgeReadAloudLocale: config.get<string>('readAloud.edgeLocale', 'auto'),
+    readAloudChirpVoice: normalizedReadAloudChirpVoice(config.get<string>('readAloud.chirpVoice', 'Callirrhoe')),
     edgeReadAloudVoice: config.get<string>(
       'readAloud.edgeVoice',
-      'en-US-ChristopherNeural'
+      READ_ALOUD_EDGE_VOICE_DEFAULT
     ),
     edgeReadAloudRatePercent: config.get<number>('readAloud.edgeRatePercent', 0),
     edgeReadAloudPythonCommand: config.get<string>('readAloud.edgePythonCommand', 'python'),
@@ -708,13 +1124,30 @@ function readPanelSettings(): KrenPanelSettings {
       geminiDefault: storedSecretKeys.has(GEMINI_KEY),
       geminiAlternate: storedSecretKeys.has(GEMINI_PRO_KEY),
       googleCloudTranslation: storedSecretKeys.has(GOOGLE_CLOUD_TRANSLATION_KEY),
+      googleCloudTextToSpeech: storedSecretKeys.has(GOOGLE_CLOUD_TEXT_TO_SPEECH_KEY),
       openai: storedSecretKeys.has(OPENAI_KEY),
       anthropic: storedSecretKeys.has(ANTHROPIC_KEY),
+      groq: storedSecretKeys.has(GROQ_KEY),
+      cloudflareAccountId: storedSecretKeys.has(KREN_SECRET_KEYS.cloudflareAccountId),
+      cloudflareApiToken: storedSecretKeys.has(KREN_SECRET_KEYS.cloudflareApiToken),
       merriamWebsterCollegiate: storedSecretKeys.has(MW_COLLEGIATE_KEY),
       merriamWebsterMedical: storedSecretKeys.has(MW_MEDICAL_KEY),
       merriamWebsterThesaurus: storedSecretKeys.has(MW_THESAURUS_KEY),
       koreanDictionary: storedSecretKeys.has(DICTIONARY_KEY)
     },
+    translationDomain: config.get<KrenPanelSettings['translationDomain']>(
+      'translation.domain',
+      REWRITE_DOMAINS[0].id
+    ),
+    explanationDomain: config.get<KrenPanelSettings['explanationDomain']>(
+      'explanation.domain',
+      REWRITE_DOMAINS[0].id
+    ),
+    displayMode: config.get<string>('display.mode', 'hover'),
+    panelTheme: validatedPanelSetting('display.panelTheme', config.get<string>('display.panelTheme', 'followVSCode')) as KrenPanelSettings['panelTheme'] ?? 'followVSCode',
+    requestTimeoutMs: config.get<number>('request.timeoutMs', 45000),
+    translationMaxCharacters: config.get<number>('translation.maxCharacters', 5000),
+    userDictionaryMaxImportEntries: config.get<number>('userDictionary.maxImportEntries', 5000),
     extensionVersion
   };
 }
@@ -729,167 +1162,75 @@ async function updatePanelSetting(
     resultsView.refresh();
     return;
   }
+  const configuration = vscode.workspace.getConfiguration('kren');
+  const themeScope = key === 'display.panelTheme' ? configuration.inspect(key) : undefined;
+  const target = themeScope?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+    : themeScope?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+  await configuration.update(key, key === 'llm.providerOrder' ? JSON.parse(String(value)) : value, target);
+  if (key === 'tutor.readAloud.provider' && value === 'googleChirp' &&
+      !storedSecretKeys.has(GOOGLE_CLOUD_TEXT_TO_SPEECH_KEY) && !storedSecretKeys.has(GOOGLE_CLOUD_TRANSLATION_KEY)) {
+    chirpSpeech.warnMissingKey();
+  }
+
+  // Changing the language must change the voice with it. Leaving the stored identifier
+  // behind is what the owner saw: pick Korean, and the Voice list falls to "Custom voice ID"
+  // showing whatever English voice was last typed. The two controls describe one choice, so
+  // one of them moving moves the other.
+  if (key === 'readAloud.edgeLocale') {
+    const follower = resolveEdgeSpeechVoice(
+      String(value),
+      configuration.get<string>('readAloud.edgeVoice', READ_ALOUD_EDGE_VOICE_DEFAULT)
+    );
+    if (follower && follower !== configuration.get<string>('readAloud.edgeVoice', READ_ALOUD_EDGE_VOICE_DEFAULT)) {
+      await configuration.update(
+        'readAloud.edgeVoice',
+        follower,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+  }
+}
+
+async function updateTutorVoiceSetting(
+  key: TutorVoiceDefaultSettingKey,
+  value: string
+): Promise<void> {
+  // The controller validates the catalog value, and these literal keys keep tutor voice
+  // defaults out of the shared panel-setting write path.
   await vscode.workspace.getConfiguration('kren').update(
-    key,
-    value,
-    vscode.ConfigurationTarget.Global
+    key, value, vscode.ConfigurationTarget.Global
   );
 }
 
-function validatedPanelSetting(
-  key: KrenPanelSettingKey,
-  value: string | number | boolean
-): string | number | boolean | undefined {
-  if (key === 'userDictionary.defaultCaptureMode') {
-    return value === 'llmOnly' || value === 'merriamWebsterAndLlm' ? value : undefined;
-  }
-  if (key === 'userDictionary.provider') {
-    return value === 'gemini' || value === 'openai' || value === 'anthropic'
-      ? value
-      : undefined;
-  }
-  if (key === 'userDictionary.thinkingOrEffort') {
-    return typeof value === 'string' &&
-      ['auto', 'none', 'minimal', 'low', 'medium', 'high'].includes(value)
-      ? value
-      : undefined;
-  }
-  if (key === 'userDictionary.numberOfExamples') {
-    const numeric = typeof value === 'number' ? value : Number(value);
-    return [0, 1, 2, 3].includes(numeric) ? numeric : undefined;
-  }
-  if (key === 'userDictionary.entryLanguage') {
-    return typeof value === 'string' &&
-      (value.trim() === 'auto' || isPlausibleLanguageCode(value.trim()))
-      ? value.trim()
-      : undefined;
-  }
-  if (key === 'userDictionary.model') {
-    return typeof value === 'string' && /^models\/[\w.:-]+$|^[\w.:-]+$/u.test(value.trim())
-      ? value.trim()
-      : undefined;
-  }
-  if (key === 'translationProvider') {
-    return value === 'googleCloudTranslation' || value === 'gemini' ? value : undefined;
-  }
-  if (key === 'translation.targetLanguage') {
-    return typeof value === 'string' &&
-      (value.trim() === AUTO_ENGLISH_KOREAN_TARGET || isPlausibleLanguageCode(value.trim()))
-      ? value.trim()
-      : undefined;
-  }
-  if (key === 'explanation.outputLanguage') {
-    return typeof value === 'string' &&
-      (value.trim() === 'bilingual' || isPlausibleLanguageCode(value.trim()))
-      ? value.trim()
-      : undefined;
-  }
-  if (key === 'grammar.dialect') {
-    return typeof value === 'string' && [
-      'american', 'british', 'australian', 'canadian', 'indian'
-    ].includes(value) ? value : undefined;
-  }
-  if (key === 'grammar.autoCheckDelayMs') {
-    const numeric = typeof value === 'number' ? value : Number(value);
-    return [500, 900, 1500, 2500].includes(numeric) ? numeric : undefined;
-  }
-  if (key === 'explanation.provider' || key === 'rewrite.provider') {
-    return value === 'gemini' || value === 'openai' || value === 'anthropic'
-      ? value
-      : undefined;
-  }
-  if (key === 'gemini.model' || key === 'gemini.alternateModel' ||
-      key === 'gemini.alternateFallbackModel' || key === 'openai.model' ||
-      key === 'anthropic.model') {
-    return typeof value === 'string' && /^models\/[\w.:-]+$|^[\w.:-]+$/u.test(value.trim())
-      ? value.trim()
-      : undefined;
-  }
-  if (key === 'gemini.thinkingLevel') {
-    return typeof value === 'string' &&
-      ['auto', 'minimal', 'low', 'medium', 'high'].includes(value)
-      ? value
-      : undefined;
-  }
-  if (key === 'openai.reasoningEffort') {
-    return typeof value === 'string' &&
-      ['auto', 'none', 'low', 'medium', 'high'].includes(value)
-      ? value
-      : undefined;
-  }
-  if (key === 'anthropic.effort') {
-    return typeof value === 'string' && ['auto', 'low', 'medium', 'high'].includes(value)
-      ? value
-      : undefined;
-  }
-  if (key === 'explanation.geminiProfile' || key === 'rewrite.geminiProfile') {
-    return value === 'standard' || value === 'pro' ? value : undefined;
-  }
-  if (key === 'gemini.alternateThinkingLevel') {
-    return value === 'low' || value === 'medium' || value === 'high' ? value : undefined;
-  }
-  if (key === 'gemini.alternateFallbackThinkingLevel') {
-    return typeof value === 'string' &&
-      ['auto', 'minimal', 'low', 'medium', 'high'].includes(value)
-      ? value
-      : undefined;
-  }
-  if (key === 'rewrite.preferredVariant') {
-    return isRewriteVariantId(value) ? value : undefined;
-  }
-  if (key === 'rewrite.quickMenuVariant') {
-    return value === ALL_REWRITE_VARIANTS_ID || isRewriteVariantId(value) ? value : undefined;
-  }
-  if (key.startsWith('rewrite.') && isRewriteAxisSetting(key, value)) return value;
-  if (key === 'rewrite.sourceLanguage') {
-    return typeof value === 'string' &&
-      (value.trim() === 'auto' || isPlausibleLanguageCode(value.trim()))
-      ? value.trim()
-      : undefined;
-  }
-  if (key === 'gemini.retry.maxAttempts' || key === 'languageModel.retry.maxAttempts') {
-    const numeric = typeof value === 'number' ? value : Number(value);
-    return Number.isInteger(numeric) && numeric >= 1 && numeric <= 5 ? numeric : undefined;
-  }
-  if (key === 'readAloud.voice') {
-    return typeof value === 'string' && value.length <= 200 ? value : undefined;
-  }
-  if (key === 'readAloud.provider') {
-    return value === 'windowsLocal' || value === 'edgeOnline' ? value : undefined;
-  }
-  if (key === 'readAloud.edgeVoice') {
-    return typeof value === 'string' && /^[A-Za-z0-9-]{3,100}$/u.test(value.trim())
-      ? value.trim()
-      : undefined;
-  }
-  if (key === 'readAloud.edgeRatePercent') {
-    const numeric = typeof value === 'number' ? value : Number(value);
-    return Number.isInteger(numeric) && numeric >= -50 && numeric <= 100
-      ? numeric
-      : undefined;
-  }
-  if (key === 'readAloud.edgePythonCommand') {
-    return typeof value === 'string' && value.trim().length > 0 && value.length <= 500 &&
-      !/[\r\n\0]/u.test(value) ? value.trim() : undefined;
-  }
-  if (key === 'readAloud.rate') {
-    const numeric = typeof value === 'number' ? value : Number(value);
-    return Number.isInteger(numeric) && numeric >= -10 && numeric <= 10 ? numeric : undefined;
-  }
-  if (key === 'readAloud.volume') {
-    const numeric = typeof value === 'number' ? value : Number(value);
-    return Number.isInteger(numeric) && numeric >= 0 && numeric <= 100 ? numeric : undefined;
-  }
-  return typeof value === 'boolean' ? value : undefined;
+/**
+ * Retrieve the models one Gemini profile's key can reach.
+ *
+ * Both profiles now have their own Refresh button and both write the one shared suggestion
+ * list. Until 1.7.7 there was one command and it always read the alternate key, so a reader
+ * on the Default profile pressing Refresh was asked for an alternate key they did not have,
+ * got DEFAULT_PRO_MODELS back, and saw a notification naming the alternate profile beside a
+ * list that had not changed.
+ */
+async function refreshGeminiImageModels(context: vscode.ExtensionContext) {
+  const key = await extensionRuntime(context).getSecret(KREN_SECRET_KEYS.geminiPro);
+  if (!key) { notify('error', 'Set the Gemini Paid API key to refresh image models.'); return []; }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try { return await listGeminiImageModels(key, controller.signal, 'setGeminiProKey'); }
+  catch (error) { await showLookupError(error); return []; }
+  finally { clearTimeout(timeout); }
 }
 
-async function refreshProModels(
-  context: vscode.ExtensionContext
+async function refreshGeminiProfileModels(
+  context: vscode.ExtensionContext,
+  profile: GeminiRefreshProfile
 ): Promise<GeminiModelOption[]> {
-  let key = await context.secrets.get(GEMINI_PRO_KEY);
+  const { secretKey, setKeyCommand, keyHint, label } = geminiRefreshTarget(profile);
+
+  let key = await context.secrets.get(secretKey);
   if (!key) {
-    await vscode.commands.executeCommand('kren.setGeminiProApiKey');
-    key = await context.secrets.get(GEMINI_PRO_KEY);
+    await vscode.commands.executeCommand(setKeyCommand);
+    key = await context.secrets.get(secretKey);
   }
   if (!key) return DEFAULT_PRO_MODELS;
 
@@ -899,13 +1240,15 @@ async function refreshProModels(
     const models = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: 'KREN: retrieving models for the alternate Gemini profile...',
+        title: `KREN: retrieving models for the Gemini ${label} profile...`,
         cancellable: false
       },
-      () => listGeminiProModels(key, controller.signal)
+      () => listGeminiProModels(
+        key, controller.signal, keyHint, geminiModelDiscoveryProtections()
+      )
     );
     notify('information',
-      `KREN found ${models.length} Gemini text models available or recommended for the alternate profile.`
+      `KREN found ${models.length} Gemini text models available or recommended for the ${label} profile. Open the Model list to see them.`
     );
     return models;
   } catch (error) {
@@ -918,6 +1261,10 @@ async function refreshProModels(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function refreshGroqModels(context: vscode.ExtensionContext) {
+  return refreshLanguageModels(context, GROQ_KEY, 'kren.setGroqApiKey', 'Groq', listGroqModels, GROQ_MODELS.map(id => ({ id, displayName: id })));
 }
 
 async function refreshOpenAIModels(context: vscode.ExtensionContext) {
@@ -1095,24 +1442,155 @@ async function migrateDeprecatedGeminiFallback(
   await context.globalState.update(GEMINI_FALLBACK_MODEL_MIGRATION, true);
 }
 
-async function migrateTranslationTargetToAutomatic(
+/**
+ * Move a stored `bilingual` explanation language to Same as source, once.
+ *
+ * The owner removed Bilingual on 2026-08-28. Leaving the value stored would show an empty
+ * Explanation language control, because the list no longer carries it, and would keep
+ * sending an instruction the prompt no longer understands. Same as source is the closest
+ * behaviour: it writes the note in the language of the selected text, which for the owner's
+ * English and Korean material is one of the two languages Bilingual produced.
+ */
+async function migrateBilingualExplanation(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  if (context.globalState.get<boolean>(AUTO_TRANSLATION_TARGET_MIGRATION, false)) return;
+  if (context.globalState.get<boolean>(BILINGUAL_EXPLANATION_MIGRATION, false)) return;
+  const config = vscode.workspace.getConfiguration('kren');
+  const inspected = config.inspect<string>('explanation.outputLanguage');
+  const targets: Array<[unknown, vscode.ConfigurationTarget]> = [
+    [inspected?.globalValue, vscode.ConfigurationTarget.Global],
+    [inspected?.workspaceValue, vscode.ConfigurationTarget.Workspace],
+    [inspected?.workspaceFolderValue, vscode.ConfigurationTarget.WorkspaceFolder]
+  ];
+  for (const [stored, scope] of targets) {
+    if (stored === 'bilingual') {
+      await config.update('explanation.outputLanguage', EXPLANATION_SAME_AS_SOURCE, scope);
+    }
+  }
+  await context.globalState.update(BILINGUAL_EXPLANATION_MIGRATION, true);
+}
+
+/** Retrieve only models whose API metadata advertises Gemini bidirectional streaming. */
+async function refreshGeminiLiveProfileModels(
+  context: vscode.ExtensionContext
+): Promise<GeminiModelOption[]> {
+  const protections = geminiModelDiscoveryProtections();
+  const fallback = geminiModelCatalog([], protections).live.map((model) =>
+    (KNOWN_TUTOR_LIVE_MODEL_IDS as readonly string[]).includes(model.id)
+      ? { ...model, liveOnly: true as const }
+      : model
+  );
+  const { secretKey, setKeyCommand, keyHint, label } = geminiRefreshTarget(
+    readPanelSettings().tutorProfile === 'pro' ? 'alternate' : 'default');
+  let key = await context.secrets.get(secretKey);
+  if (!key) {
+    await vscode.commands.executeCommand(setKeyCommand);
+    key = await context.secrets.get(secretKey);
+  }
+  if (!key) return fallback;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const models = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `KREN: retrieving models for Gemini Live (${label})...`,
+        cancellable: false
+      },
+      () => listGeminiLiveModels(key, controller.signal, keyHint, protections)
+    );
+    notify('information',
+      `KREN found ${models.length} Gemini Live models available or retained for the ${label} profile. Open the Live model list to see them.`
+    );
+    return models;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      notify('error', 'KREN: Gemini Live model discovery timed out.');
+    } else {
+      await showLookupError(error);
+    }
+    return fallback;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function geminiModelDiscoveryProtections(): GeminiModelCatalogProtections {
+  const config = vscode.workspace.getConfiguration('kren');
+  const textSettingKeys = [
+    'gemini.model', 'gemini.alternateModel', 'gemini.alternateFallbackModel',
+    'translation.model', 'translation.alternateModel', 'translation.fallbackModel',
+    'explanation.model', 'explanation.alternateModel', 'explanation.fallbackModel',
+    'rewrite.model', 'rewrite.alternateModel', 'rewrite.fallbackModel',
+    'userDictionary.model', 'userDictionary.alternateModel', 'userDictionary.fallbackModel',
+    'tutor.model', 'tutor.alternateModel', 'tutor.fallbackModel'
+  ] as const;
+  const textStoredIds = textSettingKeys.map((key) => config.get<string>(key, ''))
+    .filter((id): id is string => Boolean(id));
+  return {
+    textStoredIds,
+    textCustomIds: customModelIdentifiers(config.get<string>('gemini.customModels', '[]')),
+    liveStoredIds: [config.get<string>('tutor.liveModel', TUTOR_DEFAULTS.configuration['tutor.liveModel'])],
+    liveCustomIds: customModelIdentifiers(config.get<string>('tutor.liveCustomModels', TUTOR_DEFAULTS.configuration['tutor.liveCustomModels']))
+  };
+}
+
+/**
+ * Seed the new Live-only custom-model list from the old shared Gemini list at each stored
+ * scope. A stored Live value, including an empty list after the reader removes everything,
+ * is never overwritten, so the two lists stay independent after this one-way migration.
+ */
+async function migrateTutorLiveCustomModels(): Promise<void> {
+  const config = vscode.workspace.getConfiguration('kren');
+  const existing = config.inspect<string>('gemini.customModels');
+  const live = config.inspect<string>('tutor.liveCustomModels');
+  const targets: Array<[string | undefined, string | undefined, vscode.ConfigurationTarget]> = [
+    [existing?.globalValue, live?.globalValue, vscode.ConfigurationTarget.Global],
+    [existing?.workspaceValue, live?.workspaceValue, vscode.ConfigurationTarget.Workspace],
+    [
+      existing?.workspaceFolderValue,
+      live?.workspaceFolderValue,
+      vscode.ConfigurationTarget.WorkspaceFolder
+    ]
+  ];
+  for (const [stored, liveStored, scope] of targets) {
+    const migrated = migratedTutorLiveCustomModels(stored, liveStored);
+    if (migrated !== undefined) {
+      await config.update('tutor.liveCustomModels', migrated, scope);
+    }
+  }
+}
+
+/**
+ * Move a stored `auto-en-ko` translation target to Korean, once.
+ *
+ * This replaces `migrateTranslationTargetToAutomatic`, which ran the other way and moved a
+ * stored `ko` to `auto-en-ko` on 2026-08-20. That function is deleted rather than left
+ * dormant: it is keyed on a global-state marker, so on a fresh install it would still fire
+ * and write a value the Output language control no longer offers and the validator no
+ * longer accepts.
+ *
+ * Korean is the replacement because it is what `auto-en-ko` produced for the owner's English
+ * material, and it is the new default.
+ */
+async function migrateAutoTranslationTargetToKorean(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (context.globalState.get<boolean>(KOREAN_TRANSLATION_TARGET_MIGRATION, false)) return;
   const config = vscode.workspace.getConfiguration('kren');
   const inspected = config.inspect<string>('translation.targetLanguage');
-  if (
-    inspected?.workspaceValue === undefined &&
-    inspected?.workspaceFolderValue === undefined &&
-    inspected?.globalValue === 'ko'
-  ) {
-    await config.update(
-      'translation.targetLanguage',
-      AUTO_ENGLISH_KOREAN_TARGET,
-      vscode.ConfigurationTarget.Global
-    );
+  const targets: Array<[unknown, vscode.ConfigurationTarget]> = [
+    [inspected?.globalValue, vscode.ConfigurationTarget.Global],
+    [inspected?.workspaceValue, vscode.ConfigurationTarget.Workspace],
+    [inspected?.workspaceFolderValue, vscode.ConfigurationTarget.WorkspaceFolder]
+  ];
+  for (const [stored, scope] of targets) {
+    if (stored === 'auto-en-ko') {
+      await config.update('translation.targetLanguage', DEFAULT_TRANSLATION_TARGET, scope);
+    }
   }
-  await context.globalState.update(AUTO_TRANSLATION_TARGET_MIGRATION, true);
+  await context.globalState.update(KOREAN_TRANSLATION_TARGET_MIGRATION, true);
 }
 
 async function setGoogleCloudTranslationKey(context: vscode.ExtensionContext): Promise<void> {
@@ -1136,6 +1614,15 @@ export function deactivate(): void {
   if (automaticGrammarTimer) clearTimeout(automaticGrammarTimer);
   automaticGrammarTimer = undefined;
   void disposeHarperGrammar();
+}
+
+export function readSelectedEditorPassage(): string | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return undefined;
+  const selections = editor.selections.filter((selection) => !selection.isEmpty);
+  if (selections.length !== 1 || !selections[0]) return undefined;
+  const passage = editor.document.getText(selections[0]);
+  return passage.trim() ? passage : undefined;
 }
 
 async function executeReadAloudSelection(context: vscode.ExtensionContext): Promise<void> {
@@ -1166,84 +1653,27 @@ async function executeReadAloudSelection(context: vscode.ExtensionContext): Prom
   await readAloudText(context, spokenText);
 }
 
+/**
+ * `resultLanguage` is the language KREN already knows the text is in, when it knows it: a
+ * rewrite reports the language it detected and the language it was asked to write in. It is
+ * passed rather than re-derived, because detecting a language that is already recorded is
+ * guessing at a known fact.
+ */
 async function readAloudText(
-  context: vscode.ExtensionContext,
-  text: string
-): Promise<void> {
-  const session = ++readAloudSession;
-  const config = vscode.workspace.getConfiguration('kren');
-  const provider = config.get<'windowsLocal' | 'edgeOnline'>(
-    'readAloud.provider',
-    'windowsLocal'
-  );
-  readAloudPlayer.stop();
-  edgeReadAloudPlayer.stop();
-  if (provider === 'edgeOnline' && !vscode.workspace.isTrusted) {
-    await vscode.commands.executeCommand('setContext', 'kren.readAloudActive', false);
-    notify('warning',
-      'KREN Edge Online speech is disabled in Restricted Mode because it launches the configured Python executable. Trust this workspace to use Edge Online speech, or choose Local Windows speech.'
-    );
-    return;
-  }
-  if (provider === 'edgeOnline' && !await ensureEdgeTtsConsent(context)) {
-    await vscode.commands.executeCommand('setContext', 'kren.readAloudActive', false);
-    return;
-  }
-  await vscode.commands.executeCommand('setContext', 'kren.readAloudActive', true);
-  const status = vscode.window.setStatusBarMessage(
-    provider === 'edgeOnline'
-      ? '$(cloud-download) KREN: Generating and reading Edge voice...'
-      : '$(unmute) KREN: Reading aloud...'
-  );
-  try {
-    if (provider === 'edgeOnline') {
-      const result = await edgeReadAloudPlayer.speak(text, {
-        pythonCommand: config.get<string>('readAloud.edgePythonCommand', 'python'),
-        voice: config.get<string>('readAloud.edgeVoice', 'en-US-ChristopherNeural'),
-        ratePercent: config.get<number>('readAloud.edgeRatePercent', 0),
-        volume: config.get<number>('readAloud.volume', 100),
-        playback: resultsView.edgeAudioPlayback()
-      });
-      if (result === 'dependencyMissing') {
-        const action = await vscode.window.showErrorMessage(
-          'KREN Edge Online speech requires the optional edge-tts Python package.',
-          'Copy install command'
-        );
-        if (action === 'Copy install command') {
-          await vscode.env.clipboard.writeText('python -m pip install edge-tts');
-        }
-      } else if (result === 'failed') {
-        notify('error',
-          'KREN could not generate or play the selected Edge online voice. Check the Python command, edge-tts installation, voice ID, and network connection.'
-        );
-      }
-      return;
-    }
-
-    const completed = await readAloudPlayer.speak(text, {
-      voice: config.get<string>('readAloud.voice', ''),
-      rate: config.get<number>('readAloud.rate', 0),
-      volume: config.get<number>('readAloud.volume', 100)
-    });
-    if (!completed) {
-      notify('error',
-        'KREN could not use the selected Windows voice. Choose another voice in KREN Settings or verify that Windows speech is installed.'
-      );
-    }
-  } finally {
-    status.dispose();
-    if (session === readAloudSession) {
-      await vscode.commands.executeCommand('setContext', 'kren.readAloudActive', false);
-    }
-  }
+  _context: vscode.ExtensionContext,
+  text: string,
+  resultLanguage?: string,
+  settingsSource: 'shared' | 'tutor' = 'shared',
+  /** A voice for this one reading, such as the learner's in Replay all; settings are untouched. */
+  edgeVoice?: string
+): Promise<void | TutorSpeechFallback> {
+  return speechCenter.speak(text, resultLanguage, settingsSource, edgeVoice);
 }
 
 function stopReadAloud(showStatus: boolean): boolean {
-  readAloudSession += 1;
-  const stoppedLocal = readAloudPlayer.stop();
-  const stoppedEdge = edgeReadAloudPlayer.stop();
+  const stoppedSpeech = speechCenter.stop();
   const stoppedWebview = resultsView.stopGeneratedAudio();
-  const stopped = stoppedLocal || stoppedEdge || stoppedWebview;
+  const stopped = stoppedSpeech || stoppedWebview;
   if (stopped && showStatus) {
     void vscode.window.setStatusBarMessage('KREN: Read Aloud stopped.', 2500);
   }
@@ -1253,7 +1683,7 @@ function stopReadAloud(showStatus: boolean): boolean {
 
 async function ensureEdgeTtsConsent(context: vscode.ExtensionContext): Promise<boolean> {
   if (context.globalState.get<boolean>(EDGE_TTS_CONSENT, false)) return true;
-  const choice = await vscode.window.showWarningMessage(
+  const choice = await showKrenWarningMessage(
     'KREN Edge Online speech sends only the cleaned selected text to Microsoft\'s online Edge speech service through the unofficial edge-tts package. It uses no API key, but it is not an offline or Microsoft-supported extension API.',
     { modal: true },
     'Continue'
@@ -1285,30 +1715,29 @@ async function executeGrammarCheck(context: vscode.ExtensionContext): Promise<vo
  * turned it on or has no key for the chosen provider. It never throws: losing Harper's
  * local findings to a remote problem would be worse than the feature being unavailable.
  */
-// Named here rather than inline so the three providers and their key names sit together.
-const SMART_GRAMMAR_SECRET_KEYS = {
-  gemini: KREN_SECRET_KEYS.gemini,
-  openai: KREN_SECRET_KEYS.openai,
-  anthropic: KREN_SECRET_KEYS.anthropic
-} as const;
-
 async function runSmartGrammarPass(
   context: vscode.ExtensionContext,
-  selectedText: string
+  selectedText: string,
+  harperIssues: readonly GrammarIssue[],
+  signal: AbortSignal
 ): Promise<SmartGrammarOutcome | undefined> {
   const config = vscode.workspace.getConfiguration('kren');
-  if (!config.get<boolean>('grammar.smart', false)) return undefined;
+  if (!config.get<boolean>('grammar.smart', GRAMMAR_SMART_DEFAULT)) return undefined;
   const provider = config.get<KrenPanelSettings['userDictionaryProvider']>(
     'userDictionary.provider',
     'gemini'
   );
-  if (provider !== 'gemini' && provider !== 'openai' && provider !== 'anthropic') return undefined;
-  const model = config.get<string>('userDictionary.model', DEFAULT_GEMINI_MODEL).trim();
-  if (!model) return undefined;
+  if (provider !== 'gemini' && provider !== 'openai' && provider !== 'anthropic' && provider !== 'groq' && provider !== 'cloudflare') return undefined;
   const thinkingOrEffort = config.get<KrenPanelSettings['userDictionaryThinkingOrEffort']>(
     'userDictionary.thinkingOrEffort',
     'low'
   );
+  const geminiProfile = config.get<KrenPanelSettings['userDictionaryProfile']>(
+    'userDictionary.geminiProfile',
+    'standard'
+  );
+  const model = featureModel(extensionRuntime(context), 'userDictionary', provider, geminiProfile, DEFAULT_GEMINI_MODEL);
+  if (!model) return undefined;
   // The same first-use confirmation every other provider request goes through. Skipping it
   // here would have made the manual's promise about it false for this one path.
   try {
@@ -1319,32 +1748,60 @@ async function runSmartGrammarPass(
       reason: 'Smart Grammar Check needs the provider terms accepted, so only local findings are shown.'
     };
   }
-  const apiKey = await extensionRuntime(context).getSecret(SMART_GRAMMAR_SECRET_KEYS[provider]);
-  if (!apiKey) {
-    return {
-      status: 'failed',
-      reason: `Smart Grammar Check needs a ${provider} API key, so only local findings are shown.`
-    };
+  const secretKey = KREN_SECRET_KEYS[languageModelCredentialSlot(provider, geminiProfile)];
+  const apiKey = await extensionRuntime(context).getSecret(secretKey);
+  const accountId = provider === 'cloudflare' ? await extensionRuntime(context).getSecret(KREN_SECRET_KEYS.cloudflareAccountId) : undefined;
+  if (!apiKey || provider === 'cloudflare' && !accountId) {
+    const route = { provider, model, geminiProfile, mode: 'thorough' as const, effort: thinkingOrEffort };
+    const failure = requestFailure(new ProviderError('Provider credentials are missing.', providerCredentialAction(route)), route);
+    return { status: 'failed', reason: `${presentRequestFailure(failure).message} Only local findings are shown.` };
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    config.get<number>('request.timeoutMs', 45000)
-  );
-  try {
-    return await smartGrammarIssues(
-      selectedText,
-      { provider, model, thinkingOrEffort, apiKey },
-      controller.signal
-    );
-  } catch {
-    return {
-      status: 'failed',
-      reason: 'Smart Grammar Check was cancelled or timed out, so only local findings are shown.'
-    };
-  } finally {
-    clearTimeout(timeout);
+  const outcome = await runFeatureRequest({ runtime: extensionRuntime(context),
+    route: { provider, model, thinkingOrEffort, geminiProfile,
+      fallbackEnabled: config.get<boolean>('userDictionary.fallbackEnabled', false),
+      fallbackModel: config.get<string>('userDictionary.fallbackModel', DEFAULT_GEMINI_MODEL).trim(),
+      fallbackThinkingOrEffort: config.get<KrenPanelSettings['userDictionaryFallbackThinkingOrEffort']>('userDictionary.fallbackThinkingOrEffort', 'low') },
+    signal, policy: CURRENT_REQUEST_POLICIES.grammar, thinking: { kind: 'grammar', text: selectedText }, geminiDefaultAttempts: 4,
+    execute: async (route, mode, selectedSignal, _request, maxAttempts) => {
+      await ensureLanguageModelConsent(context, route.provider, route.geminiProfile);
+      const runtime = extensionRuntime(context);
+      const key = route.provider === provider ? apiKey : await runtime.getSecret(KREN_SECRET_KEYS[languageModelCredentialSlot(route.provider, route.geminiProfile)]);
+      const account = route.provider === 'cloudflare' ? route.provider === provider ? accountId : await runtime.getSecret(KREN_SECRET_KEYS.cloudflareAccountId) : undefined;
+      if (!key || route.provider === 'cloudflare' && !account) throw new ProviderError('Smart Grammar Check needs provider credentials.', providerCredentialAction(route));
+      return smartGrammarIssues(selectedText, { provider: route.provider, model: route.model, geminiProfile: route.geminiProfile,
+        thinkingOrEffort: modeEffort(route.provider, route.model, mode, route.thinkingOrEffort), apiKey: key,
+        accountId: account, maxAttempts, throwProviderErrors: true }, selectedSignal, fetch, harperIssues);
+    }
+  });
+  if (outcome.type === 'accepted') return outcome.value;
+  return { status: 'failed', reason: outcome.type === 'canceled'
+    ? 'Smart Grammar Check was canceled or timed out, so only local findings are shown.'
+    : `${presentRequestFailure(outcome).message} Only local findings are shown.` };
+
+}
+
+async function runGrammarOperation(
+  context: vscode.ExtensionContext,
+  selectedText: string,
+  signal: AbortSignal,
+  allowSmartGrammar: boolean
+): Promise<KrenResult> {
+  const result = await runKrenOperation(extensionRuntime(context), 'grammar', explicitTextSubmission(selectedText), signal);
+  if (result.kind !== 'grammar') throw new Error('KREN received an invalid grammar result.');
+  const smart = allowSmartGrammar
+    ? await runSmartGrammarPass(context, selectedText, result.issues, signal)
+    : undefined;
+  signal.throwIfAborted();
+  if (smart?.status === 'completed') {
+    result.issues = mergeSmartGrammarIssues(result.issues, smart.issues, selectedText);
+    result.smartModelId = smart.model;
+  } else if (smart) {
+    // Without this the reason is computed and discarded, so a missing key, a timeout, a
+    // provider failure, or a discarded rewrite all look like a clean local-only pass and
+    // the user believes the model agreed with Harper.
+    notify('information', smart.reason);
   }
+  return result;
 }
 
 async function checkGrammarRange(
@@ -1362,6 +1819,7 @@ async function checkGrammarRange(
   showProgress = announce,
   publishPanel = true
 ): Promise<GrammarDiagnosticState | undefined> {
+  const requestGeneration = publishPanel ? ++resultRequestGeneration : resultRequestGeneration;
   const selectedText = editor.document.getText(range);
   const config = vscode.workspace.getConfiguration('kren');
   const maxCharacters = config.get<number>('translation.maxCharacters', 5000);
@@ -1390,12 +1848,7 @@ async function checkGrammarRange(
           controller.abort();
         }, config.get<number>('request.timeoutMs', 45000));
         try {
-          return await runKrenOperation(
-            extensionRuntime(context),
-            'grammar',
-            explicitTextSubmission(selectedText),
-            controller.signal
-          );
+          return await runGrammarOperation(context, selectedText, controller.signal, allowSmartGrammar);
         } finally {
           clearTimeout(timeout);
           cancellation?.dispose();
@@ -1412,18 +1865,8 @@ async function checkGrammarRange(
       )
       : await runCheck();
     if (result.kind !== 'grammar') throw new Error('KREN received an invalid grammar result.');
-    const smart = allowSmartGrammar
-      ? await runSmartGrammarPass(context, selectedText)
-      : undefined;
-    if (smart?.status === 'completed') {
-      result.issues = mergeSmartGrammarIssues(result.issues, smart.issues);
-    } else if (smart) {
-      // Without this the reason is computed and discarded, so a missing key, a timeout, a
-      // provider failure, or a discarded rewrite all look like a clean local-only pass and
-      // the user believes the model agreed with Harper.
-      notify('information', smart.reason);
-    }
-    if (editor.document.uri.toString() !== snapshot.uri ||
+    if ((publishPanel && requestGeneration !== resultRequestGeneration) ||
+        editor.document.uri.toString() !== snapshot.uri ||
         editor.document.version !== snapshot.version ||
         editor.document.getText(snapshot.range) !== snapshot.selectedText) {
       notify('warning',
@@ -1438,7 +1881,8 @@ async function checkGrammarRange(
         selectedText: snapshot.selectedText,
         result
       };
-      resultsView.setResult(result, snapshot.selectedText, true);
+      if (allowSmartGrammar) await resultsView.showResult(result, snapshot.selectedText, true);
+      else resultsView.setResult(result, snapshot.selectedText, true);
     }
     const state = grammarCodeActions.setResult(
       editor.document,
@@ -1446,14 +1890,13 @@ async function checkGrammarRange(
       snapshot.selectedText,
       result
     );
-    if (announce) {
-      if (!result.issues.length) {
-        notify('information', 'KREN: Harper found no spelling or grammar issues.');
-      } else {
-        notify('information',
-          `KREN found ${result.issues.length} possible issue${result.issues.length === 1 ? '' : 's'}. Right-click an underlined issue and choose Quick Fix.`
-        );
-      }
+    // A found-issues notification was raised here until 2026-08-22. The owner asked for it
+    // to go: the findings are already underlined in the editor and listed in the panel, so
+    // the toast repeated what two surfaces were showing and had to be dismissed. The
+    // clean-result notice stays, because nothing else on screen changes when a check finds
+    // nothing, and silence there is indistinguishable from a check that never ran.
+    if (announce && !result.issues.length) {
+      notify('information', 'KREN: Harper found no spelling or grammar issues.');
     }
     return state;
   } catch (error) {
@@ -1461,7 +1904,7 @@ async function checkGrammarRange(
       notify('information',
         abortReason === 'timedOut'
           ? 'KREN Grammar Check timed out while running locally.'
-          : 'KREN Grammar Check was cancelled.'
+          : 'KREN Grammar Check was canceled.'
       );
       return undefined;
     }
@@ -1711,41 +2154,14 @@ async function executeLookup(
     range: new vscode.Range(selection.start, selection.end),
     selectedText: rawText
   };
-  let abortReason: 'cancelled' | 'timedOut' | undefined;
+  const requestGeneration = ++resultRequestGeneration;
+  const abort: AbortReasonBox = {};
 
   try {
-    const result = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Window,
-        title: progressTitle(operation),
-        cancellable: true
-      },
-      async (_progress, token) => {
-        const timeoutMs = config.get<number>('request.timeoutMs', 45000);
-        const controller = new AbortController();
-        const cancellation = token.onCancellationRequested(() => {
-          if (!abortReason) abortReason = 'cancelled';
-          controller.abort();
-        });
-        const timeout = setTimeout(() => {
-          if (!abortReason) abortReason = 'timedOut';
-          controller.abort();
-        }, timeoutMs);
-        try {
-          return await runKrenOperation(
-            extensionRuntime(context),
-            operation,
-            explicitTextSubmission(rawText),
-            controller.signal
-          );
-        } finally {
-          clearTimeout(timeout);
-          cancellation.dispose();
-        }
-      }
-    );
+    const result = await runOperationWithProgress(context, operation, rawText, abort);
 
     if (
+      requestGeneration !== resultRequestGeneration ||
       editor.document.uri.toString() !== snapshot.uri ||
       editor.document.version !== snapshot.version ||
       editor.document.getText(snapshot.range) !== snapshot.selectedText
@@ -1759,27 +2175,164 @@ async function executeLookup(
       selectedText: snapshot.selectedText,
       result
     };
-    resultsView.setResult(result, snapshot.selectedText, true);
-
     hoverStore.set(editor.document, snapshot.range, result);
+
+    /*
+     * The clipboard route exists so a Minimal or Full Rewrite can be pasted without the panel
+     * taking the reader's attention. It returns before setResult, which sets the active screen
+     * and re-renders, and before showResult, which reveals the view: either would pull the
+     * reader out of whatever they were looking at, which is the thing this option avoids.
+     * lastResult and the hover are set above, so Copy, Replace, and the hover card still work.
+     *
+     * If the copy yields nothing the route is abandoned rather than reported as done, because
+     * an empty clipboard and a silent panel together would lose the result entirely.
+     */
+    const copyToClipboardEnabled = config.get<boolean>('rewrite.copyToClipboard', false);
+    if (result.kind === 'rewrite') {
+      outputChannel.appendLine(
+        describeClipboardDecision(operation, copyToClipboardEnabled, result)
+      );
+    }
+    if (shouldCopyRewriteToClipboard(operation, copyToClipboardEnabled)) {
+      const clipboardText = rewriteClipboardText(result, operation);
+      if (clipboardText) {
+        await copyTextResult(clipboardText);
+        /*
+         * setResult and not showResult. setResult renders, so the panel holds the current
+         * result and cannot show a stale one; showResult also reveals, which is what pulled
+         * the reader out of whatever they were working in. Silently updated, never surfaced.
+         */
+        resultsView.setResult(result, snapshot.selectedText, true, operation);
+        /*
+         * A status-bar line rather than a notification, because a toast is a thing to dismiss
+         * and the point of this route is pasting without interruption.
+         */
+        vscode.window.setStatusBarMessage(
+          `$(clippy) KREN: ${REPLAY_SUBJECTS[operation]} copied. Paste with Ctrl+V.`,
+          4000
+        );
+        return;
+      }
+    }
+
+    resultsView.setResult(result, snapshot.selectedText, true, operation);
+
     if (result.kind === 'rewrite' || result.kind === 'grammar') {
-      await resultsView.showResult(result, snapshot.selectedText, true);
+      await resultsView.showResult(result, snapshot.selectedText, true, operation);
     } else {
       await displayResult(result);
     }
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      const message = operation === 'grammar'
-        ? abortReason === 'timedOut'
-          ? 'KREN Grammar Check timed out while running locally.'
-          : 'KREN Grammar Check was cancelled.'
-        : abortReason === 'timedOut'
-          ? 'KREN translation timed out. Try again, choose Gemini 3.1 Flash-Lite, or increase kren.request.timeoutMs.'
-          : 'KREN translation was cancelled.';
-      notify('information', message);
-      return;
-    }
+    if (reportAbort(error, operation, abort.reason)) return;
     await showLookupError(error, () => executeLookup(context, hoverStore, operation));
+  }
+}
+
+interface AbortReasonBox {
+  reason?: 'cancelled' | 'timedOut';
+}
+
+/**
+ * One run of one operation, with the progress notice, the cancel token, and the timeout.
+ *
+ * Extracted on 2026-08-22 when the Settings apply bar needed a second caller. The timeout
+ * and the abort reason were written out once inside `executeLookup`, and a second copy is
+ * how one path silently acquires a different timeout from the one the setting names.
+ */
+async function runOperationWithProgress(
+  context: vscode.ExtensionContext,
+  operation: KrenOperation,
+  text: string,
+  abort: AbortReasonBox,
+  retry = false
+): Promise<KrenResult> {
+  return vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Window,
+      title: progressTitle(operation),
+      cancellable: true
+    },
+    async (_progress, token) => {
+      const timeoutMs = vscode.workspace.getConfiguration('kren')
+        .get<number>('request.timeoutMs', 45000);
+      const controller = new AbortController();
+      const cancellation = token.onCancellationRequested(() => {
+        abort.reason ??= 'cancelled';
+        controller.abort();
+      });
+      const timeout = setTimeout(() => {
+        abort.reason ??= 'timedOut';
+        controller.abort();
+      }, timeoutMs);
+      try {
+        return await runKrenOperation(
+          extensionRuntime(context),
+          operation,
+          { ...explicitTextSubmission(text), retry },
+          controller.signal
+        );
+      } finally {
+        clearTimeout(timeout);
+        cancellation.dispose();
+      }
+    }
+  );
+}
+
+function reportAbort(
+  error: unknown,
+  operation: KrenOperation,
+  reason: 'cancelled' | 'timedOut' | undefined
+): boolean {
+  if (!(error instanceof Error) || error.name !== 'AbortError') return false;
+  notify('information', operation === 'grammar'
+    ? reason === 'timedOut'
+      ? 'KREN Grammar Check timed out while running locally.'
+      : 'KREN Grammar Check was canceled.'
+    : reason === 'timedOut'
+      ? 'KREN translation timed out. Try again, choose Gemini 3.1 Flash-Lite, or increase kren.request.timeoutMs.'
+      : 'KREN translation was canceled.');
+  return true;
+}
+
+/**
+ * Produces the result on screen again, with the settings as they now stand.
+ *
+ * The text comes from the panel's own record of what was submitted, not from the editor, so
+ * this works after the selection has been lost. Replacement is offered again only when the
+ * recorded range still holds exactly the text that was submitted, which is the same test
+ * `executeLookup` applies before it stores a result at all.
+ */
+async function rerunOperation(
+  context: vscode.ExtensionContext,
+  hoverStore: HoverStore,
+  operation: KrenOperation,
+  sourceText: string
+): Promise<void> {
+  const requestGeneration = ++resultRequestGeneration;
+  const abort: AbortReasonBox = {};
+  try {
+    const result = await runOperationWithProgress(context, operation, sourceText, abort, true);
+    if (requestGeneration !== resultRequestGeneration) return;
+    // A clipboard lookup records no range, so `range` and `uri` are both optional here and
+    // an undefined range must not be read as an intact one.
+    const previous = lastResult;
+    const range = previous?.range;
+    const editor = vscode.window.activeTextEditor;
+    const intact = previous !== undefined && range !== undefined && editor !== undefined &&
+      editor.document.uri.toString() === previous.uri &&
+      previous.selectedText === sourceText &&
+      editor.document.getText(range) === sourceText;
+    if (intact && previous && range && editor) {
+      lastResult = { ...previous, result };
+      hoverStore.set(editor.document, range, result);
+    } else {
+      lastResult = { selectedText: sourceText, result };
+    }
+    await resultsView.showResult(result, sourceText, intact, operation);
+  } catch (error) {
+    if (reportAbort(error, operation, abort.reason)) return;
+    await showLookupError(error, () => rerunOperation(context, hoverStore, operation, sourceText));
   }
 }
 
@@ -1841,12 +2394,18 @@ async function executeAddToUserDictionary(context: vscode.ExtensionContext): Pro
   }
 
   try {
-    const draft = await generateUserDictionaryDraft(context, expression, false);
+    const draft = await generateUserDictionaryDraft(
+      context,
+      expression,
+      false,
+      undefined,
+      smartWordCaptureSentence(editor, selections[0])
+    );
     await resultsView.showUserDictionaryDraft(draft);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       notify('information',
-        'User Dictionary generation was cancelled. Nothing was saved.'
+        'User Dictionary generation was canceled. Nothing was saved.'
       );
       return;
     }
@@ -1855,11 +2414,49 @@ async function executeAddToUserDictionary(context: vscode.ExtensionContext): Pro
   }
 }
 
+/**
+ * The sentence around a selection, when Smart Word Capture is on and a model will actually
+ * run. Both switches are checked here rather than only downstream: with User Dictionary off
+ * no model is asked anything, and reading a line of the reader's document to send it nowhere
+ * is the wrong trade at any price. VS Code has no manual capture mode, so the two switches
+ * above are the whole gate; the Office task pane does have one and needs a third check.
+ *
+ * The paragraph is assembled from the editor and the sentence is cut from it by core, so
+ * Word and PowerPoint reach the same answer from their own paragraph text rather than from
+ * a second copy of the rule written here.
+ */
+function smartWordCaptureSentence(
+  editor: vscode.TextEditor,
+  selection: vscode.Selection
+): string | undefined {
+  const config = vscode.workspace.getConfiguration('kren');
+  if (!config.get<boolean>('userDictionary.enabled', false)) return undefined;
+  if (!config.get<boolean>('userDictionary.smartWordCapture', true)) return undefined;
+
+  const document = editor.document;
+  let startLine = selection.start.line;
+  let endLine = selection.end.line;
+  while (startLine > 0 && document.lineAt(startLine - 1).text.trim()) startLine -= 1;
+  while (endLine + 1 < document.lineCount && document.lineAt(endLine + 1).text.trim()) {
+    endLine += 1;
+  }
+  const block = new vscode.Range(
+    startLine,
+    0,
+    endLine,
+    document.lineAt(endLine).text.length
+  );
+  const offset = document.offsetAt(selection.start) - document.offsetAt(block.start);
+  return sentenceAroundSelection(document.getText(block), offset);
+}
+
 async function generateUserDictionaryDraft(
   context: vscode.ExtensionContext,
   expression: string,
   termSuppliedByUser: boolean,
-  captureMode?: UserDictionaryProviderCaptureMode
+  captureMode?: UserDictionaryProviderCaptureMode,
+  contextSentence?: string,
+  retry = false
 ): Promise<UserDictionaryCaptureResult | UserDictionaryEntryV1> {
   return vscode.window.withProgress(
     {
@@ -1881,7 +2478,9 @@ async function generateUserDictionaryDraft(
           expression,
           controller.signal,
           captureMode,
-          termSuppliedByUser
+          termSuppliedByUser,
+          contextSentence,
+          retry
         );
       } finally {
         clearTimeout(timeout);
@@ -1902,13 +2501,13 @@ async function regenerateUserDictionaryDraft(
     );
     return undefined;
   }
-  const confirmed = await vscode.window.showWarningMessage(
+  const confirmed = await showKrenWarningMessage(
     'Regenerate this User Dictionary draft and discard its unsaved edits?',
     { modal: true },
     'Regenerate'
   );
   return confirmed === 'Regenerate'
-    ? generateUserDictionaryDraft(context, expression, true, captureMode)
+    ? generateUserDictionaryDraft(context, expression, true, captureMode, undefined, true)
     : undefined;
 }
 
@@ -1927,7 +2526,7 @@ async function openUserDictionary(): Promise<void> {
 }
 
 async function deleteUserDictionaryEntry(id: string): Promise<UserDictionaryEntryV1[]> {
-  const confirmed = await vscode.window.showWarningMessage(
+  const confirmed = await showKrenWarningMessage(
     'Delete this User Dictionary entry?',
     { modal: true },
     'Delete'
@@ -1940,7 +2539,7 @@ async function deleteUserDictionaryEntries(
   ids: readonly string[]
 ): Promise<UserDictionaryEntryV1[] | undefined> {
   if (ids.length === 0) return userDictionaryService.list();
-  const confirmed = await vscode.window.showWarningMessage(
+  const confirmed = await showKrenWarningMessage(
     `Delete the ${ids.length} selected User Dictionary entries?`,
     { modal: true },
     'Delete selected entries'
@@ -1966,7 +2565,7 @@ async function confirmUserDictionaryPurge(
     });
     if (typed !== 'REMOVE ALL') return undefined;
   } else {
-    const confirmed = await vscode.window.showWarningMessage(
+    const confirmed = await showKrenWarningMessage(
       `Delete exactly the ${preview.count} entries listed in the purge preview?`,
       { modal: true },
       'Delete previewed entries'
@@ -2034,6 +2633,12 @@ async function exportUserDictionary(
   );
 }
 
+// package.json declares kren.grammar.smart with a default of true, so VS Code returns
+// true when the setting is unset and this fallback only fires if the contribution is
+// missing. Three call sites passed false, which contradicted the manifest and told every
+// reader the feature was off by default when it is on.
+const GRAMMAR_SMART_DEFAULT = true;
+
 async function executeClipboardLookup(context: vscode.ExtensionContext): Promise<void> {
   const rawText = await vscode.env.clipboard.readText();
   const config = vscode.workspace.getConfiguration('kren');
@@ -2069,7 +2674,14 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
       { label: '$(book) Korean Dictionary Search', operation: 'koreanDictionary' as const },
       { label: '$(globe) Translate', operation: 'translate' as const },
       { label: '$(comment-discussion) Explain Meaning or Nuance', operation: 'explain' as const },
-      { label: '$(checklist) Grammar Check (offline)', operation: 'grammar' as const },
+      {
+        // Only offline when Smart Grammar Check is off. With it on the checked text goes to
+        // the configured provider, so the label said the opposite of what the action did.
+        label: config.get<boolean>('grammar.smart', GRAMMAR_SMART_DEFAULT)
+          ? '$(checklist) Grammar Check (Harper and Smart Grammar Check)'
+          : '$(checklist) Grammar Check (offline)',
+        operation: 'grammar' as const
+      },
       ...(config.get<boolean>('userDictionary.enabled', false)
         ? [{
           label: '$(notebook) Add Clipboard Expression to User Dictionary',
@@ -2108,7 +2720,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         notify('information',
-          'User Dictionary generation was cancelled. Nothing was saved.'
+          'User Dictionary generation was canceled. Nothing was saved.'
         );
         return;
       }
@@ -2132,6 +2744,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
     return;
   }
 
+  const requestGeneration = ++resultRequestGeneration;
   let abortReason: 'cancelled' | 'timedOut' | undefined;
   try {
     const result = await vscode.window.withProgress(
@@ -2151,6 +2764,7 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
           controller.abort();
         }, config.get<number>('request.timeoutMs', 45000));
         try {
+          if (selectedOperation === 'grammar') return await runGrammarOperation(context, rawText, controller.signal, true);
           return await runKrenOperation(
             extensionRuntime(context),
             selectedOperation,
@@ -2163,12 +2777,43 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
         }
       }
     );
+    if (requestGeneration !== resultRequestGeneration) return;
     lastResult = { selectedText: rawText, result };
-    await resultsView.showResult(result, rawText, false);
+
+    /*
+     * The same clipboard route as the editor path in executeLookup. It is repeated here rather
+     * than shared because the two functions differ in everything around it, and it is four
+     * lines; what must not differ is the decision, which both take from shouldCopyRewriteToClipboard.
+     *
+     * This is the path the owner actually uses. Four rounds of this feature were fixed in the
+     * editor path only, because the status bar Quick Pick reaches runKrenOperation directly and
+     * never touches executeLookup.
+     */
+    const clipboardEnabled = config.get<boolean>('rewrite.copyToClipboard', false);
+    if (result.kind === 'rewrite') {
+      outputChannel.appendLine(
+        describeClipboardDecision(selectedOperation, clipboardEnabled, result)
+      );
+    }
+    if (shouldCopyRewriteToClipboard(selectedOperation, clipboardEnabled)) {
+      const clipboardText = rewriteClipboardText(result, selectedOperation);
+      if (clipboardText) {
+        await copyTextResult(clipboardText);
+        // setResult renders without revealing, so the panel is current and stays where it is.
+        resultsView.setResult(result, rawText, false, selectedOperation);
+        vscode.window.setStatusBarMessage(
+          `$(clippy) KREN: ${REPLAY_SUBJECTS[selectedOperation]} copied. Paste with Ctrl+V.`,
+          4000
+        );
+        return;
+      }
+    }
+
+    await resultsView.showResult(result, rawText, false, selectedOperation);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       notify('information',
-        abortReason === 'timedOut' ? 'KREN request timed out.' : 'KREN request was cancelled.'
+        abortReason === 'timedOut' ? 'KREN request timed out.' : 'KREN request was canceled.'
       );
       return;
     }
@@ -2183,9 +2828,11 @@ function clipboardPreview(text: string): string {
 
 function extensionRuntime(context: vscode.ExtensionContext): KrenRuntime {
   return {
+    log: line => outputChannel.appendLine(line),
+    providerSwitchNotice: line => resultsView.showProviderSwitchNotice(line),
     getSecret: async (key) => context.secrets.get(key),
     getSetting: <T>(key: string, fallback: T): T =>
-      vscode.workspace.getConfiguration('kren').get<T>(key, fallback),
+      normalizeModelSetting(key, vscode.workspace.getConfiguration('kren').get<T>(key, fallback)),
     reserveCloudCharacters: (characters) => cloudTranslationUsage.reserve(characters),
     beforeGeminiRequest: (profile) => ensureGeminiConsent(context, profile),
     beforeLanguageModelRequest: (provider, profile) =>
@@ -2195,22 +2842,33 @@ function extensionRuntime(context: vscode.ExtensionContext): KrenRuntime {
 
 async function ensureLanguageModelConsent(
   context: vscode.ExtensionContext,
-  provider: 'gemini' | 'openai' | 'anthropic',
+  provider: 'gemini' | 'openai' | 'anthropic' | 'groq' | 'cloudflare',
   profile: 'standard' | 'pro' = 'standard'
 ): Promise<void> {
   if (provider === 'gemini') return ensureGeminiConsent(context, profile);
+  if (provider === 'groq' || provider === 'cloudflare') {
+    const consentKey = `kren.${provider}.consent.v1`;
+    if (context.globalState.get<boolean>(consentKey, false)) return;
+    const name = provider === 'groq' ? 'Groq' : 'Cloudflare Workers AI';
+    const accepted = await showKrenWarningMessage(
+      `${name} receives the text you explicitly submit and KREN instructions for the selected feature. Tutor requests include the lesson, practice answer, or displayed conversation needed for that action. Free daily or per-minute limits apply; paid usage can incur charges. Review KREN menu, Manual and the provider terms before submitting sensitive material.`,
+      { modal: true }, 'I Understand');
+    if (accepted !== 'I Understand') throw new Error(`${name} request canceled.`);
+    await context.globalState.update(consentKey, true);
+    return;
+  }
   const consentKey = provider === 'openai' ? OPENAI_CONSENT : ANTHROPIC_CONSENT;
   if (context.globalState.get<boolean>(consentKey, false)) return;
   const providerName = provider === 'openai' ? 'OpenAI' : 'Anthropic';
   const retention = provider === 'openai'
     ? 'OpenAI states that API data is not used for training by default, but standard abuse-monitoring logs may be retained for 30 days. KREN sets store to false; that is not a zero-retention guarantee.'
     : 'Anthropic states that standard API inputs and outputs are normally deleted within 30 days, with longer retention possible for policy enforcement or law. Zero data retention requires a separate approved agreement.';
-  const accepted = await vscode.window.showWarningMessage(
+  const accepted = await showKrenWarningMessage(
     `${providerName} API use can incur charges. ${retention} KREN sends only the text you explicitly submit plus fixed instructions and selected KREN settings. KREN does not send the surrounding file, workspace, clipboard history, or previous results, and it does not track or cap provider spending.`,
     { modal: true },
     'I Understand'
   );
-  if (accepted !== 'I Understand') throw new Error(`${providerName} request cancelled.`);
+  if (accepted !== 'I Understand') throw new Error(`${providerName} request canceled.`);
   await context.globalState.update(consentKey, true);
 }
 
@@ -2219,10 +2877,8 @@ async function ensureGeminiConsent(
   profile: 'standard' | 'pro' = 'standard'
 ): Promise<void> {
   if (context.globalState.get<boolean>(GEMINI_CONSENT, false)) return;
-  const fallbackNotice = profile === 'pro'
-    ? ' If alternate-profile fallback is enabled, the same text may be resubmitted to the configured fallback model after exhausted 429, 503, or 504 retries or an unusable structured response.'
-    : '';
-  const accepted = await vscode.window.showWarningMessage(
+  const fallbackNotice = ' If model fallback is enabled, the same text may be resubmitted to the configured fallback model after exhausted 429, 503, or 504 retries or an unusable structured response.';
+  const accepted = await showKrenWarningMessage(
     `Google's current Gemini API Terms require API users to be at least 18 and use Gemini for professional or business purposes. Gemini is available only in regions listed by Google, with additional regional restrictions. Model access, quotas, pricing, data use, and permitted use vary by Google project and region. By continuing, you confirm that you are at least 18 and will use your own eligible Google project in compliance with the current terms. KREN sends only the text you explicitly submit plus fixed instructions and selected settings.${fallbackNotice} Do not submit secrets, personal data, confidential source code, or unpublished documents unless Google's current terms and controls are acceptable.`,
     { modal: true },
     'I Am 18+ and Confirm',
@@ -2232,7 +2888,7 @@ async function ensureGeminiConsent(
     await vscode.env.openExternal(vscode.Uri.parse('https://ai.google.dev/gemini-api/terms'));
     return ensureGeminiConsent(context, profile);
   }
-  if (accepted !== 'I Am 18+ and Confirm') throw new Error('Gemini request cancelled.');
+  if (accepted !== 'I Am 18+ and Confirm') throw new Error('Gemini request canceled.');
   await context.globalState.update(GEMINI_CONSENT, true);
 }
 
@@ -2242,13 +2898,13 @@ async function configureRewriteGeminiProfile(
   const selected = await vscode.window.showQuickPick(
     [
       {
-        label: '$(sparkle) Default Gemini profile',
-        description: 'Uses the user-supplied default key and kren.gemini.model',
+        label: '$(sparkle) Gemini Free Tier profile',
+        description: 'Uses the user-supplied Free Tier key and kren.gemini.model',
         profile: 'standard' as const
       },
       {
-        label: '$(star-full) Alternate Gemini profile',
-        description: 'Uses an optional alternate user-supplied key and kren.gemini.alternateModel',
+        label: '$(star-full) Gemini Paid profile',
+        description: 'Uses an optional user-supplied Gemini Paid key and kren.gemini.alternateModel',
         profile: 'pro' as const
       }
     ],
@@ -2278,7 +2934,7 @@ async function configureRewriteGeminiProfile(
         }
       ],
       {
-        title: 'Choose the alternate Gemini profile thinking level',
+        title: 'Choose the Gemini Paid profile thinking level',
         placeHolder: 'Supported levels depend on the configured model'
       }
     );
@@ -2302,14 +2958,14 @@ async function configureRewriteGeminiProfile(
     );
   }
   notify('information',
-    `Rewrite Text now uses the ${selected.profile === 'pro' ? 'alternate' : 'default'} Gemini profile.`
+    `Rewrite Text now uses the Gemini ${selected.profile === 'pro' ? 'Paid' : 'Free Tier'} profile.`
   );
 }
 
 async function displayResult(result: KrenResult): Promise<void> {
   const mode = vscode.workspace.getConfiguration('kren').get<string>('display.mode', 'hover');
   if (mode === 'details') {
-    showDetails();
+    await resultsView.showResult(result, lastResult?.selectedText ?? result.sourceText, Boolean(lastResult?.range));
     return;
   }
   if (mode === 'quickPick') {
@@ -2480,17 +3136,17 @@ async function configureLanguages(): Promise<void> {
 
 async function pickOutputLanguage(
   title: string,
-  includeBilingual: boolean
+  explanationPicker: boolean
 ): Promise<{ code: string; name: string } | undefined> {
   const items = [
-    ...(includeBilingual
-      ? [{ label: 'English and Korean', description: 'Bilingual explanation', code: 'bilingual', name: 'English and Korean' }]
-      : [{
-          label: '$(arrow-swap) Auto: English ↔ Korean',
-          description: 'English to Korean; Korean to English',
-          code: AUTO_ENGLISH_KOREAN_TARGET,
-          name: 'Auto: English ↔ Korean'
-        }]),
+    ...(explanationPicker
+      ? [{
+          label: '$(arrow-down) Same as source',
+          description: 'Write the explanation in the language of the selected text',
+          code: EXPLANATION_SAME_AS_SOURCE,
+          name: 'Same as source'
+        }]
+      : []),
     ...KREN_LANGUAGES.map((language) => ({
       label: language.name,
       description: language.code,
@@ -2577,8 +3233,140 @@ async function deleteSecret(
   notify('information', confirmation);
 }
 
+/**
+ * Return every `kren.*` setting to the value the manifest declares, in every scope.
+ *
+ * `update(key, undefined, scope)` removes the stored override rather than writing a copy of
+ * the default, so a later change to a default reaches a reader who has reset. Writing the
+ * default value instead would pin today's default forever, which is the same trap as a
+ * second copy of a rule.
+ */
+async function restoreDefaultConfiguration(
+  context: vscode.ExtensionContext
+): Promise<number> {
+  const config = vscode.workspace.getConfiguration('kren');
+  // The running extension's own manifest, so the key list cannot disagree with the
+  // settings this build actually declares.
+  const manifest = { contributes: context.extension.packageJSON.contributes } as unknown;
+  let cleared = 0;
+  for (const key of krenConfigurationKeys(manifest)) {
+    const inspected = config.inspect(key);
+    for (const [stored, scope] of [
+      [inspected?.globalValue, vscode.ConfigurationTarget.Global],
+      [inspected?.workspaceValue, vscode.ConfigurationTarget.Workspace],
+      [inspected?.workspaceFolderValue, vscode.ConfigurationTarget.WorkspaceFolder]
+    ] as Array<[unknown, vscode.ConfigurationTarget]>) {
+      if (stored === undefined) continue;
+      try {
+        await config.update(key, undefined, scope);
+        cleared += 1;
+      } catch {
+        // A workspace scope is unavailable with no folder open. Nothing to report: the
+        // setting has no stored value there either.
+      }
+    }
+  }
+  return cleared;
+}
+
+/**
+ * How many KREN settings currently hold a value other than the declared default.
+ *
+ * Counted before the second confirmation so the reader is told the size of what they are
+ * about to lose rather than asked the same question twice. A confirmation that repeats the
+ * first one is a click, not a check.
+ */
+async function changedSettingCount(context: vscode.ExtensionContext): Promise<number> {
+  const config = vscode.workspace.getConfiguration('kren');
+  const manifest = { contributes: context.extension.packageJSON.contributes } as unknown;
+  let changed = 0;
+  for (const key of krenConfigurationKeys(manifest)) {
+    const inspected = config.inspect(key);
+    if (inspected?.globalValue !== undefined ||
+        inspected?.workspaceValue !== undefined ||
+        inspected?.workspaceFolderValue !== undefined) changed += 1;
+  }
+  return changed;
+}
+
+/**
+ * Default Setting: every setting back to its default, credentials untouched.
+ *
+ * One confirmation. The action is recoverable by choosing the settings again, and it never
+ * removes anything a provider would have to reissue.
+ */
+async function restoreDefaultSettings(context: vscode.ExtensionContext): Promise<void> {
+  const plan = krenResetPlan('settings');
+  const first = await showKrenWarningMessage(
+    'Return every KREN setting to its default? Your stored API keys, User Dictionary, and local grammar vocabulary are not touched.',
+    { modal: true },
+    'Continue'
+  );
+  if (first !== 'Continue') return;
+  const changed = await changedSettingCount(context);
+  const second = await showKrenWarningMessage(
+    `Last check. KREN will return ${changed} setting${changed === 1 ? '' : 's'} you have changed to the value the extension declares, including translation and explanation languages, every LLM routing choice, and every rewrite style axis. Your API keys are not touched.`,
+    { modal: true },
+    'Restore Defaults'
+  );
+  if (second !== 'Restore Defaults') return;
+  if (!plan.configuration) return;
+  const cleared = await restoreDefaultConfiguration(context);
+  resultsView.refresh();
+  notify('information',
+    cleared === 0
+      ? 'KREN settings were already at their defaults.'
+      : `KREN returned ${cleared} setting${cleared === 1 ? '' : 's'} to its default. Stored API keys are unchanged.`
+  );
+}
+
+/**
+ * Reset KREN: settings back to default, every credential deleted, and the state that only
+ * exists because a credential was used cleared with them.
+ *
+ * Two confirmations, which the owner asked for on 2026-08-28: "when this button pressed, one
+ * more confirmation required before executing the reset". The second is not a repeat of the
+ * first. It names what cannot be recovered, because a deleted key has to be fetched from the
+ * provider again while a default setting can simply be chosen again.
+ */
+async function resetKren(context: vscode.ExtensionContext): Promise<void> {
+  const plan = krenResetPlan('everything');
+  const first = await showKrenWarningMessage(
+    'Reset KREN? This returns every setting to its default and deletes every API key stored on this VS Code profile.',
+    { modal: true },
+    'Continue'
+  );
+  if (first !== 'Continue') return;
+
+  const keys = Object.values(KREN_SECRET_KEYS);
+  const storedNow = (await Promise.all(keys.map((key) => context.secrets.get(key))))
+    .filter(Boolean).length;
+  const second = await showKrenWarningMessage(
+    `Last check. KREN will delete ${storedNow} stored API key${storedNow === 1 ? '' : 's'}, clear provider consent and the Cloud Translation usage ledger, and empty your local grammar vocabulary. A deleted key cannot be recovered from KREN; you would fetch it from the provider again. Your User Dictionary entries are kept.`,
+    { modal: true },
+    'Reset KREN'
+  );
+  if (second !== 'Reset KREN') return;
+
+  const cleared = await restoreDefaultConfiguration(context);
+  if (plan.credentials) {
+    await Promise.all(keys.map((key) => context.secrets.delete(key)));
+    storedSecretKeys.clear();
+  }
+  await resetProviderExhaustion();
+  for (const key of plan.globalStateKeys) {
+    await context.globalState.update(key, undefined);
+  }
+  await cloudTranslationUsage.reset();
+  configureHarperGrammar({ customWords: [], ignoredLints: '' });
+  resultsView.refresh();
+  notify('information',
+    `KREN was reset: ${cleared} setting${cleared === 1 ? '' : 's'} returned to default and ${storedNow} API key${storedNow === 1 ? '' : 's'} deleted.`
+  );
+}
+
 async function deleteAllApiKeys(context: vscode.ExtensionContext): Promise<void> {
-  const confirmed = await vscode.window.showWarningMessage(
+  const confirmed = await showKrenWarningMessage(
     'Delete every API key stored by KREN on this VS Code profile? This cannot be undone.',
     { modal: true },
     'Delete All API Keys'
@@ -2602,36 +3390,44 @@ async function showLookupError(
   error: unknown,
   retry?: () => Promise<void>
 ): Promise<void> {
-  const message = errorMessage(error);
+  const outcome = recordedRequestOutcome(error);
+  const presentation = error instanceof ProviderError && outcome?.type === 'failed' ? presentRequestFailure(outcome) : undefined;
+  const message = presentation?.message ?? errorMessage(error);
   if (!(error instanceof ProviderError)) {
     notify('error', `KREN: ${message}`);
     return;
   }
   const retryLabel = error.retryable && retry ? 'Retry Now' : undefined;
-  const action = error.action;
-  const actionButton = action ? actionLabel(action) : undefined;
+  const action = presentation?.credentialAction ?? error.action;
+  const checkQuota = outcome?.type === 'failed' && outcome.actions.includes('checkQuota');
+  const actionButton = presentation?.quotaActionLabel ?? (action ? actionLabel(action) : undefined);
   if (!retryLabel && !actionButton) {
     notify('error', `KREN: ${message}`);
     return;
   }
   const buttons = [retryLabel, actionButton].filter((item): item is string => Boolean(item));
   if (!isCredentialSetupAction(action)) {
-    void Promise.resolve(vscode.window.showErrorMessage(`KREN: ${message}`, ...buttons))
-      .then((selected) => handleLookupErrorSelection(
-        selected,
-        retryLabel,
-        actionButton,
-        action,
-        retry
-      ))
+    void Promise.resolve(showKrenErrorMessage(`KREN: ${message}`, ...buttons))
+      .then(async (selected) => {
+        if (checkQuota && selected === actionButton) { await resultsView.showSettings(); return; }
+        await handleLookupErrorSelection(
+          selected,
+          retryLabel,
+          actionButton,
+          action,
+          retry
+        );
+      })
       .catch(() => undefined);
     return;
   }
-  const selected = await vscode.window.showErrorMessage(
+  const selected = await showKrenErrorMessage(
       `KREN: ${message}`,
       {
         modal: true,
-        detail: 'No selected text was sent. Dismiss with X or Esc; KREN will ask again on the next attempt.'
+        detail: outcome?.history.length
+          ? 'The provider rejected its credential. Dismiss with X or Esc; KREN will ask again on the next attempt.'
+          : 'No selected text was sent. Dismiss with X or Esc; KREN will ask again on the next attempt.'
       },
       ...buttons
     );
@@ -2657,7 +3453,7 @@ function isCredentialSetupAction(
   action: ProviderError['action']
 ): boolean {
   return action === 'setGeminiKey' || action === 'setGeminiProKey' ||
-    action === 'setOpenAIKey' || action === 'setAnthropicKey' ||
+    action === 'setOpenAIKey' || action === 'setAnthropicKey' || action === 'setGroqKey' || action === 'setCloudflareCredentials' ||
     action === 'setGoogleCloudTranslationKey' ||
     action === 'setMerriamWebsterCollegiateKey' ||
     action === 'setMerriamWebsterMedicalKey' ||
@@ -2671,10 +3467,14 @@ async function refreshStoredSecretKeys(context: vscode.ExtensionContext): Promis
 }
 
 function credentialLabel(key: string): string {
-  if (key === GEMINI_KEY) return 'a default Gemini API key';
-  if (key === GEMINI_PRO_KEY) return 'an alternate Gemini API key';
+  if (key === GEMINI_KEY) return 'a Gemini Free Tier API key';
+  if (key === GEMINI_PRO_KEY) return 'a Gemini Paid API key';
+  if (key === GROQ_KEY) return 'a Groq API key';
   if (key === OPENAI_KEY) return 'an OpenAI API key';
+  if (key === KREN_SECRET_KEYS.cloudflareAccountId) return 'a Cloudflare account ID';
+  if (key === KREN_SECRET_KEYS.cloudflareApiToken) return 'a Cloudflare API token';
   if (key === ANTHROPIC_KEY) return 'an Anthropic API key';
+  if (key === GOOGLE_CLOUD_TEXT_TO_SPEECH_KEY) return 'a Google Cloud Text-to-Speech API key';
   if (key === GOOGLE_CLOUD_TRANSLATION_KEY) return 'a Google Cloud Translation API key';
   if (key === DICTIONARY_KEY) return 'a Korean Dictionary API key';
   if (key === MW_COLLEGIATE_KEY) return 'a Merriam-Webster Collegiate API key';
@@ -2690,6 +3490,7 @@ async function runProviderErrorAction(
   if (action === 'setGeminiProKey') {
     await vscode.commands.executeCommand('kren.setGeminiProApiKey');
   }
+  if (action === 'setGroqKey' || action === 'setCloudflareCredentials') { await resultsView.showCredentials(); return; }
   if (action === 'setOpenAIKey') await vscode.commands.executeCommand('kren.setOpenAIApiKey');
   if (action === 'setAnthropicKey') {
     await vscode.commands.executeCommand('kren.setAnthropicApiKey');
@@ -2715,14 +3516,17 @@ async function runProviderErrorAction(
   if (action === 'configureGeminiProModel') {
     await resultsView.showSettings();
   }
-  if (action === 'configureOpenAIModel' || action === 'configureAnthropicModel') {
+  if (action === 'configureOpenAIModel' || action === 'configureAnthropicModel' || action === 'configureGroqModel' || action === 'configureCloudflareModel') {
     await resultsView.showSettings();
   }
 }
 
 function actionLabel(action: NonNullable<ProviderError['action']>): string {
-  if (action === 'setGeminiKey') return 'Set Default Gemini API Key';
-  if (action === 'setGeminiProKey') return 'Set Alternate Gemini API Key';
+  if (action === 'setGeminiKey') return 'Set Gemini Free Tier API Key';
+  if (action === 'setGeminiProKey') return 'Set Gemini Paid API Key';
+  if (action === 'setGroqKey' || action === 'setCloudflareCredentials') return 'Credentials';
+  if (action === 'configureGroqModel') return 'Configure Groq Model';
+  if (action === 'configureCloudflareModel') return 'Configure Cloudflare Model';
   if (action === 'setOpenAIKey') return 'Set OpenAI API Key';
   if (action === 'setAnthropicKey') return 'Set Anthropic API Key';
   if (action === 'setGoogleCloudTranslationKey') return 'Set Google Cloud Translation API Key';
@@ -2731,13 +3535,15 @@ function actionLabel(action: NonNullable<ProviderError['action']>): string {
   if (action === 'setMerriamWebsterThesaurusKey') return 'Set Thesaurus API Key';
   if (action === 'setDictionaryKey') return 'Set Dictionary API Key';
   if (action === 'configureGeminiModel') return 'Configure Gemini Model';
-  if (action === 'configureGeminiProModel') return 'Configure Alternate Gemini Model';
+  if (action === 'configureGeminiProModel') return 'Configure Gemini Paid Model';
   if (action === 'configureOpenAIModel') return 'Configure OpenAI Model';
   if (action === 'configureAnthropicModel') return 'Configure Anthropic Model';
   return 'Configure Gemini Model';
 }
 
 function providerLabel(providerId: string): string {
+  if (providerId === 'groq') return 'Groq';
+  if (providerId === 'cloudflare') return 'Cloudflare Workers AI';
   if (providerId === 'harper') return 'Harper (offline)';
   if (providerId === 'gemini') return 'Gemini';
   if (providerId === 'googleCloudTranslation') return 'Google Cloud Translation';
@@ -2772,7 +3578,7 @@ async function showGoogleCloudTranslationUsage(): Promise<void> {
 async function testKoreanDictionary(context: vscode.ExtensionContext): Promise<void> {
   const key = await context.secrets.get(DICTIONARY_KEY);
   if (!key) {
-    const selected = await vscode.window.showErrorMessage(
+    const selected = await showKrenErrorMessage(
       'KREN: no Korean Basic Dictionary API key is stored in this VS Code profile.',
       'Set Dictionary API Key'
     );

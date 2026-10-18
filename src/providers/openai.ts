@@ -1,9 +1,7 @@
+import { readProviderListedIds } from './geminiModels.js';
+import { requestWithRetry } from '../requestCenter.js';
+import { providerHttpError } from './httpError.js';
 import { ProviderError } from '../errors.js';
-import {
-  isRetryableLanguageModelStatus as retryableStatus,
-  retryDelayMs,
-  waitForRetry
-} from '@kren/core/retry';
 import type {
   LanguageModelProvider,
   RewriteRequest,
@@ -19,6 +17,32 @@ import {
   systemInstruction
 } from './gemini.js';
 import { REWRITE_VARIANT_IDS } from '../rewriteVariants.js';
+import { requestStructuredJson } from './structuredJsonTransport.js';
+import type { CompatibleProvider } from './openAICompatible.js';
+import type { LanguageModelRoutingEffort } from '../languageModelRouting.js';
+
+/** Shares OpenAI's feature schemas and local normalizers without changing its wire format. */
+export class CompatibleLanguageModelProvider implements LanguageModelProvider {
+  public constructor(public readonly id: CompatibleProvider, private readonly apiKey: string,
+    private readonly model: string, private readonly thinkingOrEffort: LanguageModelRoutingEffort = 'auto',
+    private readonly maxAttempts = 3, private readonly accountId?: string) {}
+
+  public async explain(request: TranslationRequest, signal: AbortSignal): Promise<TranslationResult> {
+    const value = await this.generate(systemInstruction(request), request.text, 'kren_explanation', explanationSchema(), signal, request.operation === 'translate' ? 'translation' : 'explanation');
+    return { ...normalizeGeminiResult(value, request, this.id), modelId: this.model };
+  }
+
+  public async rewrite(request: RewriteRequest, signal: AbortSignal): Promise<RewriteResult> {
+    const value = await this.generate(rewriteSystemInstruction(request), request.text, 'kren_rewrite', rewriteSchema(request), signal);
+    return { ...normalizeGeminiRewriteResult(value, request, this.id), modelId: this.model };
+  }
+
+  private async generate(instruction: string, input: string, schemaName: string, schema: Record<string, unknown>, signal: AbortSignal, feature = schemaName.replace(/^kren_/u, '')): Promise<unknown> {
+    return requestStructuredJson({ provider: this.id, apiKey: this.apiKey, accountId: this.accountId,
+      model: this.model, thinkingOrEffort: this.thinkingOrEffort, schemaName, schema, feature }, { instruction, input }, signal, fetch, this.maxAttempts,
+      text => parseJson(text, this.id === 'groq' ? 'Groq' : 'Cloudflare'));
+  }
+}
 
 export type OpenAIReasoningEffort = 'auto' | 'none' | 'low' | 'medium' | 'high';
 
@@ -53,7 +77,7 @@ export class OpenAIProvider implements LanguageModelProvider {
       request.text,
       'kren_explanation',
       explanationSchema(),
-      signal
+      signal, request.operation === 'translate' ? 'translation' : 'explanation'
     );
     return normalizeGeminiResult(value, request, this.id);
   }
@@ -80,7 +104,8 @@ export class OpenAIProvider implements LanguageModelProvider {
     text: string,
     schemaName: string,
     schema: Record<string, unknown>,
-    signal: AbortSignal
+    signal: AbortSignal,
+    feature = schemaName.replace(/^kren_/u, '')
   ): Promise<unknown> {
     const body = JSON.stringify(buildOpenAIRequestBody(
       this.model,
@@ -90,49 +115,20 @@ export class OpenAIProvider implements LanguageModelProvider {
       schema,
       this.reasoningEffort
     ));
-    const attempts = boundedAttempts(this.maxAttempts);
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      let response: Response;
-      try {
-        response = await fetch('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`
-          },
-          body,
-          signal
-        });
-      } catch (error) {
-        if (signal.aborted) throw error;
-        if (attempt < attempts - 1) {
-          await waitForRetry(retryDelayMs(attempt), signal);
-          continue;
-        }
-        throw new ProviderError('OpenAI API could not be reached.', 'configureOpenAIModel', true);
+    return requestWithRetry({
+      request: { feature, provider: this.id, model: this.model }, signal, maxAttempts: boundedAttempts(this.maxAttempts),
+      send: () => fetch('https://api.openai.com/v1/responses', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` }, body, signal
+      }),
+      failure: ({ status, retryable }) => new ProviderError(status === undefined ? 'OpenAI API could not be reached.'
+        : providerHttpError('OpenAI', status), status === 401 || status === 403 ? 'setOpenAIKey' : 'configureOpenAIModel', retryable, status),
+      refused: () => new ProviderError('OpenAI declined the request.', undefined, false, undefined, 'refused'),
+      decode: envelope => {
+        const raw = openAIOutputText((envelope ?? {}) as OpenAIResponse);
+        if (!raw) throw new ProviderError('OpenAI returned no usable text output.', undefined, false, undefined, 'structuredOutput');
+        return parseJson(raw, 'OpenAI');
       }
-      const payload = (await response.json().catch(() => ({}))) as OpenAIResponse;
-      if (!response.ok) {
-        const detail = typeof payload.error?.message === 'string' ? ` ${payload.error.message}` : '';
-        if (retryableStatus(response.status) && attempt < attempts - 1) {
-          await waitForRetry(retryDelayMs(attempt, response.headers.get('retry-after')), signal);
-          continue;
-        }
-        const action = response.status === 401 || response.status === 403
-          ? 'setOpenAIKey' as const
-          : 'configureOpenAIModel' as const;
-        throw new ProviderError(
-          `OpenAI request failed (${response.status}).${detail}`,
-          action,
-          retryableStatus(response.status),
-          response.status
-        );
-      }
-      const raw = openAIOutputText(payload);
-      if (!raw) throw new ProviderError('OpenAI returned no usable text output.');
-      return parseJson(raw, 'OpenAI');
-    }
-    throw new ProviderError('OpenAI request failed after retries.', undefined, true);
+    });
   }
 }
 
@@ -178,9 +174,8 @@ export async function listOpenAIModels(
     error?: { message?: unknown };
   };
   if (!response.ok) {
-    const detail = typeof payload.error?.message === 'string' ? ` ${payload.error.message}` : '';
     throw new ProviderError(
-      `OpenAI model discovery failed (${response.status}).${detail}`,
+      providerHttpError('OpenAI', response.status),
       response.status === 401 || response.status === 403 ? 'setOpenAIKey' : 'configureOpenAIModel'
     );
   }
@@ -191,11 +186,21 @@ export async function listOpenAIModels(
     .map((id) => ({ id, displayName: id }));
 }
 
+/** Availability checks do not apply the picker's chat-family filter. */
+export async function listOpenAIModelsUnfiltered(apiKey: string, signal: AbortSignal): Promise<Array<{ id: string }>> {
+  const response = await fetch('https://api.openai.com/v1/models', {
+    headers: { Authorization: `Bearer ${apiKey}` }, signal
+  });
+  if (!response.ok) throw new ProviderError(providerHttpError('OpenAI', response.status),
+    response.status === 401 || response.status === 403 ? 'setOpenAIKey' : 'configureOpenAIModel');
+  return readProviderListedIds(response, 'data');
+}
+
 function openAIOutputText(payload: OpenAIResponse): string | undefined {
   for (const item of payload.output ?? []) {
     for (const content of item.content ?? []) {
       if (content.type === 'refusal' && typeof content.refusal === 'string') {
-        throw new ProviderError(`OpenAI declined the request: ${content.refusal}`);
+        throw new ProviderError('OpenAI declined the request.', undefined, false, undefined, 'refused');
       }
       if (content.type === 'output_text' && typeof content.text === 'string' && content.text.trim()) {
         return content.text.trim();

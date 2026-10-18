@@ -3,6 +3,8 @@ export type PriorityWebviewCommand =
   | 'pronunciationStarted'
   | 'pronunciationFailed'
   | 'generatedAudioEnded'
+  | 'generatedAudioStarted'
+  | 'generatedAudioReady'
   | 'generatedAudioFailed';
 
 const PRIORITY_COMMANDS = new Set<PriorityWebviewCommand>([
@@ -10,6 +12,8 @@ const PRIORITY_COMMANDS = new Set<PriorityWebviewCommand>([
   'pronunciationStarted',
   'pronunciationFailed',
   'generatedAudioEnded',
+  'generatedAudioStarted',
+  'generatedAudioReady',
   'generatedAudioFailed'
 ]);
 

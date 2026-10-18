@@ -153,7 +153,6 @@ describe('rewrite prompt defaults', () => {
       'suitable for a proposal',
       'precise scientific prose',
       'standard British English',
-      'When detectedLanguage is not English',
       'formal, precise wording',
       'objective voice',
       'appropriately qualified stance',
@@ -284,5 +283,66 @@ describe('rewrite prompt defaults', () => {
       spoken,
       'en'
     )).toBeUndefined();
+  });
+});
+
+// The owner selected American English on Korean text and got Korean back. The axis existed,
+// the panel showed it, and two separate rules made it inert: the language rule said never to
+// translate, and the variety instruction was gated on the text already being English.
+describe('the Rewrite Text output language', () => {
+  it('asks for the chosen language and permits translating into it', () => {
+    const prompt = rewriteSystemInstruction(request({ englishVariety: 'american' }));
+
+    expect(prompt).toContain('Write every variant in English, translating the text when it is written in another language.');
+    expect(prompt).not.toContain('never translate');
+    // detectedLanguage still reports what was read, because that is what tells the reader
+    // KREN understood their Korean before writing English.
+    expect(prompt).toContain('detectedLanguage');
+    expect(prompt).toContain('detectedLanguage still reports the language of the supplied text');
+  });
+
+  it('keeps the source language, and says so, on Same as source', () => {
+    const prompt = rewriteSystemInstruction(request({ englishVariety: 'sameAsSource' }));
+
+    expect(prompt).toContain('Write every variant in that same language and never translate it.');
+    expect(prompt).toContain('Write the result in the same language as the source text.');
+    expect(prompt).not.toContain('translating the text when it is written in another language');
+  });
+
+  it('applies the variety without asking what language was detected', () => {
+    // The gate read "Only when detectedLanguage is English", which asks about the language
+    // read rather than the language asked for, so a Korean source applied nothing at all.
+    const prompt = rewriteSystemInstruction(request({ englishVariety: 'british' }));
+
+    expect(prompt).toContain('Use standard British English');
+    expect(prompt).not.toContain('Only when detectedLanguage is English');
+    expect(prompt).not.toContain('ignore the English-variety setting');
+  });
+});
+
+describe('the Other languages output', () => {
+  it('asks for the chosen language by name', () => {
+    const prompt = rewriteSystemInstruction(request({
+      englishVariety: 'otherLanguage',
+      otherOutputLanguage: 'ko'
+    }));
+
+    expect(prompt).toContain('Write every variant in Korean, translating the text when it is written in another language.');
+    expect(prompt).not.toContain('in English,');
+  });
+
+  it('keeps the source language when the chosen language is missing or unknown', () => {
+    // An unrecognised stored language reaching the prompt would be asked for by raw code.
+    const noLanguage = rewriteSystemInstruction(request({ englishVariety: 'otherLanguage' }));
+    expect(noLanguage).toContain('Write every variant in that same language and never translate it.');
+  });
+
+  it('ignores the second control unless Other languages is chosen', () => {
+    const english = rewriteSystemInstruction(request({
+      englishVariety: 'american',
+      otherOutputLanguage: 'ko'
+    }));
+    expect(english).toContain('Write every variant in English');
+    expect(english).not.toContain('in Korean');
   });
 });

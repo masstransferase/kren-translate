@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { parseMerriamWebsterThesaurusResponse } from '../src/providers/merriamWebsterThesaurus.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  MerriamWebsterThesaurusProvider,
+  parseMerriamWebsterThesaurusResponse
+} from '../src/providers/merriamWebsterThesaurus.js';
 import type { DictionaryRequest } from '../src/types.js';
 
 const request: DictionaryRequest = {
@@ -9,6 +12,8 @@ const request: DictionaryRequest = {
   kind: 'dictionary',
   operation: 'translate'
 };
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('Merriam-Webster Thesaurus provider', () => {
   it('preserves synonym categories by sense', () => {
@@ -50,5 +55,35 @@ describe('Merriam-Webster Thesaurus provider', () => {
       nearAntonyms: [{ word: 'somber' }]
     });
     expect(result?.sections[0]?.audioUrl).toContain('/m/merry01.mp3');
+  });
+
+  it('does not replace a thesaurus miss with a suggested word entry', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(['marry']), { status: 200 })
+    );
+
+    const result = await new MerriamWebsterThesaurusProvider('secret-key').lookup(
+      request,
+      new AbortController().signal
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toBeUndefined();
+  });
+
+  it('rejects a thesaurus record that does not identify the requested text', () => {
+    const result = parseMerriamWebsterThesaurusResponse([{
+      meta: { id: 'marry:1', stems: ['marry'] },
+      hwi: { hw: 'marry' },
+      fl: 'verb',
+      def: [{
+        sseq: [[['sense', {
+          dt: [['text', '{bc}to enter into marriage']],
+          syn_list: [[{ wd: 'wed' }]]
+        }]]]
+      }]
+    }], request);
+
+    expect(result).toBeUndefined();
   });
 });

@@ -30,7 +30,7 @@ jobs:
           name: kren-vsix
           path: "*.vsix"
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
   extension-host-tests:
     runs-on: windows-latest
     steps:

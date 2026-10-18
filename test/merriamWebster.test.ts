@@ -17,6 +17,13 @@ const request: DictionaryRequest = {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Merriam-Webster provider', () => {
+  it.each(['{invalid JSON', JSON.stringify({ error: 'service failure' })])('R5a finding 6: rejects invalid 200 replies instead of returning a genuine miss: %s', async (body) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200 })));
+    try {
+      await expect(new MerriamWebsterProvider('test-key', 'collegiate').lookup(request, new AbortController().signal))
+        .rejects.toThrow(/Merriam-Webster.*invalid/u);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it('normalizes definitions, pronunciation, part of speech, and examples', () => {
     const payload = [
       {
@@ -183,15 +190,37 @@ describe('Merriam-Webster provider', () => {
     ]);
   });
 
-  it('follows one API-provided spelling or stem suggestion', async () => {
+  it('does not present one suggested word definition as the answer to two different queries', async () => {
+    const suggestedEntry = {
+      meta: { id: 'ereyesterday:1', stems: ['ereyesterday'] },
+      hwi: { hw: 'ereyesterday' },
+      fl: 'adverb',
+      shortdef: ['the day before yesterday']
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const query = decodeURIComponent(new URL(String(input)).pathname.split('/').at(-1) ?? '');
+      return new Response(JSON.stringify(
+        query === 'ereyesterday' ? [suggestedEntry] : ['ereyesterday']
+      ), { status: 200 });
+    });
+    const provider = new MerriamWebsterProvider('secret-key');
+
+    const yesterdayResult = await provider.lookup(
+      { ...request, text: 'yesterday' },
+      new AbortController().signal
+    );
+    const raceResult = await provider.lookup(
+      { ...request, text: 'race' },
+      new AbortController().signal
+    );
+
+    expect(yesterdayResult).toBeUndefined();
+    expect(raceResult).toBeUndefined();
+  });
+
+  it('leaves an API-provided spelling or stem suggestion as a no-match', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response(JSON.stringify(['come']), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([{
-        meta: { id: 'come:1' },
-        hwi: { hw: 'come' },
-        fl: 'verb',
-        shortdef: ['to move toward something']
-      }]), { status: 200 }));
+      .mockResolvedValue(new Response(JSON.stringify(['come']), { status: 200 }));
     const cameRequest = { ...request, text: 'came' };
 
     const result = await new MerriamWebsterProvider('secret-key').lookup(
@@ -199,11 +228,20 @@ describe('Merriam-Webster provider', () => {
       new AbortController().signal
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/came?');
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/come?');
-    expect(result?.headword).toBe('come');
-    expect(result?.note).toContain('suggestion “come”');
+    expect(result).toBeUndefined();
+  });
+
+  it('rejects a definition record that does not identify the requested text', () => {
+    const result = parseMerriamWebsterResponse([{
+      meta: { id: 'ereyesterday:1', stems: ['ereyesterday'] },
+      hwi: { hw: 'ereyesterday' },
+      fl: 'adverb',
+      shortdef: ['the day before yesterday']
+    }], { ...request, text: 'race' }, 'merriamWebsterCollegiate');
+
+    expect(result).toBeUndefined();
   });
 
   it('uses the Medical Dictionary endpoint and provider identity when selected', async () => {

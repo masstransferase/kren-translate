@@ -17,17 +17,17 @@ export class MerriamWebsterThesaurusProvider {
     request: DictionaryRequest,
     signal: AbortSignal
   ): Promise<ThesaurusResult | undefined> {
-    return this.fetchAndNormalize(request.text, request, signal, true);
+    return this.fetchAndNormalize(request, signal);
   }
 
   private async fetchAndNormalize(
-    query: string,
     request: DictionaryRequest,
-    signal: AbortSignal,
-    followSuggestion: boolean
+    signal: AbortSignal
   ): Promise<ThesaurusResult | undefined> {
+    // A no-match response contains spelling suggestions, not an entry for the requested
+    // text. A suggestion may be offered separately, but its synonyms are never the result.
     const url = new URL(
-      `https://www.dictionaryapi.com/api/v3/references/thesaurus/json/${encodeURIComponent(query)}`
+      `https://www.dictionaryapi.com/api/v3/references/thesaurus/json/${encodeURIComponent(request.text)}`
     );
     url.searchParams.set('key', this.apiKey);
 
@@ -46,17 +46,10 @@ export class MerriamWebsterThesaurusProvider {
       );
     }
 
+    if (!Array.isArray(payload)) throw new ProviderError('Merriam-Webster Thesaurus returned an invalid response. Try again.');
     const result = parseMerriamWebsterThesaurusResponse(payload, request);
     if (result) return result;
-    const suggestion = followSuggestion ? firstSuggestion(payload, request.text) : undefined;
-    if (!suggestion) return undefined;
-    const suggested = await this.fetchAndNormalize(suggestion, request, signal, false);
-    if (!suggested) return undefined;
-    return {
-      ...suggested,
-      sourceText: request.text,
-      note: `No exact thesaurus entry was returned for “${request.text}”; showing Merriam-Webster's suggestion “${suggestion}”.`
-    };
+    return undefined;
   }
 }
 
@@ -69,7 +62,9 @@ export function parseMerriamWebsterThesaurusResponse(
   const records = payload.filter(isRecord);
   if (records.length === 0) return undefined;
   const matching = records.filter((record) => recordMatchesQuery(record, request.text));
-  const selected = matching.length > 0 ? matching : records;
+  // No match is no answer, for the same reason as the collegiate provider: falling back to
+  // every returned record answers a lookup for one word with another word's entry.
+  const selected = matching;
   const sections = selected
     .map(normalizeSection)
     .filter((section): section is ThesaurusSection => section !== undefined);
@@ -222,14 +217,6 @@ function recordMatchesQuery(record: Record<string, unknown>, query: string): boo
     .toLocaleLowerCase('en-US');
   const stems = stringArray(meta?.stems).map((stem) => stem.toLocaleLowerCase('en-US'));
   return id === normalized || headword === normalized || stems.includes(normalized);
-}
-
-function firstSuggestion(payload: unknown, original: string): string | undefined {
-  if (!Array.isArray(payload)) return undefined;
-  return payload
-    .filter((value): value is string => typeof value === 'string')
-    .map((value) => value.trim())
-    .find((value) => value && value.toLocaleLowerCase('en-US') !== original.toLocaleLowerCase('en-US'));
 }
 
 function firstPronunciation(headwordInfo: Record<string, unknown> | undefined): string | undefined {

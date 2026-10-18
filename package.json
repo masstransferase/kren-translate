@@ -1,11 +1,11 @@
 {
   "name": "kren-translate",
-  "displayName": "KREN: Dictionary, Translate & Rewrite",
+  "displayName": "KREN: LLM-based Multilingual Dictionary, Translate & Rewrite",
   "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, multilingual rewriting, and read aloud inside VS Code.",
-  "version": "1.3.6",
+  "version": "2.0.0",
   "private": true,
   "publisher": "masstransferase",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/masstransferase/kren-translate.git"
@@ -24,6 +24,7 @@
     "vscode": "^1.106.0"
   },
   "categories": [
+    "Education",
     "Other"
   ],
   "keywords": [
@@ -62,6 +63,26 @@
   "contributes": {
     "commands": [
       {
+        "command": "kren.setCloudflareAccountId",
+        "title": "Set Cloudflare Account ID",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteCloudflareAccountId",
+        "title": "Delete Cloudflare Account ID",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setCloudflareApiToken",
+        "title": "Set Cloudflare API Token",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteCloudflareApiToken",
+        "title": "Delete Cloudflare API Token",
+        "category": "KREN"
+      },
+      {
         "command": "kren.translateSelection",
         "title": "Translate Selection",
         "category": "KREN"
@@ -77,6 +98,11 @@
         "title": "Open User Dictionary",
         "category": "KREN",
         "enablement": "config.kren.userDictionary.enabled"
+      },
+      {
+        "command": "kren.openTutor",
+        "title": "Open AI English Tutor",
+        "category": "KREN"
       },
       {
         "command": "kren.dictionarySearchSelection",
@@ -214,22 +240,22 @@
       },
       {
         "command": "kren.setGeminiApiKey",
-        "title": "Set Default Gemini API Key",
+        "title": "Set Gemini Free Tier API Key",
         "category": "KREN"
       },
       {
         "command": "kren.deleteGeminiApiKey",
-        "title": "Delete Default Gemini API Key",
+        "title": "Delete Gemini Free Tier API Key",
         "category": "KREN"
       },
       {
         "command": "kren.setGeminiProApiKey",
-        "title": "Set Alternate Gemini API Key",
+        "title": "Set Gemini Paid API Key",
         "category": "KREN"
       },
       {
         "command": "kren.deleteGeminiProApiKey",
-        "title": "Delete Alternate Gemini API Key",
+        "title": "Delete Gemini Paid API Key",
         "category": "KREN"
       },
       {
@@ -260,6 +286,16 @@
       {
         "command": "kren.testAnthropicConnection",
         "title": "Test Anthropic Connection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setGoogleCloudTextToSpeechApiKey",
+        "title": "Set Google Cloud Text-to-Speech API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteGoogleCloudTextToSpeechApiKey",
+        "title": "Delete Google Cloud Text-to-Speech API Key",
         "category": "KREN"
       },
       {
@@ -318,6 +354,16 @@
         "category": "KREN"
       },
       {
+        "command": "kren.restoreDefaultSettings",
+        "title": "Restore Default Settings",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.resetKren",
+        "title": "Reset KREN",
+        "category": "KREN"
+      },
+      {
         "command": "kren.deleteAllApiKeys",
         "title": "Delete All Stored API Keys",
         "category": "KREN"
@@ -325,6 +371,21 @@
       {
         "command": "kren.testKoreanDictionary",
         "title": "Test Korean Dictionary Connection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.setGroqApiKey",
+        "title": "Set Groq API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.deleteGroqApiKey",
+        "title": "Delete Groq API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testGroqConnection",
+        "title": "Test Groq Connection",
         "category": "KREN"
       }
     ],
@@ -605,7 +666,7 @@
       "properties": {
         "kren.userDictionary.enabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable the local User Dictionary commands and interface. No provider request or local entry write is possible while disabled."
         },
         "kren.userDictionary.defaultCaptureMode": {
@@ -631,12 +692,16 @@
           "enum": [
             "gemini",
             "openai",
-            "anthropic"
+            "anthropic",
+            "groq",
+            "cloudflare"
           ],
           "enumDescriptions": [
-            "Use the Gemini Developer API and the existing default Gemini credential.",
+            "Use the Gemini Developer API and the existing Gemini Free Tier credential.",
             "Use the OpenAI API and the existing OpenAI credential.",
-            "Use the Anthropic Claude API and the existing Anthropic credential."
+            "Use the Anthropic Claude API and the existing Anthropic credential.",
+            "Use Groq with its key in Credentials. Free limits apply.",
+            "Use Cloudflare Workers AI with the existing account ID and API token. Shares its daily neurons allowance."
           ],
           "default": "gemini",
           "description": "Language-model provider shared by User Dictionary generation and Smart Grammar Check."
@@ -645,6 +710,11 @@
           "type": "string",
           "default": "gemini-3.6-flash",
           "description": "Editable model identifier shared by User Dictionary generation and Smart Grammar Check."
+        },
+        "kren.userDictionary.alternateModel": {
+          "type": "string",
+          "default": "gemini-3.1-pro-preview",
+          "description": "Gemini model used by this feature while its Gemini profile is Paid. Stored separately from the Free Tier profile model, so changing one leaves the other alone."
         },
         "kren.userDictionary.thinkingOrEffort": {
           "type": "string",
@@ -658,6 +728,445 @@
           ],
           "default": "low",
           "description": "Thinking level or effort shared by User Dictionary generation and Smart Grammar Check when supported by the selected provider and model."
+        },
+        "kren.userDictionary.geminiProfile": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "pro"
+          ],
+          "default": "standard",
+          "description": "Gemini credential profile shared by User Dictionary generation and Smart Grammar Check."
+        },
+        "kren.userDictionary.fallbackEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the configured same-provider fallback for eligible Gemini failures on Free Tier or Paid in User Dictionary generation and Smart Grammar Check."
+        },
+        "kren.userDictionary.fallbackModel": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Fallback model shared by User Dictionary generation and Smart Grammar Check."
+        },
+        "kren.userDictionary.fallbackThinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Thinking level or effort used independently by the shared fallback model."
+        },
+        "kren.tutor.provider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "openai",
+            "anthropic",
+            "groq",
+            "cloudflare"
+          ],
+          "default": "gemini",
+          "description": "Language-model provider used by AI English Tutor.",
+          "enumDescriptions": [
+            "Use gemini.",
+            "Use openai.",
+            "Use anthropic.",
+            "Use Groq with its key in Credentials. Free limits apply.",
+            "Use Cloudflare Workers AI with the existing account ID and API token. Shares its daily neurons allowance."
+          ]
+        },
+        "kren.tutor.speechProvider": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "handy",
+            "groq",
+            "gemini",
+            "cloudflare",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Use Handy when installed, otherwise configured Cloudflare, otherwise Groq, otherwise Gemini.",
+            "Use the reader's existing local Handy installation.",
+            "Record in memory and send one WAV clip at Stop to Groq Whisper large v3 turbo.",
+            "Record with KREN and transcribe with gemini-3.5-transcribe. Your voice audio is sent to Google.",
+            "Record with KREN in memory and transcribe with Cloudflare Whisper (whisper-large-v3-turbo). Your voice audio is sent to Cloudflare.",
+            "Turn off speech input."
+          ],
+          "default": "auto",
+          "description": "Speech-to-text provider for AI English Tutor practice answers and Standard conversation. Handy listens locally and types into the focused answer box. The Gemini route records into memory, sends one WAV clip to Google when you stop, and writes the returned text into the answer box. The Cloudflare route sends that in-memory clip to Cloudflare Workers AI Whisper instead. KREN writes no dictation audio file. The Groq route sends the same in-memory WAV clip to Groq at Stop."
+        },
+        "kren.tutor.conversation.takeHome": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prepare a TAKE-HOME card when a conversation stops."
+        },
+        "kren.tutor.conversation.hintPrefetch": {
+          "type": "boolean",
+          "default": false,
+          "description": "Prepares each hint while you think, so it opens instantly. Uses one extra request per turn."
+        },
+        "kren.tutor.conversation.pictureStyle": {
+          "type": "string",
+          "enum": [
+            "realistic",
+            "illustrated"
+          ],
+          "enumDescriptions": [
+            "Photographs of real people and places.",
+            "Friendly digital illustrations."
+          ],
+          "default": "realistic",
+          "description": "How situation pictures look."
+        },
+        "kren.tutor.conversation.pressToTalk": {
+          "type": "boolean",
+          "default": false,
+          "description": "Press the microphone once to start a Live turn and again to finish it, from the next conversation."
+        },
+        "kren.tutor.conversation.microphoneSensitivity": {
+          "type": "string",
+          "enum": [
+            "quietRoom",
+            "balanced",
+            "noisyRoom"
+          ],
+          "enumDescriptions": [
+            "Use a lower local gate and shorter Standard quiet period for speech close to the microphone in a quiet room.",
+            "Keep KREN's previous local gate and Standard quiet period.",
+            "Use a stricter local gate and longer Standard quiet period when other voices are nearby."
+          ],
+          "default": "balanced",
+          "description": "Choose how readily KREN's local gate treats sound as speech and how long Standard waits after your speech or its transcription before sending. Quiet room uses a lower threshold and Noisy room resists nearby speech. Pause before reply independently decides the hands-free Live turn end. Gemini's automatic activity detection is disabled in Live, and Press to talk replaces the wait with explicit presses while KREN's local gate still filters audio. This cannot make the provider answer faster after KREN ends the turn."
+        },
+        "kren.tutor.conversation.speechDetection": {
+          "type": "string",
+          "enum": [
+            "kren",
+            "geminiKren"
+          ],
+          "enumItemLabels": [
+            "KREN",
+            "Gemini + KREN"
+          ],
+          "default": "geminiKren",
+          "description": "Who decides when you start speaking in hands-free Live, from the next conversation. Press to talk uses KREN detection."
+        },
+        "kren.tutor.conversation.pauseBeforeReply": {
+          "type": "number",
+          "enum": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "default": 2,
+          "description": "How long you can pause before KREN treats your turn as finished, in hands-free Live, from the next conversation."
+        },
+        "kren.tutor.conversation.microphoneCloseWait": {
+          "type": "number",
+          "enum": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "enumDescriptions": [
+            "Wait 2 seconds for Windows to hand the microphone back before ending the helper.",
+            "Wait 4 seconds for Windows to hand the microphone back before ending the helper.",
+            "Wait 6 seconds for Windows to hand the microphone back before ending the helper.",
+            "Wait 8 seconds for Windows to hand the microphone back before ending the helper."
+          ],
+          "default": 4,
+          "description": "Choose how long KREN waits for Windows to hand the microphone back before ending the helper. A longer wait means the Windows microphone indicator can stay lit for a few seconds after you press stop."
+        },
+        "kren.tutor.readAloud.provider": {
+          "type": "string",
+          "enum": [
+            "windowsLocal",
+            "edgeOnline",
+            "googleChirp"
+          ],
+          "enumDescriptions": [
+            "Use an installed offline Windows System.Speech voice.",
+            "Use a Microsoft Edge online English neural voice through edge-tts. Only the tutor text is sent to Microsoft.",
+            "Natural Google voices; uses your Google Cloud project's Text-to-Speech API."
+          ],
+          "default": "googleChirp",
+          "enumItemLabels": [
+            "Local Windows (offline)",
+            "Microsoft Edge Online",
+            "Google Cloud Chirp 3 HD"
+          ],
+          "description": "Speech source used only by AI English Tutor playback."
+        },
+        "kren.tutor.readAloud.edgeLocale": {
+          "type": "string",
+          "enum": [
+            "en-US",
+            "en-GB",
+            "en-AU",
+            "en-CA",
+            "en-IN"
+          ],
+          "enumDescriptions": [
+            "English (United States)",
+            "English (United Kingdom)",
+            "English (Australia)",
+            "English (Canada)",
+            "English (India)"
+          ],
+          "default": "en-US",
+          "description": "English language and region used only by AI English Tutor Edge Online playback."
+        },
+        "kren.tutor.readAloud.edgeVoice": {
+          "type": "string",
+          "pattern": "^en-",
+          "default": "en-US-ChristopherNeural",
+          "description": "Microsoft Edge online English voice ID used only by AI English Tutor playback."
+        },
+        "kren.tutor.readAloud.edgeFemaleVoice": {
+          "type": "string",
+          "pattern": "^en-",
+          "default": "en-US-AvaNeural",
+          "description": "Female Microsoft Edge online English voice used for the other speaker in AI English Tutor Replay all."
+        },
+        "kren.tutor.readAloud.edgeMaleVoice": {
+          "type": "string",
+          "pattern": "^en-",
+          "default": "en-US-ChristopherNeural",
+          "description": "Male Microsoft Edge online English voice used for the other speaker in AI English Tutor Replay all."
+        },
+        "kren.tutor.readAloud.edgeRatePercent": {
+          "type": "number",
+          "minimum": -50,
+          "maximum": 100,
+          "default": 0,
+          "description": "Microsoft Edge online speed adjustment used only by AI English Tutor playback. Zero percent is the natural speed."
+        },
+        "kren.tutor.readAloud.voice": {
+          "type": "string",
+          "default": "Microsoft David Desktop",
+          "description": "Installed Windows System.Speech English voice used only by AI English Tutor playback."
+        },
+        "kren.tutor.readAloud.rate": {
+          "type": "number",
+          "minimum": -10,
+          "maximum": 10,
+          "default": 0,
+          "description": "Windows speech rate used only by AI English Tutor playback. Zero is the normal voice rate."
+        },
+        "kren.tutor.readAloud.volume": {
+          "type": "number",
+          "enum": [
+            25,
+            50,
+            75,
+            100
+          ],
+          "default": 100,
+          "description": "Tutor playback volume for Local Windows, Edge Online and Google Cloud Chirp 3 HD."
+        },
+        "kren.tutor.model": {
+          "type": "string",
+          "default": "gemini-3.8-flash",
+          "description": "Editable provider-compatible model identifier used by AI English Tutor."
+        },
+        "kren.tutor.hintModel": {
+          "type": "string",
+          "default": "gemini-3.5-flash-lite",
+          "description": "Model used for Fast tutor steps, including hints, conversation replies and Ask. Leave empty to use the Thorough model."
+        },
+        "kren.llm.providerSwitch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Switch to the next provider with stored credentials when a free daily or monthly limit is used up, until local midnight. The same submitted text may go to that provider."
+        },
+        "kren.llm.providerOrder": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "gemini",
+              "groq",
+              "cloudflare",
+              "openai",
+              "anthropic"
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 5,
+          "default": [
+            "gemini",
+            "groq",
+            "cloudflare"
+          ],
+          "description": "Ordered providers for continuing after a free limit is used up. Only providers with stored credentials take part."
+        },
+        "kren.tutor.pictureProvider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "cloudflare"
+          ],
+          "enumDescriptions": [
+            "Gemini Paid profile",
+            "Cloudflare free models"
+          ],
+          "default": "gemini",
+          "description": "Provider for tutor situation pictures."
+        },
+        "kren.tutor.cloudflareImageModel": {
+          "type": "string",
+          "enum": [
+            "@cf/black-forest-labs/flux-1-schnell",
+            "@cf/black-forest-labs/flux-2-klein-4b"
+          ],
+          "enumDescriptions": [
+            "FLUX.1 schnell, uses the account's free daily allowance.",
+            "FLUX.2 klein 4B, uses the account's free daily allowance and takes about 25 seconds a picture."
+          ],
+          "default": "@cf/black-forest-labs/flux-1-schnell",
+          "description": "Cloudflare model used for tutor situation pictures."
+        },
+        "kren.tutor.imageModel": {
+          "type": "string",
+          "default": "gemini-3.1-flash-lite-image",
+          "description": "Gemini model used to generate tutor situation pictures with the Gemini Paid profile's key. Situation pictures need a Gemini Paid API key with billing enabled; the default image model costs about US$0.03 per picture and a conversation makes at most 10."
+        },
+        "kren.tutor.imageCustomModels": {
+          "type": "string",
+          "default": "[]",
+          "description": "Custom tutor image model identifiers, stored as a JSON array."
+        },
+        "kren.tutor.liveModel": {
+          "type": "string",
+          "default": "gemini-3.8-live",
+          "description": "Editable live-capable Gemini model identifier used for AI English Tutor Live replies."
+        },
+        "kren.tutor.conversation.liveTranscriptionLanguage": {
+          "type": "string",
+          "enum": [
+            "english",
+            "automatic"
+          ],
+          "enumDescriptions": [
+            "Expect English speech and ask Live transcription to use en-US.",
+            "Let the Live provider detect the spoken language automatically."
+          ],
+          "default": "english",
+          "description": "Which language AI English Tutor Live expects to hear."
+        },
+        "kren.tutor.liveCustomModels": {
+          "type": "string",
+          "default": "[]",
+          "description": "KREN-managed JSON list of Gemini Live model identifiers added with the Live model Add control."
+        },
+        "kren.tutor.liveFemaleVoice": {
+          "type": "string",
+          "enum": [
+            "Zephyr",
+            "Kore",
+            "Leda",
+            "Aoede",
+            "Callirrhoe",
+            "Autonoe",
+            "Despina",
+            "Erinome",
+            "Laomedeia",
+            "Achernar",
+            "Gacrux",
+            "Pulcherrima",
+            "Vindemiatrix",
+            "Sulafat"
+          ],
+          "default": "Callirrhoe",
+          "description": "Female Gemini Live voice used as the AI English Tutor Replay all gender default."
+        },
+        "kren.tutor.liveMaleVoice": {
+          "type": "string",
+          "enum": [
+            "Puck",
+            "Charon",
+            "Fenrir",
+            "Orus",
+            "Enceladus",
+            "Iapetus",
+            "Umbriel",
+            "Algieba",
+            "Algenib",
+            "Rasalgethi",
+            "Alnilam",
+            "Schedar",
+            "Achird",
+            "Zubenelgenubi",
+            "Sadachbia",
+            "Sadaltager"
+          ],
+          "default": "Enceladus",
+          "description": "Male Gemini Live voice used as the AI English Tutor Replay all gender default."
+        },
+        "kren.tutor.alternateModel": {
+          "type": "string",
+          "default": "gemini-3.8-flash",
+          "description": "Gemini model used by this feature while its Gemini profile is Paid. Stored separately from the Free Tier profile model, so changing one leaves the other alone."
+        },
+        "kren.tutor.thinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Thinking level or effort used by AI English Tutor when supported."
+        },
+        "kren.tutor.geminiProfile": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "pro"
+          ],
+          "default": "standard",
+          "description": "Gemini credential profile used by AI English Tutor."
+        },
+        "kren.tutor.fallbackEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the configured same-provider fallback after an eligible Gemini tutor failure on Free Tier or Paid."
+        },
+        "kren.tutor.fallbackModel": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Fallback model used by AI English Tutor."
+        },
+        "kren.tutor.fallbackThinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Thinking level or effort used independently by the tutor fallback model."
+        },
+        "kren.userDictionary.smartWordCapture": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send the sentence around the selection so the model can say which meaning applies there. The entry still lists every meaning, and the sentence is stored with it. Has no effect when Capture mode is manual, because no model runs."
         },
         "kren.userDictionary.entryLanguage": {
           "type": "string",
@@ -704,7 +1213,7 @@
         },
         "kren.results.openAtStartup": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Reopen the KREN Secondary Sidebar shortly after VS Code starts. Show KREN turns this on and Close KREN Panel turns it off, so it follows what you last chose. This does not control whether KREN's tab stays in the sidebar when you select another tab: that is VS Code's own per-tab Keep setting, reached by right-clicking the tab."
         },
         "kren.translationProvider": {
@@ -720,14 +1229,94 @@
           "default": "googleCloudTranslation",
           "description": "Provider used by Translate Selection. Dictionary commands use Merriam-Webster for English and KBD for Korean."
         },
+        "kren.translation.sourceLanguage": {
+          "type": "string",
+          "default": "auto",
+          "description": "Language KREN reads the selected text as before translating it: auto to detect it, or one of the languages KREN offers. Detection is shared with Read Aloud and answers only on clear evidence."
+        },
         "kren.translation.targetLanguage": {
           "type": "string",
-          "default": "auto-en-ko",
-          "description": "Translation target. auto-en-ko sends English to Korean and Korean to English. Enter an ISO/BCP-47 output code for a fixed target, or use KREN: Configure Translation and Explanation Languages."
+          "default": "ko-KR",
+          "description": "Language a translation is written in, as an ISO/BCP-47 code. KREN warns on the result when it is the language the selected text is already in. Use KREN: Configure Translation and Explanation Languages for a searchable selector."
+        },
+        "kren.translation.provider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "openai",
+            "anthropic",
+            "groq",
+            "cloudflare"
+          ],
+          "enumDescriptions": [
+            "Use the Gemini Developer API and the existing Gemini Free Tier credential.",
+            "Use the OpenAI API and the existing OpenAI credential.",
+            "Use the Anthropic Claude API and the existing Anthropic credential.",
+            "Use Groq with its key in Credentials. Free limits apply.",
+            "Use Cloudflare Workers AI with the existing account ID and API token. Shares its daily neurons allowance."
+          ],
+          "default": "gemini",
+          "description": "Language-model provider used when Translation provider is set to LLM. Ignored while Google Cloud Translation is selected."
+        },
+        "kren.translation.model": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Editable model identifier used when Translation provider is set to LLM."
+        },
+        "kren.translation.alternateModel": {
+          "type": "string",
+          "default": "gemini-3.1-pro-preview",
+          "description": "Gemini model used by this feature while its Gemini profile is Paid. Stored separately from the Free Tier profile model, so changing one leaves the other alone."
+        },
+        "kren.translation.thinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Thinking level or effort used when Translation provider is set to LLM and the selected provider and model support it."
+        },
+        "kren.translation.geminiProfile": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "pro"
+          ],
+          "default": "standard",
+          "description": "Gemini credential profile used when Translation provider is set to LLM."
+        },
+        "kren.translation.fallbackEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the configured same-provider fallback after an eligible Gemini translation failure on Free Tier or Paid."
+        },
+        "kren.translation.fallbackModel": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Fallback model used by LLM Translation."
+        },
+        "kren.translation.fallbackThinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Thinking level or effort used independently by the Translation fallback model."
         },
         "kren.grammar.dialect": {
           "type": "string",
           "enum": [
+            "auto",
             "american",
             "british",
             "australian",
@@ -735,14 +1324,15 @@
             "indian"
           ],
           "enumDescriptions": [
+            "Detect the language. Harper checks English and is skipped on anything else.",
             "Check American English spelling and grammar.",
             "Check British English spelling and grammar.",
             "Check Australian English spelling and grammar.",
             "Check Canadian English spelling and grammar.",
             "Check Indian English spelling and grammar."
           ],
-          "default": "american",
-          "description": "English dialect used by the offline Harper Grammar Check. Selected text never leaves this computer."
+          "default": "auto",
+          "description": "Input language for Grammar Check. Auto-detect runs the offline Harper checker on English and skips it on anything else, where every word would be reported as a misspelling; Smart Grammar Check still reads the passage. Naming a dialect forces Harper to run and sets its regional spelling conventions. Selected text never leaves this computer when Harper runs."
         },
         "kren.grammar.smart": {
           "type": "boolean",
@@ -765,25 +1355,54 @@
           "default": 900,
           "description": "Delay in milliseconds before optional automatic current-paragraph grammar checking."
         },
+        "kren.explanation.domain": {
+          "type": "string",
+          "enum": [
+            "general",
+            "business",
+            "academic",
+            "scientific",
+            "technical",
+            "regulatory",
+            "medical",
+            "legal"
+          ],
+          "enumDescriptions": [
+            "General-purpose English without a specialized domain style.",
+            "Clear professional business prose focused on actions and decisions.",
+            "Disciplined academic prose with appropriate qualification and terminology.",
+            "Precise scientific prose that preserves units and evidentiary qualifications.",
+            "Precise technical prose that preserves necessary specialist terminology.",
+            "Precise regulatory prose that preserves defined terms and obligations.",
+            "Precise medical prose that preserves clinical qualifications and terminology.",
+            "Precise legal prose that preserves defined terms, qualifications, and legal effect."
+          ],
+          "default": "general",
+          "description": "Subject area an explanation writes for. Guides terminology and conventions without sending document or workspace context. Ignored by Google Cloud Translation, whose API accepts no such parameter."
+        },
         "kren.explanation.outputLanguage": {
           "type": "string",
-          "default": "bilingual",
-          "description": "ISO/BCP-47 output language code used by Explain Meaning or Nuance, or bilingual for English and Korean. Use the KREN language configuration command for a searchable selector."
+          "default": "sameAsSource",
+          "description": "Language Explain Meaning or Nuance writes its note in: sameAsSource for the language of the selected text, or an ISO/BCP-47 code. Use the KREN language configuration command for a searchable selector."
         },
         "kren.explanation.provider": {
           "type": "string",
           "enum": [
             "gemini",
             "openai",
-            "anthropic"
+            "anthropic",
+            "groq",
+            "cloudflare"
           ],
           "enumDescriptions": [
             "Use the Gemini Developer API.",
             "Use the OpenAI API. API charges may apply.",
-            "Use the Anthropic Claude API. API charges may apply."
+            "Use the Anthropic Claude API. API charges may apply.",
+            "Use Groq with its key in Credentials. Free limits apply.",
+            "Use Cloudflare Workers AI with the existing account ID and API token. Shares its daily neurons allowance."
           ],
           "default": "gemini",
-          "description": "Language-model provider used by Explain Meaning or Nuance. KREN never silently falls back to a different provider."
+          "description": "Language-model provider used by Explain Meaning or Nuance."
         },
         "kren.explanation.geminiProfile": {
           "type": "string",
@@ -792,31 +1411,132 @@
             "pro"
           ],
           "enumDescriptions": [
-            "Use the user-supplied default Gemini key and kren.gemini.model.",
-            "Use the optional user-supplied alternate Gemini key and kren.gemini.alternateModel."
+            "Use the user-supplied Gemini Free Tier key and kren.explanation.model.",
+            "Use the optional user-supplied Gemini Paid key and kren.explanation.alternateModel."
           ],
           "default": "standard",
           "description": "Gemini credential and model profile used by Explain Meaning or Nuance."
+        },
+        "kren.explanation.model": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Editable provider-compatible model identifier used by Explain Meaning or Nuance."
+        },
+        "kren.explanation.alternateModel": {
+          "type": "string",
+          "default": "gemini-3.1-pro-preview",
+          "description": "Gemini model used by this feature while its Gemini profile is Paid. Stored separately from the Free Tier profile model, so changing one leaves the other alone."
+        },
+        "kren.explanation.thinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Thinking level or effort used by Explain Meaning or Nuance when supported."
+        },
+        "kren.explanation.fallbackEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the configured same-provider fallback after an eligible Gemini explanation failure on Free Tier or Paid."
+        },
+        "kren.explanation.fallbackModel": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Fallback model used by Explain Meaning or Nuance."
+        },
+        "kren.explanation.fallbackThinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Thinking level or effort used independently by the explanation fallback model."
         },
         "kren.rewrite.provider": {
           "type": "string",
           "enum": [
             "gemini",
             "openai",
-            "anthropic"
+            "anthropic",
+            "groq",
+            "cloudflare"
           ],
           "enumDescriptions": [
-            "Use the selected default or alternate Gemini profile.",
+            "Use the selected Gemini Free Tier or Gemini Paid profile.",
             "Use the OpenAI API. API charges may apply.",
-            "Use the Anthropic Claude API. API charges may apply."
+            "Use the Anthropic Claude API. API charges may apply.",
+            "Use Groq with its key in Credentials. Free limits apply.",
+            "Use Cloudflare Workers AI with the existing account ID and API token. Shares its daily neurons allowance."
           ],
           "default": "gemini",
-          "description": "Language-model provider used by Rewrite Text. KREN never silently falls back to a different provider."
+          "description": "Language-model provider used by Rewrite Text."
+        },
+        "kren.rewrite.model": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Editable provider-compatible model identifier used by Rewrite Text."
+        },
+        "kren.rewrite.alternateModel": {
+          "type": "string",
+          "default": "gemini-3.1-pro-preview",
+          "description": "Gemini model used by this feature while its Gemini profile is Paid. Stored separately from the Free Tier profile model, so changing one leaves the other alone."
+        },
+        "kren.rewrite.thinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Thinking level or effort used by Rewrite Text when supported."
+        },
+        "kren.rewrite.fallbackEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the configured same-provider fallback after an eligible Gemini rewrite failure on Free Tier or Paid."
+        },
+        "kren.rewrite.fallbackModel": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Fallback model used by Rewrite Text."
+        },
+        "kren.rewrite.fallbackThinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Thinking level or effort used independently by the rewrite fallback model."
         },
         "kren.openai.model": {
           "type": "string",
           "default": "gpt-5.4",
           "description": "Editable OpenAI model ID used for explanation and rewriting when OpenAI is selected."
+        },
+        "kren.openai.customModels": {
+          "type": "string",
+          "default": "[]",
+          "description": "KREN-managed JSON list of OpenAI model identifiers added with the Add control."
         },
         "kren.openai.reasoningEffort": {
           "type": "string",
@@ -834,6 +1554,11 @@
           "type": "string",
           "default": "claude-sonnet-4-6",
           "description": "Editable Anthropic model ID used for explanation and rewriting when Anthropic is selected."
+        },
+        "kren.anthropic.customModels": {
+          "type": "string",
+          "default": "[]",
+          "description": "KREN-managed JSON list of Anthropic model identifiers added with the Add control."
         },
         "kren.anthropic.effort": {
           "type": "string",
@@ -868,6 +1593,11 @@
           "default": "gemini-3.6-flash",
           "description": "Gemini model ID. Availability, access, quotas, pricing, and permitted use depend on the user's Google project and region."
         },
+        "kren.gemini.customModels": {
+          "type": "string",
+          "default": "[]",
+          "description": "KREN-managed JSON list of Gemini model identifiers added with the Add control."
+        },
         "kren.gemini.thinkingLevel": {
           "type": "string",
           "enum": [
@@ -878,11 +1608,11 @@
             "high"
           ],
           "default": "auto",
-          "description": "Thinking level for the default Gemini profile. Auto selects a compatible level for the configured model."
+          "description": "Thinking level for the Gemini Free Tier profile. Auto selects a compatible level for the configured model."
         },
         "kren.gemini.retry.enabled": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Automatically retry transient Gemini failures such as 408, 429, 500, 502, 503, and 504."
         },
         "kren.gemini.retry.maxAttempts": {
@@ -904,8 +1634,8 @@
             "pro"
           ],
           "enumDescriptions": [
-            "Use the user-supplied default Gemini key and kren.gemini.model.",
-            "Use the optional user-supplied alternate Gemini key and kren.gemini.alternateModel."
+            "Use the user-supplied Gemini Free Tier key and kren.rewrite.model.",
+            "Use the optional user-supplied Gemini Paid key and kren.rewrite.alternateModel."
           ],
           "default": "standard",
           "description": "Gemini credential and model profile used by Rewrite Text."
@@ -913,12 +1643,12 @@
         "kren.gemini.alternateModel": {
           "type": "string",
           "default": "gemini-3.1-pro-preview",
-          "description": "Model used by the alternate Gemini profile for Explain Meaning or Nuance and Rewrite Text. The KREN settings interface provides editable discovered suggestions."
+          "description": "Model used by the Gemini Paid profile for Explain Meaning or Nuance and Rewrite Text. The KREN settings interface provides editable discovered suggestions."
         },
         "kren.gemini.alternateFallbackEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "For Explain Meaning or Nuance and Rewrite Text, use the configured same-provider fallback when the alternate model is unavailable, remains temporarily unavailable, or returns unusable structured output. Fallback use is identified in the result."
+          "description": "For Explain Meaning or Nuance and Rewrite Text, use the configured same-provider fallback on Free Tier or Paid when the Gemini model is unavailable, remains temporarily unavailable, or returns unusable structured output. Fallback use is identified in the result."
         },
         "kren.rewrite.sourceLanguage": {
           "type": "string",
@@ -928,7 +1658,7 @@
         "kren.gemini.alternateFallbackModel": {
           "type": "string",
           "default": "gemini-3.6-flash",
-          "description": "Fallback model for the alternate Gemini profile in Explain Meaning or Nuance and Rewrite Text."
+          "description": "Fallback model for Gemini on Free Tier or Paid in Explain Meaning or Nuance and Rewrite Text."
         },
         "kren.gemini.alternateFallbackThinkingLevel": {
           "type": "string",
@@ -946,8 +1676,8 @@
             "Use balanced additional reasoning.",
             "Use maximum reasoning depth, latency, and potential cost."
           ],
-          "default": "low",
-          "description": "Thinking level used independently by the alternate Gemini fallback model."
+          "default": "medium",
+          "description": "Thinking level used independently by the Gemini fallback model on Free Tier or Paid."
         },
         "kren.gemini.alternateThinkingLevel": {
           "type": "string",
@@ -962,20 +1692,7 @@
             "Maximum reasoning depth, latency, and potential cost."
           ],
           "default": "low",
-          "description": "Thinking level used by the alternate Gemini profile for explanation and rewriting. Model support varies by the configured model."
-        },
-        "kren.rewrite.preferredVariant": {
-          "type": "string",
-          "enum": [
-            "minimal",
-            "full"
-          ],
-          "enumDescriptions": [
-            "Show Minimal Rewrite first.",
-            "Show Full Rewrite first."
-          ],
-          "default": "minimal",
-          "description": "Rewrite variant selected initially in the rich KREN panel. All returned variants remain available as tabs."
+          "description": "Thinking level used by the Gemini Paid profile for explanation and rewriting. Model support varies by the configured model."
         },
         "kren.rewrite.quickMenuVariant": {
           "type": "string",
@@ -991,6 +1708,11 @@
           ],
           "default": "all",
           "description": "Preferred Rewrite Text action in the KREN clipboard Quick Pick. All three rewrite choices remain available."
+        },
+        "kren.rewrite.copyToClipboard": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send a single-variant Rewrite Text result straight to the clipboard instead of showing it in the panel. Rewrite Text: Both Variants always uses the panel, because it returns two results to choose between."
         },
         "kren.rewrite.modality": {
           "type": "string",
@@ -1056,25 +1778,68 @@
         "kren.rewrite.englishVariety": {
           "type": "string",
           "enum": [
-            "followGrammar",
+            "sameAsSource",
             "american",
             "british",
             "australian",
             "canadian",
             "indian",
-            "international"
+            "international",
+            "otherLanguage"
           ],
           "enumDescriptions": [
-            "Use the English dialect selected under Grammar Check.",
+            "Keep the result in the language the source is written in, with no regional variety imposed.",
             "Use standard American English.",
             "Use standard British English.",
             "Use standard Australian English.",
             "Use standard Canadian English.",
             "Use standard Indian English.",
-            "Use internationally accessible, region-neutral English."
+            "Use internationally accessible, region-neutral English.",
+            "Write the result in the language chosen under Other output language."
           ],
-          "default": "followGrammar",
-          "description": "English spelling, punctuation, vocabulary, idiom, and usage applied only when Rewrite Text detects or is assigned English."
+          "default": "sameAsSource",
+          "description": "Output language for Rewrite Text. Same as source keeps whatever language you wrote. Choosing an English option writes the result in English, translating the text when it is in another language, and applies that variety's spelling, punctuation, vocabulary, idiom, and usage. Other languages defers to kren.rewrite.otherOutputLanguage."
+        },
+        "kren.rewrite.otherOutputLanguage": {
+          "type": "string",
+          "enum": [
+            "ar",
+            "zh-HK",
+            "zh-CN",
+            "zh-TW",
+            "fr",
+            "de",
+            "hi",
+            "it",
+            "ja",
+            "ko",
+            "fa",
+            "pt-BR",
+            "pt-PT",
+            "es",
+            "th",
+            "vi"
+          ],
+          "enumDescriptions": [
+            "Arabic",
+            "Chinese (Hong Kong)",
+            "Chinese (Simplified)",
+            "Chinese (Traditional)",
+            "French",
+            "German",
+            "Hindi",
+            "Italian",
+            "Japanese",
+            "Korean",
+            "Persian (Farsi)",
+            "Portuguese (Brazilian)",
+            "Portuguese (European)",
+            "Spanish",
+            "Thai",
+            "Vietnamese"
+          ],
+          "default": "de",
+          "description": "The language Rewrite Text writes in when kren.rewrite.englishVariety is Other languages. Ignored otherwise."
         },
         "kren.rewrite.formality": {
           "type": "string",
@@ -1094,7 +1859,7 @@
             "Use natural informal wording without invented familiarity.",
             "Use relaxed, conversational wording without becoming careless."
           ],
-          "default": "preserve",
+          "default": "neutral",
           "description": "Formality applied to Rewrite Text requests."
         },
         "kren.rewrite.voice": {
@@ -1136,7 +1901,7 @@
             "Use confident wording without strengthening claims or certainty.",
             "State the point clearly and economically without becoming abrupt."
           ],
-          "default": "preserve",
+          "default": "direct",
           "description": "Interpersonal stance applied to Rewrite Text requests."
         },
         "kren.rewrite.length": {
@@ -1190,7 +1955,7 @@
         },
         "kren.rewrite.preserveFormatting": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Tell the selected rewrite provider to preserve Markdown, LaTeX, citations, links, placeholders, filenames, and code while rewriting."
         },
         "kren.rewrite.includeChangeNotes": {
@@ -1205,7 +1970,7 @@
         },
         "kren.readAloud.voice": {
           "type": "string",
-          "default": "",
+          "default": "Microsoft David Desktop",
           "description": "Installed Windows System.Speech voice used by the editor Read Aloud command. Leave empty to use the Windows default voice."
         },
         "kren.readAloud.rate": {
@@ -1230,14 +1995,58 @@
           "type": "string",
           "enum": [
             "windowsLocal",
-            "edgeOnline"
+            "edgeOnline",
+            "googleChirp"
           ],
           "enumDescriptions": [
             "Use an installed offline Windows System.Speech voice. Selected text never leaves the PC.",
-            "Use an experimental Microsoft Edge online neural voice through edge-tts. Only the cleaned selected text is sent to Microsoft."
+            "Use a Microsoft Edge online neural voice through edge-tts, in any of the twenty languages KREN offers. Only the cleaned selected text is sent to Microsoft.",
+            "Use Google Cloud Chirp 3 HD with the Google Cloud Text-to-Speech key, or the Cloud Translation key as fallback. Only the cleaned selected text is sent to Google."
           ],
-          "default": "windowsLocal",
-          "description": "Shared speech source for editor selections, rewrite variants, and voice preview."
+          "default": "edgeOnline",
+          "description": "Local is private and offline. Edge Online and Chirp 3 HD sound natural but send the cleaned text to Microsoft or Google."
+        },
+        "kren.readAloud.chirpVoice": {
+          "type": "string",
+          "enum": [
+            "Achernar",
+            "Achird",
+            "Algenib",
+            "Algieba",
+            "Alnilam",
+            "Aoede",
+            "Autonoe",
+            "Callirrhoe",
+            "Charon",
+            "Despina",
+            "Enceladus",
+            "Erinome",
+            "Fenrir",
+            "Gacrux",
+            "Iapetus",
+            "Kore",
+            "Laomedeia",
+            "Leda",
+            "Orus",
+            "Puck",
+            "Pulcherrima",
+            "Rasalgethi",
+            "Sadachbia",
+            "Sadaltager",
+            "Schedar",
+            "Sulafat",
+            "Umbriel",
+            "Vindemiatrix",
+            "Zephyr",
+            "Zubenelgenubi"
+          ],
+          "default": "Callirrhoe",
+          "description": "Google Cloud Chirp 3 HD voice for Read Aloud, independent of the tutor voice. Availability depends on Language/Region."
+        },
+        "kren.readAloud.edgeLocale": {
+          "type": "string",
+          "default": "auto",
+          "description": "Language and region for Microsoft Edge Online Read Aloud, or auto to resolve it per playback from a KREN result's known language and then the script of the text. Latin-script languages fall back to the preferred locale rather than being guessed at."
         },
         "kren.readAloud.edgeVoice": {
           "type": "string",
@@ -1250,6 +2059,11 @@
           "maximum": 100,
           "default": 0,
           "description": "Microsoft Edge online voice speed adjustment. Zero percent is the natural speed."
+        },
+        "kren.updates.dailyCheck": {
+          "type": "boolean",
+          "default": true,
+          "description": "Silently check system dependencies once a day, including an anonymous PyPI lookup for the latest public edge-tts version. No text, key, or identifier is sent. Turn this off to check only from the KREN menu."
         },
         "kren.readAloud.edgePythonCommand": {
           "type": "string",
@@ -1267,6 +2081,21 @@
           "default": true,
           "description": "On a local Windows extension host, download validated Merriam-Webster pronunciation audio to a bounded temporary file and play it through a hidden native PowerShell/WPF process. No application window opens. Failures fall back to the KREN webview player."
         },
+        "kren.display.panelTheme": {
+          "type": "string",
+          "enum": [
+            "followVSCode",
+            "light",
+            "dark"
+          ],
+          "enumDescriptions": [
+            "Follow the current VS Code theme.",
+            "Always use the light panel palette.",
+            "Always use the dark panel palette."
+          ],
+          "default": "followVSCode",
+          "description": "KREN panel theme. The header theme switch remembers Light or Dark; choose Follow VS Code here to follow the editor again."
+        },
         "kren.display.mode": {
           "type": "string",
           "enum": [
@@ -1275,7 +2104,32 @@
             "details"
           ],
           "default": "hover",
-          "description": "Where an immediate result is displayed."
+          "description": "Where an immediate result is displayed. Rewrite Text and Grammar Check always open the KREN panel and ignore this setting, because a rewrite carries variants and a grammar result carries per-issue controls, and neither fits a hover card."
+        },
+        "kren.translation.domain": {
+          "type": "string",
+          "enum": [
+            "general",
+            "business",
+            "academic",
+            "scientific",
+            "technical",
+            "regulatory",
+            "medical",
+            "legal"
+          ],
+          "enumDescriptions": [
+            "General-purpose English without a specialized domain style.",
+            "Clear professional business prose focused on actions and decisions.",
+            "Disciplined academic prose with appropriate qualification and terminology.",
+            "Precise scientific prose that preserves units and evidentiary qualifications.",
+            "Precise technical prose that preserves necessary specialist terminology.",
+            "Precise regulatory prose that preserves defined terms and obligations.",
+            "Precise medical prose that preserves clinical qualifications and terminology.",
+            "Precise legal prose that preserves defined terms, qualifications, and legal effect."
+          ],
+          "default": "general",
+          "description": "Subject area a translation writes for. Guides terminology and conventions without sending document or workspace context. Ignored by Google Cloud Translation, whose API accepts no such parameter."
         },
         "kren.translation.maxCharacters": {
           "type": "number",
@@ -1286,10 +2140,20 @@
         },
         "kren.request.timeoutMs": {
           "type": "number",
-          "default": 45000,
+          "default": 30000,
           "minimum": 1000,
           "maximum": 120000,
-          "description": "Provider request timeout in milliseconds."
+          "description": "How long KREN waits for a provider. Cloudflare pictures wait at least 60 seconds; Google Cloud speech ignores this."
+        },
+        "kren.groq.customModels": {
+          "type": "string",
+          "default": "[]",
+          "description": "KREN-managed JSON list of groq model identifiers added with the Add control."
+        },
+        "kren.cloudflare.customModels": {
+          "type": "string",
+          "default": "[]",
+          "description": "KREN-managed JSON list of cloudflare model identifiers added with the Add control."
         }
       }
     }
@@ -1300,13 +2164,14 @@
     "dev": "node esbuild.mjs --watch",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package --no-dependencies --allow-missing-repository",
+    "verify:public-tree": "npm run check",
     "test": "node esbuild.mjs && vitest run",
     "test:integration": "npm run compile && vscode-test",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kren/core": "file:vendor/kren-core-0.13.13.tgz",
+    "@kren/core": "file:vendor/kren-core-0.38.3.tgz",
     "fast-xml-parser": "^5.10.1",
     "harper.js": "^2.4.0"
   },
@@ -1319,9 +2184,13 @@
     "@types/vscode": "^1.106.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
-    "@vscode/vsce": "^3.6.1",
+    "@vscode/vsce": "^4.0.0",
+    "cheerio": "^1.2.0",
     "esbuild": "^0.25.5",
+    "jsonc-parser": "^3.3.1",
+    "postcss": "^8.5.29",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "vite": "^7.3.7",
+    "vitest": "^4.1.11"
   }
 }

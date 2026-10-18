@@ -16,6 +16,18 @@ function fakeChild(): { child: ChildProcess; input: PassThrough } {
 }
 
 describe('Windows local Read Aloud', () => {
+  it('V226 reports playback start only on the fixed marker, once, and ignores a stopped player', async () => {
+    const { child } = fakeChild(); const output = new PassThrough();
+    Object.defineProperty(child, 'stdout', { value: output });
+    const player = new WindowsReadAloudPlayer('win32', () => child); const started = vi.fn();
+    const pending = player.speak('Hello there.', { onStarted: started });
+    expect(started).not.toHaveBeenCalled();
+    output.write('KREN_SPEECH_'); expect(started).not.toHaveBeenCalled();
+    output.write('STARTED\n'); output.write('KREN_SPEECH_STARTED\n');
+    expect(started).toHaveBeenCalledOnce();
+    player.stop(); output.write('KREN_SPEECH_STARTED\n'); child.emit('exit', 0); await pending;
+    expect(started).toHaveBeenCalledOnce();
+  });
   it('removes common non-sentence Markdown artifacts without changing the source', () => {
     const source = [
       '## Tasks',
@@ -60,7 +72,8 @@ describe('Windows local Read Aloud', () => {
     expect(options).toMatchObject({
       shell: false,
       windowsHide: true,
-      stdio: ['pipe', 'ignore', 'ignore'],
+      // 2026-10-12: Standard output carries only the fixed playback-start marker.
+      stdio: ['pipe', 'pipe', 'ignore'],
       env: {
         KREN_SPEECH_VOICE: 'Microsoft David Desktop',
         KREN_SPEECH_RATE: '0',

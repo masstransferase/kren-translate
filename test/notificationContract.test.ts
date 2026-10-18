@@ -4,6 +4,9 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const NOTIFICATION_NAMES = new Set([
+  // 2026-10-12: The panel wrappers retain the same awaited confirmation contract.
+  'showKrenWarningMessage',
+  'showKrenErrorMessage',
   'showInformationMessage',
   'showWarningMessage',
   'showErrorMessage'
@@ -39,8 +42,8 @@ function sourceRecords(directory = 'src'): SourceRecord[] {
 function callsNamed(record: SourceRecord, names: ReadonlySet<string>): ts.CallExpression[] {
   const calls: ts.CallExpression[] = [];
   function visit(node: ts.Node): void {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-        names.has(node.expression.name.text)) {
+    if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) &&
+        names.has(node.expression.name.text) || ts.isIdentifier(node.expression) && names.has(node.expression.text))) {
       calls.push(node);
     }
     ts.forEachChild(node, visit);
@@ -72,12 +75,25 @@ describe('notification timing contract', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('keeps all 24 genuine awaited prompts assigned to a result', () => {
+  /*
+   * The count moved from 24 to 28 across 1.7.8 and 1.7.9, as Default Setting and Reset KREN
+   * each gained two confirmations, and to 30 in 1.8.5 with the AI English Tutor Reset
+   * confirmation. It reached 31 before V63, whose passage-analysis choice makes 32.
+   * V74 returns it to 31 because adding a Primary preserves the existing targets and
+   * removes the replacement confirmation from updateTutorTarget. The Find choice remains.
+   * The number is not the point of the test and never was: the loop
+   * below is, and it fails if any awaited prompt drops its result. The count is here so an
+   * accidental new prompt has to be acknowledged rather than absorbed.
+   */
+  it('keeps every genuine awaited prompt assigned to a result', () => {
     const awaitedPrompts = records.flatMap((record) =>
       callsNamed(record, AWAITED_PROMPT_NAMES).filter((call) => ts.isAwaitExpression(call.parent))
     );
 
-    expect(awaitedPrompts).toHaveLength(24);
+    // Changed 2026-10-04: V205 adds the awaited lesson-source modal so Source reverts after it closes.
+    // 2026-10-11: V219 adds the consent prompt shared by Groq and Cloudflare.
+    // Changed 2026-10-16: V249, F12a, the edge-tts update adds one awaited confirmation prompt.
+    expect(awaitedPrompts).toHaveLength(37);
     for (const call of awaitedPrompts) {
       const awaited = call.parent as ts.AwaitExpression;
       expect(ts.isVariableDeclaration(awaited.parent)).toBe(true);

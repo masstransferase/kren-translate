@@ -22,7 +22,9 @@ const VS_CODE_VARIANT_FIELDS = {
   },
   full: {
     operation: 'rewriteFull',
-    quickPickIcon: '$(sparkle)'
+    // The same pencil as Minimal Rewrite. A sparkle read as a different kind of action
+    // rather than the same action at a different strength, which is what these two are.
+    quickPickIcon: '$(edit)'
   }
 } as const satisfies Record<RewriteVariantId, {
   operation: Exclude<RewriteOperation, 'rewrite'>;
@@ -62,15 +64,24 @@ interface RewriteVariantConfiguration {
   } | undefined;
   update(
     key: string,
-    value: RewriteVariantId,
+    value: RewriteVariantId | undefined,
     target: RewriteVariantConfigurationTarget
   ): PromiseLike<void>;
 }
 
+/**
+ * Clear values KREN no longer understands from the two rewrite variant settings.
+ *
+ * `rewrite.preferredVariant` was removed on 2026-08-28, on the owner's instruction. It had
+ * been inert since the panel started showing Minimal Rewrite and Full Rewrite together, and
+ * its own control said so. Removing the declaration is not enough: a value stored in any
+ * scope stays in the reader's settings file and VS Code marks it as an unknown setting, so
+ * it is cleared here too.
+ */
 export async function migrateRetiredRewriteVariantSettings(
   configuration: RewriteVariantConfiguration
 ): Promise<void> {
-  const settings = ['rewrite.preferredVariant', 'rewrite.quickMenuVariant'] as const;
+  const settings = ['rewrite.quickMenuVariant'] as const;
   const targets = [
     ['globalValue', 'global'],
     ['workspaceValue', 'workspace'],
@@ -87,4 +98,17 @@ export async function migrateRetiredRewriteVariantSettings(
       }
     }
   }
+
+  // Undefined removes the stored value rather than replacing it, which is what a removed
+  // setting needs: there is no value left that KREN would understand.
+  const removed = configuration.inspect<string>(REMOVED_PREFERRED_VARIANT_SETTING);
+  if (!removed) return;
+  for (const [valueKey, target] of targets) {
+    if (removed[valueKey] !== undefined) {
+      await configuration.update(REMOVED_PREFERRED_VARIANT_SETTING, undefined, target);
+    }
+  }
 }
+
+/** Removed 2026-08-28. Named here only so a stored value can be cleared. */
+export const REMOVED_PREFERRED_VARIANT_SETTING = 'rewrite.preferredVariant';
