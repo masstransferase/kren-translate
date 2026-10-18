@@ -80,7 +80,7 @@ class KrenLanguageModelTool implements vscode.LanguageModelTool<TextToolInput> {
       ]);
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error(`KREN ${operationLabel(this.operation)} was cancelled or timed out.`);
+        throw new Error(`KREN ${operationLabel(this.operation)} was canceled or timed out.`);
       }
       throw new Error(`KREN: ${errorMessage(error)}`);
     } finally {
@@ -100,6 +100,8 @@ function providerDescription(runtime: KrenRuntime, operation: KrenOperation): st
   if (operation === 'explain') {
     const provider = runtime.getSetting<string>('explanation.provider', 'gemini');
     if (provider === 'openai') return 'OpenAI API';
+    if (provider === 'groq') return 'Groq';
+    if (provider === 'cloudflare') return 'Cloudflare Workers AI';
     if (provider === 'anthropic') return 'Anthropic Claude API';
     return 'Gemini';
   }

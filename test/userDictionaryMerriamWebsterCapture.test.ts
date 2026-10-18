@@ -8,7 +8,7 @@ import {
   type KrenRuntime
 } from '../src/operations.js';
 import {
-  USER_DICTIONARY_GENERATION_SCHEMA,
+  userDictionaryGenerationSchema,
   userDictionaryGenerationInstruction,
   type UserDictionaryCaptureResult
 } from '../src/userDictionary/capture.js';
@@ -91,6 +91,8 @@ function requestContent(request: CapturedRequest | undefined): Record<string, un
 
 afterEach(() => {
   vi.restoreAllMocks();
+  // 2026-10-12: vitest 4's restoreAllMocks no longer clears a stubbed global's calls.
+  vi.unstubAllGlobals();
 });
 
 function runtime(
@@ -191,10 +193,10 @@ describe('User Dictionary Merriam-Webster + LLM capture', () => {
           type: 'json_schema',
           name: 'kren_user_dictionary_entry',
           strict: true,
-          schema: USER_DICTIONARY_GENERATION_SCHEMA
+          schema: userDictionaryGenerationSchema()
         }
-      },
-      reasoning: { effort: 'low' }
+      }
+      // 2026-10-11: the fixture model has no supported effort control, so Fast omits reasoning.
     };
     const expectedLlmRequest = {
       url: 'https://api.openai.com/v1/responses',
@@ -209,6 +211,7 @@ describe('User Dictionary Merriam-Webster + LLM capture', () => {
     expect(requestContent(combinedLlmRequest)).toEqual(requestContent(llmOnlyRequest));
     expect(requestContent(combinedLlmRequest)).toEqual(expectedLlmRequest);
     expect(String(combinedLlmRequest?.init.body)).toBe(JSON.stringify(expectedLlmBody));
+    expect(JSON.parse(String(combinedLlmRequest?.init.body))).not.toHaveProperty('reasoning');
     expect(String(combinedLlmRequest?.init.body)).not.toContain(referenceDefinition);
     expect(requestContent(merriamWebsterRequest)).toEqual({
       url: `https://www.dictionaryapi.com/api/v3/references/collegiate/json/${expression}?key=${referenceCredential}`,

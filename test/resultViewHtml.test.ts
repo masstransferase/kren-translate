@@ -1,3 +1,6 @@
+// 2026-10-10: V216 renames reader-facing Gemini profiles Free Tier and Paid; exact expectations follow the brief.
+import { load } from 'cheerio';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MERRIAM_WEBSTER_KEY_LIMIT, MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE } from '../src/operations.js';
 import { REWRITE_RHETORICAL_MODES } from '@kren/core/rewrite-axes';
@@ -12,7 +15,7 @@ import { applyGrammarChoices as applyCoreGrammarChoices } from '@kren/core/gramm
 // requirement here, not an accident of where each block was appended, and it is the kind
 // of thing a later edit reshuffles without anyone noticing.
 const SETTINGS_GROUP_ORDER = [
-  'Startup and panel',
+  'Startup and Panel',
   'Translation',
   'Grammar Check',
   'Explain Meaning or Nuance',
@@ -20,10 +23,15 @@ const SETTINGS_GROUP_ORDER = [
   'Read Aloud (Windows)',
   'Dictionary',
   'User Dictionary',
-  'Credentials and usage'
+  // 2026-10-04: The remembered theme choice has its own Display section.
+  'Display',
+  // 2026-10-10: V217 moves credentials to their own screen and retains Usage here.
+  'Usage'
 ];
 import {
+  capabilityAvailability,
   krenCreditLine,
+  LLM_ROUTING_CONTROL_TITLES,
   preselectedGrammarChoices,
   REWRITE_SETTINGS_GROUPS,
   renderKrenResultViewHtml
@@ -36,6 +44,8 @@ import type {
   TranslationResult
 } from '../src/types.js';
 import type { KrenPanelSettings } from '../src/resultViewHtml.js';
+import { REWRITE_OTHER_LANGUAGES } from '@kren/core/rewrite-axes';
+import { EDGE_SPEECH_AUTO_LOCALE, EDGE_SPEECH_LOCALES } from '@kren/core/edge-speech';
 import { userDictionaryEntry } from './userDictionaryFixtures.js';
 
 const base = {
@@ -50,28 +60,56 @@ const settings: KrenPanelSettings = {
   userDictionaryFallbackOnMerriamWebsterNoMatch: false,
   userDictionaryProvider: 'gemini',
   userDictionaryModel: 'gemini-3.5-flash',
+  userDictionaryAlternateModel: 'gemini-3.1-pro-preview',
   userDictionaryThinkingOrEffort: 'low',
+  userDictionaryProfile: 'standard',
+  userDictionaryFallbackEnabled: false,
+  userDictionaryFallbackModel: 'gemini-3.5-flash',
+  userDictionaryFallbackThinkingOrEffort: 'low',
   userDictionaryEntryLanguage: 'auto',
   userDictionaryIncludePronunciation: true,
   userDictionaryIncludeSynonyms: true,
   userDictionaryIncludeUsageNotes: true,
   userDictionaryNumberOfExamples: 2,
   userDictionaryIncludeTechnicalMeanings: true,
+  userDictionarySmartWordCapture: true,
   openResultsAtStartup: false,
   translationProvider: 'googleCloudTranslation',
+  translationSourceLanguage: 'auto',
   translationTargetLanguage: 'ko',
+  translationRoutingProvider: 'gemini',
+  translationModel: 'gemini-3.6-flash',
+  translationAlternateModel: 'gemini-3.1-pro-preview',
+  translationThinkingOrEffort: 'auto',
+  translationProfile: 'standard',
+  translationFallbackEnabled: false,
+  translationFallbackModel: 'gemini-3.5-flash',
+  translationFallbackThinkingOrEffort: 'low',
   grammarDialect: 'american',
   grammarSmart: false,
   grammarAutoCheck: false,
   grammarAutoCheckDelayMs: 900,
   grammarCustomWordCount: 0,
   grammarIgnoredFindingCount: 0,
-  explanationOutputLanguage: 'bilingual',
+  explanationOutputLanguage: 'sameAsSource',
   explanationProvider: 'gemini',
+  explanationModel: 'gemini-3.5-flash',
+  explanationAlternateModel: 'gemini-3.1-pro-preview',
+  explanationThinkingOrEffort: 'auto',
   explanationProfile: 'standard',
+  explanationFallbackEnabled: true,
+  explanationFallbackModel: 'gemini-3.5-flash',
+  explanationFallbackThinkingOrEffort: 'low',
   rewriteProvider: 'gemini',
+  rewriteModel: 'gemini-3.5-flash',
+  rewriteAlternateModel: 'gemini-3.1-pro-preview',
+  rewriteThinkingOrEffort: 'auto',
+  rewriteFallbackEnabled: true,
+  rewriteFallbackModel: 'gemini-3.5-flash',
+  rewriteFallbackThinkingOrEffort: 'low',
   rewriteSourceLanguage: 'auto',
-  rewriteEnglishVariety: 'followGrammar',
+  rewriteEnglishVariety: 'sameAsSource',
+  rewriteOtherOutputLanguage: 'ko',
   geminiModel: 'gemini-3.5-flash',
   geminiThinkingLevel: 'auto',
   openAIModel: 'gpt-5.4',
@@ -84,7 +122,21 @@ const settings: KrenPanelSettings = {
   alternateFallbackEnabled: true,
   alternateFallbackModel: 'gemini-3.5-flash',
   alternateFallbackThinkingLevel: 'low',
-  preferredRewriteVariant: 'minimal',
+  tutorProvider: 'gemini',
+  tutorModel: 'gemini-3.5-flash',
+  tutorAlternateModel: 'gemini-3.1-pro-preview',
+  tutorThinkingOrEffort: 'medium',
+  tutorProfile: 'standard',
+  tutorFallbackEnabled: false,
+  tutorFallbackModel: 'gemini-3.5-flash',
+  tutorFallbackThinkingOrEffort: 'low',
+  tutorReadAloudProvider: 'edgeOnline',
+  tutorEdgeReadAloudLocale: 'en-US',
+  tutorEdgeReadAloudVoice: 'en-US-ChristopherNeural',
+  tutorEdgeReadAloudRatePercent: 0,
+  tutorReadAloudVoice: 'Microsoft David Desktop',
+  tutorReadAloudRate: 0,
+  tutorReadAloudVolume: 100,
   quickMenuRewriteVariant: 'all',
   rewriteModality: 'written',
   rewriteFunction: 'general',
@@ -97,6 +149,7 @@ const settings: KrenPanelSettings = {
   rewriteRhetoricalMode: 'recommend',
   preserveFormatting: true,
   includeChangeNotes: false,
+  rewriteCopyToClipboard: false,
   multiWordTranslationFallback: true,
   windowsNativePronunciation: true,
   geminiRetryEnabled: true,
@@ -109,9 +162,16 @@ const settings: KrenPanelSettings = {
   readAloudVolume: 100,
   readAloudVoices: ['Microsoft David Desktop', 'Microsoft Zira Desktop'],
   readAloudProvider: 'edgeOnline',
+  edgeReadAloudLocale: 'auto',
   edgeReadAloudVoice: 'en-US-ChristopherNeural',
   edgeReadAloudRatePercent: 0,
   edgeReadAloudPythonCommand: 'python',
+  translationDomain: 'general',
+  explanationDomain: 'general',
+  displayMode: 'hover',
+  requestTimeoutMs: 45000,
+  translationMaxCharacters: 5000,
+  userDictionaryMaxImportEntries: 5000,
   extensionVersion: '1.0.0'
 };
 
@@ -129,7 +189,11 @@ const PANEL_ICONS = [
   ['edit', 'data-command="editUserDictionaryEntry"'],
   ['delete', 'data-command="deleteUserDictionaryEntry"'],
   ['clear', 'data-command="clear"'],
-  ['menu', 'data-menu-toggle']
+  ['menu', 'data-menu-toggle'],
+  ['copy', 'data-command="copyVariant"'],
+  ['replace', 'data-command="replaceVariant"'],
+  ['settings', 'data-command="editRewriteSettings"'],
+  ['save', 'data-action="kren.setGeminiApiKey"']
 ] as const satisfies ReadonlyArray<readonly [IconName, string]>;
 
 function renderIconFixture(): string {
@@ -213,6 +277,57 @@ function grammarActionDisabledStates(html: string): boolean[] {
 }
 
 describe('KREN rich result view', () => {
+  it('renders the same complete routing control set for all six features', () => {
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      activeScreen: 'tutor',
+      proModels
+    });
+    // Changed 2026-10-03: tutor titles name their purpose; completeness is the storage contract.
+    const $ = load(html);
+    const suffixes = ['provider', 'geminiProfile', 'model', 'alternateModel', 'thinkingOrEffort',
+      'fallbackEnabled', 'fallbackModel', 'fallbackThinkingOrEffort'];
+    for (const feature of ['translation', 'grammar', 'explain', 'rewrite', 'userDictionary', 'tutor']) {
+      const group = $(`[data-llm-routing="${feature}"]`);
+      const prefix = feature === 'grammar' ? 'userDictionary' : feature === 'explain' ? 'explanation' : feature;
+      expect(group, `${feature} routing group`).toHaveLength(1);
+      const keys = group.find('.setting').filter((_, row) => !$(row).is('[data-model-identifier]'))
+        .map((_, row) => {
+          const control = $(row).find('select,input').first();
+          return control.attr('data-setting') ?? control.attr('data-model-preset') ?? '';
+        }).get().filter((key) => suffixes.some((suffix) => key === `${prefix}.${suffix}`));
+      expect(keys, feature).toEqual(suffixes.map((suffix) => `${prefix}.${suffix}`));
+      for (const key of keys) {
+        const title = group.find(`[data-setting="${key}"], [data-model-preset="${key}"]`).first()
+          .closest('.setting').find('.setting-title').text();
+        expect(title.length, `${key} accessible title`).toBeGreaterThan(0);
+        if (/model$/i.test(key)) expect(title).toMatch(/model/i);
+      }
+    }
+  });
+
+  it('enables shared Grammar routing with Smart Grammar Check and dims it when off', () => {
+    const render = (grammarSmart: boolean) => renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, grammarSmart },
+      activeScreen: 'settings',
+      proModels
+    });
+    const openingTag = (html: string) => html.match(
+      /<details class="[^"]*" data-llm-routing="grammar"[^>]*>/u
+    )?.[0] ?? '';
+
+    expect(openingTag(render(true))).not.toContain('setting-inactive');
+    expect(openingTag(render(false))).toContain('setting-inactive');
+    expect(render(false)).toContain(
+      'data-enabled-for="grammar.smart" data-enabled-value="true"'
+    );
+    expect(render(false)).toContain('control.disabled = !active;');
+  });
+
   // Icon-only buttons carry no text, so their accessible name comes entirely from the
   // attributes. Dropping one turns the control into an unlabelled square for anyone using
   // a screen reader or hovering for a hint, and nothing else in the suite would notice.
@@ -257,6 +372,312 @@ describe('KREN rich result view', () => {
     }
   });
 
+  it('offers no controls at all when a check found nothing', () => {
+    const clean = renderGrammarResult(grammarResult('All correct here.', []));
+
+    expect(clean).toContain('No spelling or grammar issues found.');
+    // There is nothing to open in full details beyond the sentence already on screen, and
+    // the text a Copy control would copy is the text the reader still has selected.
+    expect(clean).not.toContain('>Copy checked text</button>');
+    expect(clean).not.toContain('data-command="details"');
+  });
+
+  it('offers no Ignore control on a finding, because Keep original is the answer', () => {
+    const html = renderGrammarResult(grammarResult('I has apple.', [{
+      id: 'issue-1',
+      start: 2,
+      end: 5,
+      original: 'has',
+      category: 'Agreement',
+      message: 'Agreement.',
+      ignoreHash: 'hash-1',
+      suggestions: [{ kind: 'replace', replacement: 'have', label: 'have' }]
+    }]));
+
+    // Scoped to the finding itself. The manual still describes Ignore this finding, because
+    // the editor's Quick Fix menu still offers it and that is where a persistent ignore now
+    // lives; only the panel control is gone.
+    const fieldset = html.slice(
+      html.indexOf('<fieldset class="grammar-issue">'),
+      html.indexOf('</fieldset>')
+    );
+    expect(fieldset).not.toBe('');
+    expect(fieldset).toContain('Keep original');
+    expect(fieldset).not.toContain('data-command="ignoreGrammarIssue"');
+    expect(fieldset).not.toContain('Ignore this finding');
+  });
+
+  it('sizes the capability grid the way the Office action grid is sized', () => {
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      brandImageUri,
+      proModels
+    });
+
+    // Revised 2026-08-23. Two columns beside the numbered steps truncated every label to
+    // "English ...", because that column is the narrow half of the row. One column there,
+    // two once the layout stacks and the grid has the full width, one again below 380px.
+    expect(html).toContain('.capability-grid { display: grid; grid-template-columns: 1fr;');
+    expect(html).toContain('min-height: 44px');
+    // Changed 2026-10-17: V261, F5 owner canvas edit, capability labels are 14px.
+    expect(html).toContain('.capability-label { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }');
+
+    const stacked = html.split('@media (max-width: 520px)')[1] ?? '';
+    expect(stacked.length, 'the 520px breakpoint is gone').toBeGreaterThan(0);
+    expect(stacked.split('\n')[0])
+      .toContain('.capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }');
+    expect(html).toContain('@media (max-width: 380px) { .capability-grid { grid-template-columns: 1fr; } }');
+  });
+
+  it('offers the way back to a held result, between the eraser and Home', () => {
+    // The panel keeps a result until it is cleared or replaced, and before this control the
+    // only way back from Settings or the Start page was to run the operation again.
+    const held = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      proModels,
+      activeScreen: 'settings',
+      sourceText: 'ledger',
+      result: {
+        ...base,
+        kind: 'translation',
+        operation: 'translate' as const,
+        providerId: 'googleCloudTranslation',
+        sourceText: 'ledger',
+        translatedText: '원장'
+      } satisfies TranslationResult
+    });
+    expect(held).toMatch(/data-command="showResult"[^>]*aria-label="Back to the KREN result"/u);
+
+    // Scoped to the one header that carries it. Every screen renders into the same document
+    // and each has its own header, so a document-wide indexOf compares controls that sit in
+    // different bars. The eraser and this control never share a header by design: the eraser
+    // appears only on the result screen, which is the one screen with nothing to go back to.
+    const back = held.indexOf('aria-label="Back to the KREN result"');
+    const bar = held.slice(held.lastIndexOf('<div class="top-actions">', back), held.indexOf('</header>', back));
+    expect(bar.indexOf('aria-label="Back to the KREN result"'))
+      .toBeLessThan(bar.indexOf('aria-label="Go to the KREN Start page"'));
+    expect(bar).not.toContain('data-command="clear"');
+
+    // No control when there is nothing to go back to, rather than one that does nothing.
+    const empty = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      proModels
+    });
+    // 2026-10-04: manual and dictionary always offer Back; empty results still do not.
+    expect(load(empty)('#result-screen [data-command="showResult"]')).toHaveLength(0);
+  });
+
+  it('offers a Home control beside the menu on every screen', () => {
+    const html = renderIconFixture();
+    expect(html).toMatch(/data-command="showStartPage"[^>]*aria-label="Go to the KREN Start page"/u);
+    // The menu entry is not a substitute: it takes two presses and hides the destination
+    // behind a popover.
+    expect(html).toContain('data-menu-toggle');
+  });
+
+  it('covers the panel with a named wait while an action is running', () => {
+    const idle = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      proModels
+    });
+    expect(idle).not.toContain('class="busy-overlay"');
+    expect(idle).not.toContain('<body data-active-screen="result" data-busy');
+
+    const busy = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      proModels,
+      busyNotice: 'Rewriting the selected text. Please wait.'
+    });
+    expect(busy).toContain('class="busy-overlay"');
+    expect(busy).toContain('Rewriting the selected text. Please wait.');
+    // The overlay is what makes it a freeze rather than a caption: it is fixed, covers the
+    // viewport, and therefore takes every pointer event aimed at the controls beneath it.
+    expect(busy).toMatch(/\.busy-overlay \{[^}]*position: fixed;[^}]*inset: 0;/u);
+  });
+
+  it('puts the apply bar inside the Rewrite Text group, not above the whole page', () => {
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      activeScreen: 'settings',
+      proModels,
+      rewriteReplay: { armed: true, changed: false, running: false, subject: 'rewrite' }
+    });
+    // Bounded on both sides. "After the Rewrite marker" alone is satisfied by putting the
+    // bar at the very bottom of the page, below Credentials, which is where a mutation
+    // moved it while this test stayed green.
+    const rewriteSection = html.indexOf('data-settings-section="rewrite"');
+    // 2026-10-04: restrict the boundary to markup because CSS now names this section.
+    const nextSection = html.indexOf('<details class="settings-group" data-settings-section="readAloud"');
+    const bar = html.indexOf('class="apply-bar"');
+    expect(rewriteSection).toBeGreaterThan(-1);
+    expect(nextSection).toBeGreaterThan(rewriteSection);
+    expect(bar).toBeGreaterThan(rewriteSection);
+    expect(bar).toBeLessThan(nextSection);
+  });
+
+  it('scrolls Settings to the section a gear asked for', () => {
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      activeScreen: 'settings',
+      proModels,
+      focusSettingsSection: 'rewrite'
+    });
+    expect(html).toContain('data-focus-section="rewrite"');
+    expect(html).toContain("document.body.getAttribute('data-focus-section')");
+    expect(html).toContain("'[data-settings-section=\"' + focusSection + '\"]'");
+    // Finding the element is not showing it. Without this the whole scroll could be
+    // deleted and every other assertion here would still pass.
+    expect(html).toContain("target.scrollIntoView({ block: 'start' })");
+  });
+
+  it('keeps folded sections folded and the scroll where it was across a render', () => {
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      activeScreen: 'settings',
+      proModels
+    });
+    // Every top-level settings section is addressable, otherwise the reader's fold state
+    // has nothing stable to be stored against.
+    for (const section of ['startup', 'translation', 'grammar', 'explain', 'rewrite',
+      'readAloud', 'dictionary', 'userDictionary', 'usage']) {
+      expect(html, `${section} section`).toContain(`data-persist-id="settings-${section}"`);
+    }
+    // The document is replaced on every render, so this has to be webview state rather than
+    // anything held in the document. Changing one setting used to reopen every section the
+    // reader had folded and throw them back to the top of the page.
+    expect(html).toContain('vscode.getState()');
+    expect(html).toContain('vscode.setState(');
+    expect(html).toContain("document.addEventListener('toggle'");
+    // Recording the fold is half of it. Applying the recorded value on the next render is
+    // the half the reader sees, and it could be deleted without failing anything else.
+    expect(html).toContain("if (typeof stored === 'boolean') section.open = stored;");
+    expect(html).toContain('window.scrollTo(0, restored.scroll.top)');
+    // Restoring on the result screen would open a new result part way down, because a
+    // render there is usually a different result rather than the same document again.
+    expect(html).toContain('const scrollIsStable =');
+    // 2026-10-10: V217 adds Credentials to the screens that retain their scroll position.
+    const stableScreens = html.match(/const scrollIsStable = ([\s\S]*?);/u)![1]!;
+    for (const screen of ['settings', 'credentials', 'manual']) expect(stableScreens).toContain(`activeScreen === '${screen}'`);
+    expect(html).toContain('} else if (scrollIsStable && restored.scroll');
+  });
+
+  it('names the Smart Grammar model beside Harper when both ran', () => {
+    const local = renderGrammarResult(grammarResult('I has apple.', [{
+      id: 'issue-1',
+      start: 2,
+      end: 5,
+      original: 'has',
+      category: 'Agreement',
+      message: 'Agreement.',
+      suggestions: [{ kind: 'replace', replacement: 'have', label: 'have' }]
+    }]));
+    expect(local).toContain('Harper (offline)');
+    expect(local).not.toContain('Harper (offline) + ');
+
+    const smart = renderGrammarResult({
+      ...grammarResult('I has apple.', [{
+        id: 'issue-1',
+        start: 2,
+        end: 5,
+        original: 'has',
+        category: 'Agreement',
+        message: 'Agreement.',
+        suggestions: [{ kind: 'replace', replacement: 'have', label: 'have' }]
+      }]),
+      smartModelId: 'gemini-3.6-flash'
+    });
+    expect(smart).toContain('Harper (offline) + gemini-3.6-flash');
+    expect(smart).toContain('found by Harper and gemini-3.6-flash');
+  });
+
+  it('gives the rewrite variant icon controls for copy, replace, and settings', () => {
+    const html = renderIconFixture();
+    const actions = html.slice(
+      html.indexOf('<div class="variant-actions">'),
+      html.indexOf('</article>', html.indexOf('<div class="variant-actions">'))
+    );
+    // The slice is asserted non-empty first. A slice built on a marker that moved is the
+    // empty string, and every negative assertion below would then pass against nothing.
+    expect(actions).not.toBe('');
+    expect(actions).toContain('data-command="copyVariant"');
+    expect(actions).toContain('data-command="replaceVariant"');
+    expect(actions).toContain('data-command="editRewriteSettings"');
+    // The accessible names still say Copy Minimal Rewrite, which is the point of an icon
+    // control. What must be gone is the visible label, so this looks for text sitting
+    // between a tag close and the button close rather than for the words anywhere.
+    for (const button of actions.match(/<button[\s\S]*?<\/button>/gu) ?? []) {
+      expect(button, `rewrite control is not an icon button: ${button}`)
+        .toContain('class="secondary icon-button"');
+      expect(button.replace(/<svg[\s\S]*?<\/svg>/gu, '').replace(/<[^>]*>/gu, '').trim())
+        .toBe('');
+    }
+    // Confirmation still has to reach the icon, otherwise pressing Copy does nothing
+    // visible at all.
+    expect(actions).toMatch(/data-command="copyVariant"[^>]*data-copy-confirm/u);
+  });
+
+  it('confirms a copy on an icon button without erasing the icon', () => {
+    const html = renderIconFixture();
+    const script = html.slice(html.indexOf('function confirmCopyOn(target)'));
+    expect(script).not.toBe('');
+    // The text swap writes textContent, which deletes the SVG child of an icon button and
+    // restores an empty label. The icon branch has to be reached before that runs.
+    expect(script).toContain("target.classList.contains('icon-button')");
+    expect(script.indexOf("classList.contains('icon-button')"))
+      .toBeLessThan(script.indexOf("target.textContent = 'Result copied'"));
+  });
+
+  it('hides the Settings apply bar until a gear armed it and a setting moved', () => {
+    const base = {
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings,
+      activeScreen: 'settings',
+      proModels
+    } as const;
+    const unarmed = renderKrenResultViewHtml(base);
+    expect(unarmed).not.toContain('class="apply-bar"');
+    expect(unarmed).not.toContain('data-command="regenerateResult"');
+
+    const armed = renderKrenResultViewHtml({
+      ...base,
+      rewriteReplay: { armed: true, changed: false, running: false, subject: 'rewrite' }
+    });
+    expect(armed).toContain('class="apply-bar"');
+    expect(armed).toContain('Change a setting below, then regenerate the rewrite.');
+    expect(armed).toMatch(/data-command="regenerateResult"[^>]*disabled>/u);
+
+    const changed = renderKrenResultViewHtml({
+      ...base,
+      rewriteReplay: { armed: true, changed: true, running: false, subject: 'rewrite' }
+    });
+    expect(changed).toContain('Regenerate the rewrite with these settings.');
+    expect(changed).not.toMatch(/data-command="regenerateResult"[^>]*disabled>/u);
+
+    const running = renderKrenResultViewHtml({
+      ...base,
+      rewriteReplay: { armed: true, changed: true, running: true, subject: 'rewrite' }
+    });
+    expect(running).toContain('Producing the rewrite again.');
+    expect(running).toMatch(/data-command="regenerateResult"[^>]*disabled>/u);
+  });
+
   it('renders every icon-only button as SVG without numeric HTML entity glyphs', () => {
     const buttons = renderedIconButtons(renderIconFixture());
 
@@ -287,7 +708,8 @@ describe('KREN rich result view', () => {
 
   it('styles shared icon SVGs as unfilled theme-colour strokes', () => {
     const html = renderIconFixture();
-    const iconRule = html.match(/\.icon-button svg \{([^}]*)\}/u)?.[1] ?? '';
+    // Changed 2026-10-16: V250, owner item I32, header and bridge gears share one stroke declaration.
+    const iconRule = html.match(/\.icon-button svg, \.tutor-settings-bridge svg \{([^}]*)\}/u)?.[1] ?? '';
 
     expect({
       fill: /(?:^|;)\s*fill:\s*none\s*(?:;|$)/u.test(iconRule),
@@ -497,9 +919,11 @@ describe('KREN rich result view', () => {
 
     expect(html).toContain(`<strong>Location:</strong> <code>${storagePath}</code>`);
     expect(html).toContain('<strong>Entries:</strong> 38');
-    expect(html).toContain('leaves the original <code>entries.json</code>');
+    // 2026-10-04: owner shortened recovery wording; guard preservation and recovery meaning.
+    // Changed 2026-10-17: V261, F5 owner canvas edit, recovery copy still says to stop and preserve the store.
+    expect(load(html)('[data-settings-section="userDictionary"]').text()).toMatch(/corrupt.*stops.*keeps.*entries\.json/u);
     expect(html).toContain('JSON is lossless');
-    expect(html).toContain('Markdown is human-readable and lossy by design');
+    expect(load(html)('[data-settings-section="userDictionary"]').text()).toMatch(/Markdown.*lossy/u);
     expect(html).toContain('data-command="previewUserDictionaryImport"');
     expect(html).toContain('data-command="previewUserDictionaryPurge"');
   });
@@ -521,8 +945,329 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(html).toContain('Manual or imported entry.');
+    expect(html).toContain('Source: written or imported by you.');
     expect(html).not.toContain('Generated by');
+  });
+
+  it('repeats the part of speech on a sense only when the senses disagree', () => {
+    function meaningsFor(parts: Array<string | undefined>): string {
+      const entry = userDictionaryEntry({
+        senses: parts.map((partOfSpeech, index) => ({
+          id: `sense-${index + 1}`,
+          ...(partOfSpeech ? { partOfSpeech } : {}),
+          definition: `Definition ${index + 1}.`,
+          synonyms: [],
+          antonyms: [],
+          relatedTerms: [],
+          examples: []
+        }))
+      });
+      const html = renderKrenResultViewHtml({
+        cspSource: 'vscode-webview://test',
+        nonce: 'test-nonce',
+        settings: { ...settings, userDictionaryEnabled: true },
+        activeScreen: 'userDictionary',
+        userDictionary: { entries: [entry], selectedId: entry.id },
+        proModels
+      });
+      const start = html.indexOf('<h3>Meanings</h3>');
+      expect(start).toBeGreaterThan(-1);
+      return html.slice(start, html.indexOf('<p class="dictionary-meta">Source:', start));
+    }
+
+    // Three senses all reading "adjective", under a filing line that already says
+    // adjective, is three copies of one fact.
+    const same = meaningsFor(['adjective', 'adjective', 'adjective']);
+    expect(same).not.toBe('');
+    expect(same).toContain('<strong>1.</strong>');
+    expect(same).not.toContain('adjective</em>');
+
+    // Where they differ it is the thing that separates them, so it has to stay.
+    const differing = meaningsFor(['noun', 'verb']);
+    expect(differing).toContain('<em class="sense-part-of-speech">noun</em>');
+    expect(differing).toContain('<em class="sense-part-of-speech">verb</em>');
+  });
+
+  it('sets the number, the part of speech, and the definition on one line', () => {
+    // Revised 2026-08-23. The number sat on its own line above the definition, costing a
+    // line break per meaning and saying nothing the definition beside it does not.
+    const entry = userDictionaryEntry({
+      senses: [
+        {
+          id: 'sense-noun',
+          partOfSpeech: 'noun',
+          definition: 'The first meal of the day.',
+          synonyms: [],
+          antonyms: [],
+          relatedTerms: [],
+          examples: []
+        },
+        {
+          id: 'sense-verb',
+          partOfSpeech: 'verb',
+          definition: 'To eat the first meal of the day.',
+          synonyms: [],
+          antonyms: [],
+          relatedTerms: [],
+          examples: []
+        }
+      ]
+    });
+    const html = detailHtml(entry);
+
+    expect(html).toContain(
+      '<p class="sense-definition"><strong>1.</strong>' +
+      ' <em class="sense-part-of-speech">noun</em> The first meal of the day.</p>'
+    );
+    expect(html).toContain('.sense-definition { margin: 0; }');
+  });
+
+  it('shows a heteronym its own pronunciation, under the sense it belongs to', () => {
+    const entry = userDictionaryEntry({
+      term: 'record',
+      pronunciation: { display: '/ˈrɛk.ɚd/', audioAvailable: false },
+      senses: [
+        {
+          id: 'sense-1',
+          partOfSpeech: 'noun',
+          definition: 'A lasting account.',
+          synonyms: [],
+          antonyms: [],
+          relatedTerms: [],
+          examples: []
+        },
+        {
+          id: 'sense-2',
+          partOfSpeech: 'verb',
+          pronunciation: '/rɪˈkɔːrd/',
+          definition: 'To set down for later reference.',
+          synonyms: [],
+          antonyms: [],
+          relatedTerms: [],
+          examples: []
+        }
+      ]
+    });
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, userDictionaryEnabled: true },
+      activeScreen: 'userDictionary',
+      userDictionary: { entries: [entry], selectedId: entry.id },
+      proModels
+    });
+
+    expect(html).toContain('/ˈrɛk.ɚd/');
+    expect(html).toContain('<p class="sense-pronunciation">/rɪˈkɔːrd/</p>');
+    // The sense that takes the entry pronunciation carries none of its own, so the entry
+    // one is not repeated down every sense of every ordinary word.
+    const first = html.indexOf('<strong>1. noun</strong>');
+    const second = html.indexOf('<strong>2. verb</strong>');
+    expect(html.slice(first, second)).not.toContain('sense-pronunciation');
+  });
+
+  it('puts the entry controls directly under the term, above the meanings', () => {
+    const entry = userDictionaryEntry();
+    const html = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, userDictionaryEnabled: true },
+      activeScreen: 'userDictionary',
+      userDictionary: { entries: [entry], selectedId: entry.id },
+      proModels
+    });
+    const term = html.indexOf('<h2>ledger</h2>');
+    const actions = html.indexOf('class="settings-buttons entry-actions"');
+    const meanings = html.indexOf('<h3>Meanings</h3>');
+    expect(term).toBeGreaterThan(-1);
+    expect(actions).toBeGreaterThan(term);
+    expect(actions).toBeLessThan(meanings);
+  });
+
+  function detailHtml(entry: ReturnType<typeof userDictionaryEntry>): string {
+    return renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, userDictionaryEnabled: true },
+      activeScreen: 'userDictionary',
+      userDictionary: { entries: [entry], selectedId: entry.id },
+      proModels
+    });
+  }
+
+  function turnUpEntry(senseId: string | undefined) {
+    return userDictionaryEntry({
+      id: 'entry-turn-up',
+      term: 'turn up',
+      entryType: 'phrasal verb',
+      pronunciation: undefined,
+      senses: [
+        {
+          id: 'sense-appear',
+          partOfSpeech: 'verb',
+          definition: 'To arrive or appear, especially unexpectedly.',
+          synonyms: ['appear', 'show up'],
+          antonyms: [],
+          relatedTerms: [],
+          examples: []
+        },
+        {
+          id: 'sense-increase',
+          partOfSpeech: 'verb',
+          definition: 'To increase the volume, heat, or intensity of something.',
+          synonyms: ['raise'],
+          antonyms: [],
+          relatedTerms: [],
+          examples: []
+        }
+      ],
+      capturedContext: {
+        sentence: 'He turned up to the party without invitation.',
+        ...(senseId ? { senseId } : {})
+      }
+    });
+  }
+
+  // "turn up" means appear in one sentence and increase in another, and the reader saved it
+  // because of the sentence they met it in. The box answers that; the list below still has
+  // to answer "what does this word mean", which is why the matched sense stays in it.
+  it('leads with the meaning the captured sentence uses and keeps every other meaning', () => {
+    const entry = turnUpEntry('sense-appear');
+    // Changed 2026-10-06: V211 also names All meanings in the manual; assert the displayed dictionary only.
+    const html = load(detailHtml(entry))('#user-dictionary-screen').html()!;
+
+    const box = html.slice(
+      html.indexOf('class="captured-context"'),
+      html.indexOf('All meanings')
+    );
+    expect(box).toContain('In the captured text');
+    expect(box).toContain('To arrive or appear, especially unexpectedly.');
+    expect(box).toContain('He turned up to the party without invitation.');
+    expect(box).not.toContain('To increase the volume');
+
+    // Order inside the box: meaning, then synonyms, then the sentence that supports them.
+    expect(box.indexOf('To arrive or appear')).toBeLessThan(box.indexOf('Synonyms:'));
+    expect(box.indexOf('Synonyms:'))
+      .toBeLessThan(box.indexOf('He turned up to the party'));
+
+    // The box is above the list, and the list is still complete.
+    expect(html.indexOf('captured-context')).toBeLessThan(html.indexOf('All meanings'));
+    const list = html.slice(html.indexOf('All meanings'));
+    expect(list).toContain('To arrive or appear, especially unexpectedly.');
+    expect(list).toContain('To increase the volume, heat, or intensity of something.');
+  });
+
+  it('says the sentence settled nothing rather than showing an empty box', () => {
+    // Changed 2026-10-06: Scope the context assertions to the entry rather than hidden manual text.
+    const html = load(detailHtml(turnUpEntry(undefined)))('#user-dictionary-screen').html()!;
+    const box = html.slice(
+      html.indexOf('class="captured-context"'),
+      html.indexOf('All meanings')
+    );
+
+    expect(box).toContain('This text did not single out one meaning.');
+    expect(box).toContain('He turned up to the party without invitation.');
+    expect(box).not.toContain('To arrive or appear');
+  });
+
+  it('renders the ordinary entry unchanged when nothing was captured', () => {
+    // Changed 2026-10-06: The manual describes contextual entries; this assertion concerns this ordinary entry.
+    const html = load(detailHtml(userDictionaryEntry()))('#user-dictionary-screen').html()!;
+
+    // The class name, not the bare word: the stylesheet carries the rule on every render,
+    // so a substring check on "captured-context" passes whether the box exists or not.
+    expect(html).not.toContain('class="captured-context"');
+    expect(html).toContain('<h3>Meanings</h3>');
+    expect(html).not.toContain('All meanings');
+  });
+
+  it('sets the captured text and the examples as the meaning, italic and unfilled', () => {
+    // Revised 2026-08-23. They were .88rem and the owner asked for parity with the
+    // definition instead, with no fill and no indent: an example is the same content shown
+    // in use, so setting it apart by size and colour said it was a different kind of thing.
+    const html = detailHtml(turnUpEntry('sense-appear'));
+
+    expect(html).toMatch(/\.captured-sentence \{[^}]*font-size: inherit/u);
+    expect(html).toMatch(/\.captured-sentence \{[^}]*font-style: italic/u);
+    expect(html).toMatch(/\.dictionary-sense blockquote \{[^}]*font-size: inherit/u);
+    expect(html).toMatch(/\.dictionary-sense blockquote \{[^}]*font-style: italic/u);
+    // Left-aligned with the definition above it, and carrying no fill of its own.
+    expect(html).toMatch(/\.dictionary-sense blockquote \{[^}]*margin-left: 0/u);
+    expect(html).toMatch(/\.dictionary-sense blockquote \{[^}]*background: none/u);
+    // An empty line above the captured text, which the owner asked for by name.
+    expect(html).toMatch(/\.captured-sentence \{[^}]*margin: 16px 0 0/u);
+  });
+
+  it('names Merriam-Webster in the source line whenever it was queried', () => {
+    function sourceLineFor(overrides: Parameters<typeof userDictionaryEntry>[0]): string {
+      const entry = userDictionaryEntry(overrides);
+      const html = renderKrenResultViewHtml({
+        cspSource: 'vscode-webview://test',
+        nonce: 'test-nonce',
+        settings: { ...settings, userDictionaryEnabled: true },
+        activeScreen: 'userDictionary',
+        userDictionary: { entries: [entry], selectedId: entry.id },
+        proModels
+      });
+      const start = html.indexOf('Source:');
+      expect(start).toBeGreaterThan(-1);
+      return html.slice(start, html.indexOf('</p>', start));
+    }
+
+    // The line is keyed on the stored citation record rather than on the capture mode,
+    // because the record is what says a query actually happened.
+    const llmOnly = sourceLineFor({
+      capture: {
+        mode: 'llmOnly',
+        provider: 'gemini',
+        model: 'gemini-3.6-flash',
+        generatedAt: '2026-08-01T00:00:00.000Z',
+        userEdited: false
+      },
+      merriamWebsterReference: undefined
+    });
+    expect(llmOnly).toContain('Source: drafted by gemini / gemini-3.6-flash.');
+    expect(llmOnly).toContain('No dictionary publisher was consulted.');
+    expect(llmOnly).not.toContain('Merriam-Webster');
+
+    const matched = sourceLineFor({
+      capture: {
+        mode: 'merriamWebsterAndLlm',
+        provider: 'gemini',
+        model: 'gemini-3.6-flash',
+        generatedAt: '2026-08-01T00:00:00.000Z',
+        userEdited: false
+      },
+      merriamWebsterReference: {
+        referenceWork: 'collegiate',
+        lookupTerm: 'ledger',
+        entryId: 'ledger',
+        matchStatus: 'matched'
+      }
+    });
+    // The panel escapes the apostrophe and the quotes, which is what the reader's browser
+    // turns back into punctuation, so the assertion matches the escaped form.
+    expect(matched).toContain('Merriam-Webster&#39;s Collegiate® Dictionary was consulted for review under &quot;ledger&quot;');
+    // The saved entry holds none of the publisher's wording, so the line must not read as
+    // an attribution of text it does not contain.
+    expect(matched).toContain('its wording is not stored in this entry');
+
+    const noMatch = sourceLineFor({
+      capture: {
+        mode: 'merriamWebsterAndLlm',
+        provider: 'gemini',
+        model: 'gemini-3.6-flash',
+        generatedAt: '2026-08-01T00:00:00.000Z',
+        userEdited: true
+      },
+      merriamWebsterReference: {
+        referenceWork: 'collegiate',
+        lookupTerm: 'ledger',
+        matchStatus: 'noMatch'
+      }
+    });
+    expect(noMatch).toContain('Merriam-Webster&#39;s Collegiate® Dictionary returned no match for &quot;ledger&quot;');
+    expect(noMatch).toContain('Edited by you after generation.');
   });
 
   it('renders a Markdown-imported entry with truthful manual provenance', () => {
@@ -541,7 +1286,7 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(html).toContain('Manual or imported entry.');
+    expect(html).toContain('Source: written or imported by you.');
     expect(html).not.toContain('markdown-import');
     expect(html).not.toContain('Generated by');
   });
@@ -567,6 +1312,8 @@ describe('KREN rich result view', () => {
     const html = renderKrenResultViewHtml({
       cspSource: 'vscode-webview://test',
       nonce: 'test-nonce',
+      // 2026-10-05: the host supplies bundled logo URIs rather than remote defaults.
+      merriamWebsterLogoUris: { light: 'vscode-webview://test/mw-light.png', dark: 'vscode-webview://test/mw-dark.png' },
       settings: {
         ...settings,
         userDictionaryEnabled: true,
@@ -596,7 +1343,8 @@ describe('KREN rich result view', () => {
       .toBeLessThan(html.indexOf('PERSONAL KREN ENTRY'));
     expect(html).toContain('A live provider definition.');
     expect(html).toContain('A record used to organize transactions.');
-    expect(html).toContain('<img class="provider-logo"');
+    // 2026-10-04: Assert the attributed artwork, independent of theme classes.
+    expect(load(html)('img.provider-logo[alt="Merriam-Webster logo"]')).toHaveLength(2);
     expect(html).toContain('.provider-logo { width: 50px; height: 50px;');
     expect(html).toContain('Live content is not stored with the personal entry.');
     expect(html).toContain('Save personal entry');
@@ -659,10 +1407,12 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(emptyHtml).toContain('Default Gemini <span class="credential-status">Not set</span>');
-    expect(emptyHtml).toContain('data-action="kren.setGeminiApiKey">Set key</button>');
-    expect(emptyHtml).toContain('data-action="kren.deleteGeminiApiKey" disabled>Remove key</button>');
-    expect(emptyHtml).toContain('data-action="kren.deleteAllApiKeys" disabled>');
+    // 2026-10-04: enabled actions communicate state after badge removal.
+    expect(load(emptyHtml)(`[data-action="kren.setGeminiApiKey"]`).closest('.credential-row').text()).toContain('Gemini Free Tier');
+    expect(load(emptyHtml)(`[data-action="kren.setGeminiApiKey"]`).is('[disabled]')).toBe(false);
+    expect(emptyHtml).toContain('data-action="kren.setGeminiApiKey" title="Set Gemini Free Tier key" aria-label="Set the Gemini Free Tier API key">');
+    expect(emptyHtml).toContain('aria-label="Remove the Gemini Free Tier API key" disabled>');
+    expect(emptyHtml).toContain('data-action="kren.deleteAllApiKeys" disabled>Delete all API keys</button>');
 
     const storedHtml = renderKrenResultViewHtml({
       cspSource: 'vscode-webview://test',
@@ -675,10 +1425,12 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(storedHtml).toContain('Default Gemini <span class="credential-status">Stored</span>');
-    expect(storedHtml).toContain('data-action="kren.setGeminiApiKey" disabled>Set key</button>');
-    expect(storedHtml).toContain('data-action="kren.deleteGeminiApiKey">Remove key</button>');
-    expect(storedHtml).toContain('data-action="kren.deleteAllApiKeys">');
+    // 2026-10-04: enabled actions communicate state after badge removal.
+    expect(load(storedHtml)(`[data-action="kren.deleteGeminiApiKey"]`).closest('.credential-row').text()).toContain('Gemini Free Tier');
+    expect(load(storedHtml)(`[data-action="kren.deleteGeminiApiKey"]`).is('[disabled]')).toBe(false);
+    expect(storedHtml).toContain('aria-label="Set the Gemini Free Tier API key" disabled>');
+    expect(storedHtml).toContain('data-action="kren.deleteGeminiApiKey" title="Remove the Gemini Free Tier API key" aria-label="Remove the Gemini Free Tier API key">');
+    expect(storedHtml).toContain('data-action="kren.deleteAllApiKeys">Delete all API keys</button>');
 
     const medicalHtml = renderKrenResultViewHtml({
       cspSource: 'vscode-webview://test',
@@ -690,9 +1442,11 @@ describe('KREN rich result view', () => {
       activeScreen: 'settings',
       proModels
     });
-    expect(medicalHtml).toContain('Merriam-Webster Medical <span class="credential-status">Stored</span>');
-    expect(medicalHtml).toContain('data-action="kren.setMerriamWebsterMedicalApiKey" disabled>Set key</button>');
-    expect(medicalHtml).toContain('data-action="kren.deleteMerriamWebsterMedicalApiKey">Remove key</button>');
+    // 2026-10-04: enabled actions communicate state after badge removal.
+    expect(load(medicalHtml)(`[data-action="kren.deleteMerriamWebsterMedicalApiKey"]`).closest('.credential-row').text()).toContain('Merriam-Webster Medical');
+    expect(load(medicalHtml)(`[data-action="kren.deleteMerriamWebsterMedicalApiKey"]`).is('[disabled]')).toBe(false);
+    expect(medicalHtml).toContain('aria-label="Set the Merriam-Webster Medical API key" disabled>');
+    expect(medicalHtml).toContain('data-action="kren.deleteMerriamWebsterMedicalApiKey" title="Remove the Merriam-Webster Medical API key" aria-label="Remove the Merriam-Webster Medical API key">');
 
     // Fills exactly MERRIAM_WEBSTER_KEY_LIMIT slots rather than a hard-coded count, and
     // checks both sides of the boundary. The panel once printed one limit while
@@ -731,21 +1485,35 @@ describe('KREN rich result view', () => {
       // warning has somewhere to appear and its Set key button is disabled.
       const action = `kren.set${spare[0]?.toUpperCase()}${spare.slice(1)}ApiKey`;
       expect(limitHtml).toContain(MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
-      expect(limitHtml).toContain(`data-action="${action}" disabled>Set key</button>`);
+      /*
+       * The Set control is a floppy-disk icon, not the words "Set key". It became one on
+       * 2026-08-22 and this assertion kept the old markup until 2026-08-28. Only a build
+       * whose limit is below the number of reference works reaches this branch at all,
+       * which is why it went unnoticed. Read the button rather than a label, and assert
+       * the state that matters.
+       */
+      const at = limitHtml.indexOf(`data-action="${action}"`);
+      expect(at, `${action} has no Set control`).toBeGreaterThan(-1);
+      const setButton = limitHtml.slice(limitHtml.lastIndexOf('<button', at), limitHtml.indexOf('</button>', at));
+      expect(setButton, 'the Set control is not disabled at the limit').toContain('disabled');
+      expect(setButton).toContain('aria-label="Set the');
+      // The row says why, rather than presenting an inert control with no explanation.
+      expect(limitHtml).toContain('class="credential-reason"');
     } else {
       // Private development behaviour, limit 3 of 3. Every reference work is configured,
       // so no row is unset and the warning is unreachable by construction. That is
       // correct, not a missing message: the limit and the number of reference works
       // coincide, so there is nothing left to refuse.
       expect(limitHtml).not.toContain(MERRIAM_WEBSTER_KEY_LIMIT_MESSAGE);
-      // All three configured, so all three read Stored. Not asserted by the absence of a
-      // disabled Set key button: a stored row disables its own Set key, correctly, so
-      // that string appears for every configured credential in the panel.
+      // 2026-10-04: stored keys retain enabled Remove and disabled Set after badge removal.
       for (const name of presenceOrder) {
         const label = name === 'merriamWebsterCollegiate' ? 'Merriam-Webster Collegiate'
           : name === 'merriamWebsterThesaurus' ? 'Merriam-Webster Thesaurus'
             : 'Merriam-Webster Medical';
-        expect(limitHtml).toContain(`${label} <span class="credential-status">Stored</span>`);
+        const row = load(limitHtml)(`[aria-label="Remove the ${label} API key"]`).closest('.credential-row');
+        expect(row.text()).toContain(label);
+        expect(row.find('[aria-label^="Remove"]').is('[disabled]')).toBe(false);
+        expect(row.find('[aria-label^="Set"]').is('[disabled]')).toBe(true);
       }
     }
 
@@ -756,16 +1524,28 @@ describe('KREN rich result view', () => {
       activeScreen: 'start',
       proModels
     });
-    expect(startHtml).toContain('<span class="capability unavailable">English Dictionary');
-    expect(startHtml).toContain('<span class="capability unavailable">Synonyms');
-    expect(startHtml).toContain('<span class="capability unavailable">Medical Dictionary');
-    expect(startHtml).toContain('Unavailable because no API key is configured.');
+    // Buttons since 2026-08-22, disabled rather than absent when the key is missing, so
+    // the reader can see KREN has the feature and why it cannot run.
+    for (const label of ['English Dictionary', 'Synonyms', 'Medical Dictionary']) {
+      expect(startHtml, `${label} is offered but disabled`)
+        .toMatch(new RegExp(
+          `<button class="capability unavailable has-reason"[^>]*disabled><span class="capability-label">${label}`,
+          'u'
+        ));
+    }
+    // 2026-10-03: Reasons name the missing credential; assert the purpose, not wording.
+    const reasons = load(startHtml)('.capability:disabled .capability-reason');
+    expect(reasons.length).toBeGreaterThanOrEqual(3);
+    reasons.each((_index, reason) => {
+      expect(load(reason).text()).toMatch(/unavailable.*(?:API key|disabled)/iu);
+    });
   });
 
   it('shows and escapes the complete input with a translation result', () => {
     const result: TranslationResult = {
       ...base,
       kind: 'translation',
+      operation: 'translate' as const,
       providerId: 'googleCloudTranslation',
       sourceText: '<private input>\nsecond line',
       translatedText: '번역 결과'
@@ -813,6 +1593,8 @@ describe('KREN rich result view', () => {
     const html = renderKrenResultViewHtml({
       cspSource: 'vscode-webview://test',
       nonce: 'test-nonce',
+      // 2026-10-05: the host supplies bundled logo URIs rather than remote defaults.
+      merriamWebsterLogoUris: { light: 'vscode-webview://test/mw-light.png', dark: 'vscode-webview://test/mw-dark.png' },
       brandImageUri,
       result,
       sourceText: result.sourceText,
@@ -823,12 +1605,15 @@ describe('KREN rich result view', () => {
     });
 
     expect(html).toContain(`data-audio-url="${audioUrl}"`);
-    expect(html).toContain(`src="${audioUrl}" autoplay`);
+    // 2026-10-05: pronunciation starts through the allowlisted script path; rendered src attributes stay local.
+    expect(html).toContain(`void playPronunciation(${JSON.stringify(audioUrl)}, false);`);
+    expect(html).not.toContain(`src="${audioUrl}"`);
     expect(html).toContain("message.command === 'playPronunciation'");
     expect(html).toContain("command: 'pronunciationStarted'");
     expect(html).toContain("command: 'pronunciationFailed'");
     expect(html).not.toContain('data-command="replace"');
-    expect(html).not.toContain('Replace selection');
+    // Changed 2026-10-04: V198 names replacement in the manual; pronunciation must still have no replacement control.
+    expect(html).not.toMatch(/<button\b[^>]*(?:aria-label|title)="Replace selection"/u);
     expect(html).toContain('media-src https://media.merriam-webster.com');
     for (const providerId of [
       'merriamWebsterCollegiate',
@@ -838,13 +1623,16 @@ describe('KREN rich result view', () => {
       const referenceHtml = renderKrenResultViewHtml({
         cspSource: 'vscode-webview://test',
         nonce: 'test-nonce',
+      // 2026-10-05: the host supplies bundled logo URIs rather than remote defaults.
+      merriamWebsterLogoUris: { light: 'vscode-webview://test/mw-light.png', dark: 'vscode-webview://test/mw-dark.png' },
         result: { ...result, providerId },
         sourceText: result.sourceText,
         allowReplace: false,
         settings,
         proModels
       });
-      expect(referenceHtml).toContain('<img class="provider-logo"');
+      // 2026-10-04: Both official variants retain the attribution and approved size.
+      expect(load(referenceHtml)('img.provider-logo[alt="Merriam-Webster logo"]')).toHaveLength(2);
       expect(referenceHtml).toContain('.provider-logo { width: 50px; height: 50px;');
     }
   });
@@ -889,19 +1677,33 @@ describe('KREN rich result view', () => {
     expect(html).toContain('data-command="replaceVariant" data-variant-id="full"');
     expect(html).toContain('Open full details');
     expect(html).not.toContain('data-command="copy">Copy result');
-    expect(html).toContain('data-variant-tab="minimal"');
-    expect(html).toContain('data-variant-tab="full"');
+    // Both variants render at once, minimal then full. They were tabs until 2026-08-22,
+    // and comparing the two is the reason for asking for both, which a tab prevents.
+    expect(html).not.toContain('data-variant-tab');
+    expect(html).toContain('data-variant-panel="minimal"');
+    expect(html).toContain('data-variant-panel="full"');
+    // Read the class attribute of each variant article rather than assuming the attribute
+    // order. The first version of this assertion expected data-variant-panel before class
+    // and did not fire when a hidden class was reintroduced.
+    const panelClasses = [...html.matchAll(/<article class="([^"]*)"[^>]*data-variant-panel=/gu)]
+      .map((match) => match[1] ?? '');
+    expect(panelClasses).toHaveLength(2);
+    for (const className of panelClasses) {
+      expect(className, `variant panel is visible, got "${className}"`).not.toContain('hidden');
+    }
+    expect(html.indexOf('data-variant-panel="minimal"'))
+      .toBeLessThan(html.indexOf('data-variant-panel="full"'));
     expect(html).toContain('data-command="clear"');
     expect(html).toContain('KREN Settings');
     expect(html).toContain('data-setting="results.openAtStartup"');
     expect(html).toContain('data-setting="gemini.retry.enabled"');
-    expect(html).toContain('data-setting="gemini.alternateFallbackModel"');
-    expect(html).toContain('data-setting="gemini.alternateFallbackThinkingLevel"');
+    expect(html).toContain('data-setting="rewrite.fallbackModel"');
+    expect(html).toContain('data-setting="rewrite.fallbackThinkingOrEffort"');
     expect(html).toContain('data-setting="explanation.geminiProfile"');
     expect(html).toContain('data-setting="rewrite.quickMenuVariant"');
     expect(html).toContain('data-setting="rewrite.sourceLanguage"');
     expect(html).toContain('data-setting="rewrite.englishVariety"');
-    expect(html).toContain('English dialect or variety');
+    expect(html).toContain('Output language');
     expect(html).toContain('data-setting="rewrite.modality"');
     expect(html).toContain('data-setting="rewrite.function"');
     expect(html).toContain('data-setting="rewrite.domain"');
@@ -915,36 +1717,83 @@ describe('KREN rich result view', () => {
     expect(html).toContain('data-setting="readAloud.voice"');
     expect(html).toContain('data-setting="readAloud.provider"');
     expect(html).toContain('data-provider-for="readAloud.provider" data-provider-value="edgeOnline"');
-    expect(html).toContain('data-setting="readAloud.edgeVoice"');
-    expect(html).toContain('en-US-ChristopherNeural');
-    expect(html).toContain('Microsoft Edge Online (experimental)');
-    expect(html).toContain('only KREN\'s cleaned speech copy is sent');
+    // V102, 2026-09-15. This used to pass by matching the webview script's hard-coded
+    // selector even while Auto-detect rendered no editable control. The preset handler is
+    // now generic, so assert the real control in the state where it is reachable.
+    const chosenVoiceHtml = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, edgeReadAloudLocale: 'en-US' },
+      proModels
+    });
+    expect(chosenVoiceHtml).toContain('data-setting="readAloud.edgeVoice"');
+    // The default speech source is Edge Online as of 2026-08-24, and its default locale is
+    // Auto-detect, so the identifier field is the disabled one rather than an editable field
+    // holding a stale voice.
+    expect(html).toContain('Auto-selected by KREN');
+    // The "(experimental)" label went on 2026-08-24 and Edge Online became the default: it
+    // reads twenty languages, where Local Windows reads whichever voices the machine has.
+    expect(html).toContain('Microsoft Edge Online');
+    expect(html).not.toContain('(experimental)');
+    // Changed 2026-10-17: V261, F5 owner canvas edit, the speech note still identifies the cleaned copy and recipient.
+    expect(load(html)('[data-settings-section="readAloud"]').text()).toMatch(/only KREN's cleaned speech copy.*Microsoft/u);
     expect(html).toContain('Microsoft Zira Desktop');
     expect(html).toContain('data-action="kren.previewReadAloud"');
     expect(html).toContain('data-setting="pronunciation.windowsNativePlayback"');
-    expect(html).toContain('Result <span class="result-meta">| Language: <strong>English</strong> | English: <strong>British</strong> | Modality: <strong>Written</strong> | Function: <strong>General</strong> | Domain: <strong>Technical</strong> | Formality: <strong>Preserve</strong> | Voice: <strong>Preserve</strong> | Stance: <strong>Preserve</strong> | Length: <strong>Preserve</strong> | Perspective: <strong>Preserve</strong> | Intent: <strong>Recommend</strong> |</span>');
+    // The axis line moved out of the card title and under both panels on 2026-08-22.
+    expect(html).toContain('<p class="result-meta rewrite-meta">Language: <strong>English</strong> | English: <strong>British</strong> | Modality: <strong>Written</strong> | Function: <strong>General</strong> | Domain: <strong>Technical</strong> | Formality: <strong>Preserve</strong> | Voice: <strong>Preserve</strong> | Stance: <strong>Preserve</strong> | Length: <strong>Preserve</strong> | Perspective: <strong>Preserve</strong> | Intent: <strong>Recommend</strong></p>');
+    expect(html).toContain('<h2 class="card-title">Result</h2>');
+    // Last, under both variants, not above them.
+    expect(html.indexOf('data-variant-panel="full"'))
+      .toBeLessThan(html.indexOf('class="result-meta rewrite-meta"'));
     expect(html).toContain('data-command="refreshProModels"');
-    expect(html).toContain('data-preset="explain-gemini"');
-    expect(html).toContain('data-preset="rewrite-gemini-default"');
+    // The two Gemini preset toggles were removed on 2026-08-24. Each set a provider the
+    // select directly below it already sets, and each carried its own copy of the regional
+    // eligibility sentence, which now appears once under Credentials and Usage.
+    expect(html).not.toContain('data-preset=');
     expect(html).not.toContain('Free API');
     expect(html).not.toContain('Paid Gemini');
     expect(html).toContain('data-provider-for="explanation.provider" data-provider-value="gemini"');
-    expect(html).toContain('data-provider-for="rewrite.provider" data-provider-value="openai"');
+    expect(html).toContain('data-setting="rewrite.provider"');
     expect(html).toContain('data-command="readVariant" data-variant-id="minimal"');
-    expect(html).toContain('Smart Grammar Check uses this provider, model, and effort as well.');
+    // All five language-model features present the same foldable, so a reader looking for
+    // where a request is routed finds one heading rather than five that nearly match.
+    expect(html.match(/<span class="rewrite-group-name">LLM ROUTING<\/span>/gu)).toHaveLength(5);
+    for (const feature of ['translation', 'grammar', 'explain', 'rewrite', 'userDictionary']) {
+      expect(html).toContain(`data-llm-routing="${feature}"`);
+    }
+    // Smart Grammar Check and User Dictionary render one stored profile in two editable
+    // places. Grammar owns no parallel keys that could drift away from that profile.
+    // Changed 2026-10-17: V261, F5 owner canvas edit, both features still share a model profile.
+    expect(load(html)('[data-llm-routing="grammar"]').text()).toMatch(/Grammar Check and User Dictionary share.*model profile/u);
+    expect(html).not.toContain('data-setting="grammar.provider"');
+    expect(html).not.toContain('data-setting="grammar.model"');
+    expect(html).not.toContain('data-setting="grammar.thinkingOrEffort"');
+    // Match the markup, not the class name on its own: setting-inactive appears in the
+    // stylesheet and the webview script on every render, so a bare token proves nothing.
+    expect(html).toContain('data-llm-routing="grammar" data-persist-id="settings-grammar-routing" data-enabled-for="grammar.smart" data-enabled-value="true"');
+    expect(html).toContain('data-llm-routing="translation" data-persist-id="settings-translation-routing" data-enabled-for="translationProvider" data-enabled-value="gemini"');
+    expect(html.match(/data-always-disabled/gu)).toHaveLength(1);
     expect(html).toContain('data-command="stopReadAloud"');
     expect(html).not.toContain('speechSynthesis');
-    expect(html).toContain('en-US-AvaNeural');
-    expect(html).toContain('Ava Natural (US English)');
+    // Revised 2026-08-24. The six hand-written presets are gone, along with
+    // en-US-ChristopherMultilingualNeural, which the runtime does not have and never had.
+    // The Language/Region control renders always; the Voice list follows from it.
+    expect(html).toContain('data-setting="readAloud.edgeLocale"');
     expect(html).toContain('data-edge-voice-preset');
-    expect(html).toContain('Editable Edge voice ID');
+    expect(html).toContain('Editable Edge TTS voice ID');
+    expect(html).not.toContain('en-US-ChristopherMultilingualNeural');
     expect(html).toContain('25%');
     expect(html).toContain('0% (normal)');
     expect(html).toContain('Fallback used after <strong>gemini-3.1-pro-preview</strong>');
     expect(html).toContain('<div class="provider"><span>gemini-3.5-flash</span></div>');
     expect(html).not.toContain('Model: <strong>gemini-3.5-flash</strong>');
     expect(html).not.toContain('<span>Gemini<br>');
-    expect(html).toContain('All KREN settings');
+    // Renamed on the owner's instruction, 2026-08-28, and joined by Default Setting
+    // between it and Delete all API keys.
+    expect(html).toContain('>Default Setting</button>');
+    expect(html).toContain('>Reset KREN</button>');
+    expect(html).not.toContain('All KREN settings');
     expect(html).toContain('data-command="showManual"');
     expect(html).toContain('data-menu-toggle');
     expect(html).toContain('data-command="showStartPage"');
@@ -953,18 +1802,21 @@ describe('KREN rich result view', () => {
     expect(html).not.toContain('&#9432;');
     expect(html).toContain('KREN User Manual');
     expect(html).toContain(krenCreditLine('1.0.0'));
-    expect(html).toContain('<h3>Requirements</h3>');
+    // Changed 2026-10-06: V211 moves requirements into setup and Reference without losing the facts.
+    expect(html).toContain('<h3>Set up</h3>');
     expect(html).toContain('VS Code Desktop 1.106 or later');
-    expect(html).toContain('Delete all stored API keys');
+    expect(html).toContain('Delete all API keys');
     expect(html).toContain('data-action="kren.deleteGeminiApiKey"');
-    expect(html).toContain('no API key, account, Python, Node.js, GPU, or network connection is required');
-    expect(html).toContain('Merriam-Webster issues two API keys per account, so KREN refuses a third');
+    expect(html).toMatch(/Offline grammar[^.]*no API key, account, Python, Node.js, GPU, or network/u);
+    // Changed 2026-10-04: V198 documents the reference choice and public limit without claiming private enforcement.
+    expect(html).toMatch(/configure two of the three Merriam-Webster references/u);
+    expect(html).toMatch(/public build[^.]*third stored reference key/iu);
     expect(html).toContain('Windows-native speech is unavailable in WSL');
-    expect(html).toContain('API users to be at least 18');
+    expect(html).toMatch(/API users[^.]*at least 18/u);
     expect(html).toContain('professional or business purposes');
-    expect(html).toContain('Copy and replacement safety');
-    expect(html).toContain('Privacy, storage, limits, and cost');
-    expect(html).toContain('Known limitations');
+    expect(html).toMatch(/No document change occurs until you choose replacement/u);
+    expect(html).toContain('<h4>What leaves the machine</h4>');
+    expect(html).toContain('<h4>Limits and requirements</h4>');
     expect(html).toContain(`src="${brandImageUri}"`);
     expect(html).not.toContain('data-tts-text');
     const script = html.match(/<script nonce="test-nonce">([\s\S]*?)<\/script>/u)?.[1];
@@ -1118,16 +1970,32 @@ describe('KREN rich result view', () => {
 
     const withoutSuggestionsHtml = renderGrammarResult(withoutSuggestions);
 
-    expect({
-      suggested: grammarActionDisabledStates(renderGrammarResult(suggested)),
-      // No correction buttons at all, rather than two that can never be enabled: every
-      // radio in that panel is Keep original and no click can change that.
-      withoutSuggestions: grammarActionDisabledStates(withoutSuggestionsHtml)
-    }).toEqual({
-      suggested: [false, false],
-      withoutSuggestions: []
-    });
-    expect(withoutSuggestionsHtml).toContain('>Copy checked text</button>');
+    const suggestedHtml = renderGrammarResult(suggested);
+    // The corrected passage is the artifact, so Replace and Copy sit on it as icons and act
+    // on exactly what the box holds. A result with nothing to correct produces no box, so
+    // it keeps the plain control that copies the passage that was checked.
+    expect(suggestedHtml).toContain('data-grammar-draft');
+    expect(suggestedHtml).toContain('>good</textarea>');
+    expect(suggestedHtml).toMatch(/data-command="applyGrammar"[^>]*data-grammar-draft-action/u);
+    expect(suggestedHtml).toMatch(/data-command="copyGrammar"[^>]*data-grammar-draft-action/u);
+    expect(suggestedHtml).toContain('data-command="resetGrammarDraft"');
+    // Matched on the element, not the attribute name: the panel script contains a
+    // querySelector for that attribute, so the bare name is present on every screen and a
+    // negative assertion on it would pass for the wrong reason.
+    expect(withoutSuggestionsHtml).not.toContain('<textarea id="grammar-draft-text"');
+    // A finding with no suggestion still lists the finding, so it keeps Open full details.
+    expect(withoutSuggestionsHtml).toContain('data-command="details"');
+    /*
+     * Ignore all, added 1.7.12. It sits after Open full details on any result that has
+     * findings, and is absent from a clean one, which has nothing to ignore. What pressing
+     * it does is covered in grammarIgnoreAll.test.ts.
+     */
+    expect(suggestedHtml).toContain('data-command="ignoreGrammarResult"');
+    expect(suggestedHtml).toContain('>Ignore all</button>');
+    expect(suggestedHtml.indexOf('data-command="details"'))
+      .toBeLessThan(suggestedHtml.indexOf('data-command="ignoreGrammarResult"'));
+    expect(renderGrammarResult(grammarResult('good', []))).not.toContain('ignoreGrammarResult');
+    expect(withoutSuggestionsHtml).not.toContain('>Copy checked text</button>');
   });
 
   it('renders private grammar vocabulary and automatic-check controls', () => {
@@ -1159,11 +2027,32 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(html).toContain('KREN is a privacy-conscious language workbench');
+    expect(html).toContain('KREN is a privacy-conscious language copilot');
     expect(html).toContain('1. Select or copy');
     expect(html).toContain('2. Choose an action');
+    // 2026-10-03: Readers need an inline replica of the status bar item in the visible step.
+    const $ = load(html);
+    const step = $('.welcome-step').filter((_, element) =>
+      $(element).children('strong').text().includes('Choose an action'));
+    expect(step).toHaveLength(1);
+    expect(step.parents('details, [hidden]')).toHaveLength(0);
+    const item = step.find('span[aria-label="KREN status bar item"]');
+    expect(item).toHaveLength(1);
+    expect(item.text().trim()).toBe('KREN');
+    expect(item.find('svg path')).toHaveLength(1);
+    expect(item.find('svg').attr('viewBox')).toBe('0 0 16 16');
+    expect(item.find('svg').attr('fill')).toBe('currentColor');
+    expect(item.closest('button, a')).toHaveLength(0);
+    expect(item.attr('data-command')).toBeUndefined();
+    expect(item.attr('style')).toBeUndefined();
+    expect(html).toMatch(/\.welcome-step > span\s*\{[^}]*display: block/);
+    expect(html).toMatch(/\.welcome-step \.welcome-status-item\s*\{[^}]*display: inline-flex;[^}]*font-size: inherit; font-weight: normal;/);
+    expect(html).toMatch(/\.welcome-status-item svg\s*\{[^}]*width: 1em; height: 1em;/);
+    expect(step.find('span strong')).toHaveLength(0);
+    expect(step.text()).toMatch(/Right-click the selection, or click\s*KREN\s*in the status bar for clipboard text\./);
     expect(html).toContain('class="welcome-layout"');
-    expect(html).toContain('.welcome-lead { margin: 0 0 24px; font-size: .95rem;');
+    // Changed 2026-10-17: V261, F5 owner canvas edit, the welcome lead is 14px.
+    expect(html).toContain('.welcome-lead { margin: 0 0 24px; font-size: 14px;');
     expect(html).toContain('.privacy-note { margin: 24px 5px 0; color: var(--vscode-descriptionForeground); font-size: .95rem;');
     expect(html).toContain('font-size: .74rem; text-align: left;');
     expect(html).toContain('English Dictionary');
@@ -1178,6 +2067,7 @@ describe('KREN rich result view', () => {
     const result: TranslationResult = {
       ...base,
       kind: 'translation',
+      operation: 'translate' as const,
       providerId: 'googleCloudTranslation',
       sourceText: 'hello',
       translatedText: '안녕하세요'
@@ -1193,12 +2083,12 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(html).toContain('KREN is a privacy-conscious language workbench');
+    expect(html).toContain('KREN is a privacy-conscious language copilot');
     expect(html).not.toContain('안녕하세요');
     expect(html).toContain('id="result-screen" class="result-screen"');
   });
 
-  it('renders every rewrite group summary and identifies groups at defaults', () => {
+  it('names every setting and its value on every rewrite group summary', () => {
     const html = renderKrenResultViewHtml({
       cspSource: 'vscode-webview://test',
       nonce: 'test-nonce',
@@ -1216,8 +2106,18 @@ describe('KREN rich result view', () => {
       const summary = html.match(
         new RegExp(`<summary data-rewrite-group-summary="${group}">([\\s\\S]*?)</summary>`, 'u')
       )?.[1];
-      expect(summary, `${group} summary`).toContain('Defaults');
+      // Every group states its settings, whether or not they are on their default. A
+      // summary reading "Defaults" said nothing about what the group even controls, so the
+      // only way to find that out was to open all eight of them.
+      expect(summary, `${group} summary`).toBeDefined();
+      expect(summary, `${group} summary`).not.toContain('Defaults');
+      expect(summary, `${group} summary`).toMatch(/[A-Za-z]+: [A-Za-z]/u);
     }
+    const channel = html.match(
+      /<summary data-rewrite-group-summary="channel">([\s\S]*?)<\/summary>/u
+    )?.[1];
+    expect(channel).toContain('Modality: Written');
+    expect(channel).toContain('Function: General');
   });
 
   it('summarises only non-default values and opens only the edited group', () => {
@@ -1238,7 +2138,6 @@ describe('KREN rich result view', () => {
     )?.[1];
 
     expect(subjectSummary).toContain('Domain: Technical');
-    expect(subjectSummary).not.toContain('General');
     expect(intentSummary).toContain('Rhetorical mode: Recommend');
     expect(html).toContain('data-rewrite-group="register" open');
     expect(html.match(/<details class="rewrite-settings-group"[^>]* open/gu)).toHaveLength(1);
@@ -1311,5 +2210,258 @@ describe('the attribution line', () => {
   it('escapes the version, which is the only part that varies', () => {
     expect(krenCreditLine('<script>')).toContain('&lt;script&gt;');
     expect(krenCreditLine('<script>')).not.toContain('<script>');
+  });
+});
+
+describe('the welcome capability grid and the quick pick', () => {
+  const extension = readFileSync('src/extension.ts', 'utf8');
+  const variants = readFileSync('src/rewriteVariants.ts', 'utf8');
+  const renderStart = (panelSettings: KrenPanelSettings): string => renderKrenResultViewHtml({
+    cspSource: 'vscode-webview://test',
+    nonce: 'test-nonce',
+    settings: panelSettings,
+    activeScreen: 'start',
+    proModels: []
+  });
+  const baseSettings = settings;
+
+  it('names Grammar Check for what it will actually do', () => {
+    // Smart Grammar Check ships on, and with it on the check is not local. Showing the
+    // same label either way told the reader nothing about where their text was going.
+    // Scoped to the capability grid: the settings screen carries a toggle with the same
+    // words and is rendered into the same document, so an unscoped search always matches.
+    const grid = (html: string): string => {
+      const at = html.indexOf('class="capability-grid"');
+      expect(at, 'the welcome screen has a capability grid').toBeGreaterThan(-1);
+      return html.slice(at, html.indexOf('</div>', html.indexOf('Read Aloud', at)));
+    };
+    // 2026-10-03: Smart runs only with its routed key; without it Harper still runs.
+    const on = grid(renderStart({ ...baseSettings, grammarSmart: true, credentialPresence: { geminiDefault: true } }));
+    const off = grid(renderStart({ ...baseSettings, grammarSmart: false }));
+    expect(on).toContain('>Smart Grammar Check<');
+    expect(off).toContain('>Grammar Check<');
+    expect(off).not.toContain('>Smart Grammar Check<');
+  });
+
+  const defaults = { ...settings, grammarSmart: true, credentialPresence: {} };
+  const byCommand = (panelSettings: KrenPanelSettings, command: string) =>
+    capabilityAvailability(panelSettings).find((action) => action.command === command)!;
+
+  it('with no keys enables only local Grammar Check and keyless Read Aloud', () => {
+    const actions = capabilityAvailability(defaults);
+    expect(actions).toHaveLength(10);
+    expect(actions.filter((action) => action.available).map((action) => action.command)).toEqual([
+      'kren.grammarCheckSelection', 'kren.readAloudSelection'
+    ]);
+    expect(byCommand(defaults, 'kren.grammarCheckSelection').label).toBe('Grammar Check');
+    for (const provider of ['edgeOnline', 'windowsLocal'] as const) {
+      expect(byCommand({ ...defaults, readAloudProvider: provider }, 'kren.readAloudSelection').available).toBe(true);
+    }
+  });
+
+  it('adding Gemini enables exactly the Gemini-routed actions and upgrades the grammar label', () => {
+    const routed = { ...defaults, translationProvider: 'gemini' as const, userDictionaryEnabled: true };
+    const before = capabilityAvailability(routed);
+    const after = capabilityAvailability({ ...routed, credentialPresence: { geminiDefault: true } });
+    expect(after.filter((action, index) => action.available && !before[index]!.available)
+      .map((action) => action.command)).toEqual([
+      'kren.translateSelection', 'kren.explainSelection', 'kren.rewriteEnglishSelection', 'kren.addToUserDictionary'
+    ]);
+    expect(after.find((action) => action.command === 'kren.grammarCheckSelection')?.label).toBe('Smart Grammar Check');
+  });
+
+  it('Translation requires the currently selected provider key', () => {
+    const panel = { ...defaults, translationProvider: 'gemini' as const, credentialPresence: { geminiDefault: true } };
+    expect(byCommand(panel, 'kren.translateSelection').available).toBe(true);
+    expect(byCommand({ ...panel, translationProvider: 'googleCloudTranslation' }, 'kren.translateSelection').available).toBe(false);
+    expect(byCommand({ ...panel, credentialPresence: {} }, 'kren.translateSelection').available).toBe(false);
+    expect(byCommand({ ...panel, translationProfile: 'pro' }, 'kren.translateSelection').available).toBe(false);
+    expect(byCommand({ ...panel, translationRoutingProvider: 'openai' }, 'kren.translateSelection').available).toBe(false);
+    expect(byCommand({ ...defaults, credentialPresence: { googleCloudTranslation: true } }, 'kren.translateSelection').available).toBe(true);
+  });
+
+  it.each(['openai', 'anthropic', 'gemini'] as const)('uses the selected %s route and Gemini profile for model actions', (provider) => {
+    const panel = { ...defaults, userDictionaryEnabled: true, explanationProvider: provider, rewriteProvider: provider,
+      userDictionaryProvider: provider, explanationProfile: 'pro' as const, rewriteProfile: 'pro' as const,
+      userDictionaryProfile: 'pro' as const };
+    const credential = provider === 'gemini' ? 'geminiAlternate' : provider;
+    const present = { ...panel, credentialPresence: { [credential]: true } };
+    for (const command of ['kren.explainSelection', 'kren.rewriteEnglishSelection', 'kren.addToUserDictionary']) {
+      expect(byCommand(panel, command).available).toBe(false);
+      expect(byCommand(present, command).available).toBe(true);
+    }
+    expect(byCommand(panel, 'kren.grammarCheckSelection').label).toBe('Grammar Check');
+    expect(byCommand(present, 'kren.grammarCheckSelection').label).toBe('Smart Grammar Check');
+    expect(byCommand({ ...present, userDictionaryModel: '' }, 'kren.grammarCheckSelection').label).toBe('Grammar Check');
+  });
+
+  it('requires both credentials for combined capture and respects the dictionary enable setting', () => {
+    const panel = { ...defaults, userDictionaryEnabled: true, userDictionaryCaptureMode: 'merriamWebsterAndLlm' as const,
+      credentialPresence: { geminiDefault: true } };
+    expect(byCommand(panel, 'kren.addToUserDictionary').available).toBe(false);
+    const present = { ...panel, credentialPresence: { ...panel.credentialPresence, merriamWebsterCollegiate: true } };
+    expect(byCommand(present, 'kren.addToUserDictionary').available).toBe(true);
+    expect(byCommand({ ...present, userDictionaryEnabled: false }, 'kren.addToUserDictionary').reason).toMatch(/disabled/iu);
+    expect(byCommand({ ...present, credentialPresence: { merriamWebsterCollegiate: true } }, 'kren.addToUserDictionary').available).toBe(false);
+  });
+
+  it('renders every grid button from the exported availability function', () => {
+    for (const panel of [defaults, { ...defaults, credentialPresence: { geminiDefault: true, koreanDictionary: true } }]) {
+      const $ = load(renderStart(panel));
+      expect($('.capability-grid button')).toHaveLength(10);
+      for (const action of capabilityAvailability(panel)) {
+        const button = $(`.capability-grid [data-action="${action.command}"]`);
+        expect(button.attr('disabled') !== undefined).toBe(!action.available);
+        expect(button.find('.capability-label').text()).toBe(action.label);
+        if (!action.available) expect(button.find('.capability-reason').text()).toBe(action.reason);
+      }
+    }
+  });
+
+  it('drops the offline claim from the clipboard menu when the model pass is on', () => {
+    // The label read "Grammar Check (offline)" unconditionally while kren.grammar.smart
+    // defaults to true, so by default it advertised the opposite of what it did.
+    expect(extension).toContain("? '$(checklist) Grammar Check (Harper and Smart Grammar Check)'");
+    expect(extension).toContain(": '$(checklist) Grammar Check (offline)'");
+    expect(extension).not.toContain("{ label: '$(checklist) Grammar Check (offline)', operation");
+  });
+
+  it('uses one icon for both rewrite variants, because they are one action at two strengths', () => {
+    const icons = [...variants.matchAll(/quickPickIcon: '([^']+)'/gu)].map((match) => match[1]);
+    expect(icons).toHaveLength(2);
+    expect(new Set(icons).size, `both variants share an icon, got ${icons.join(' and ')}`).toBe(1);
+    expect(icons[0]).toBe('$(edit)');
+  });
+});
+
+describe('the Rewrite Text output language controls', () => {
+  function settingsHtml(overrides: Partial<typeof settings> = {}): string {
+    return renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, ...overrides },
+      activeScreen: 'settings',
+      proModels
+    });
+  }
+
+  it('offers Other languages and the fifteen languages behind it', () => {
+    const html = settingsHtml();
+
+    expect(html).toContain('data-setting="rewrite.otherOutputLanguage"');
+    for (const language of REWRITE_OTHER_LANGUAGES) {
+      expect(html, `${language.label} is missing`)
+        .toContain(`value="${language.id}"`);
+      expect(html, `${language.label} is missing`).toContain(language.label);
+    }
+  });
+
+  it('disables the second control rather than hiding it', () => {
+    // The owner asked for it to deactivate, not disappear. A control that vanishes leaves
+    // the reader wondering where the languages went; one that is visibly inert says what to
+    // change to reach them.
+    const html = settingsHtml();
+
+    expect(html).toContain('data-enabled-for="rewrite.englishVariety"');
+    expect(html).toContain('data-enabled-value="otherLanguage"');
+    // 2026-10-04: Controls remain disabled without fading text below 4.5:1.
+    // 2026-10-04: V203 restores the owner's inactive-setting fade.
+    expect(html).toContain('.setting-inactive { opacity: .5; }');
+    expect(html).toContain("group.classList.toggle('setting-inactive', !active)");
+    expect(html).toContain('control.disabled = !active;');
+  });
+
+  it('names the chosen language in the group summary, not the word Other', () => {
+    // "Output language: Other languages" tells the reader nothing they did not already know
+    // from opening the group.
+    const chosen = settingsHtml({
+      rewriteEnglishVariety: 'otherLanguage',
+      rewriteOtherOutputLanguage: 'pt-BR'
+    });
+    expect(chosen).toContain('Output language: Portuguese (Brazilian)');
+
+    const english = settingsHtml({ rewriteEnglishVariety: 'british' });
+    expect(english).toContain('Output language: British English');
+  });
+});
+
+describe('the panel header row', () => {
+  it('lets the controls wrap only when they do not fit, rather than at a fixed width', () => {
+    // The secondary sidebar sits below 520px all the time, and the old rule turned the
+    // header into a column there, so three icon buttons dropped to their own line with most
+    // of the row still empty.
+    const html = renderIconFixture();
+
+    expect(html).toMatch(/\.top \{[^}]*flex-wrap: wrap/u);
+    expect(html).toMatch(/\.top-actions \{[^}]*flex-shrink: 0/u);
+    const narrow = html.split('@media (max-width: 520px)')[1] ?? '';
+    expect(narrow.split(String.fromCharCode(10))[0])
+      .not.toContain('flex-direction: column');
+  });
+});
+
+describe('the Edge Online Read Aloud controls', () => {
+  function speechHtml(overrides: Partial<typeof settings> = {}): string {
+    return renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test',
+      nonce: 'test-nonce',
+      settings: { ...settings, readAloudProvider: 'edgeOnline', ...overrides },
+      activeScreen: 'settings',
+      proModels
+    });
+  }
+
+  it('offers every catalog locale, and Auto-detect first', () => {
+    const html = speechHtml();
+
+    expect(html).toContain(`value="${EDGE_SPEECH_AUTO_LOCALE}"`);
+    for (const locale of EDGE_SPEECH_LOCALES) {
+      expect(html, `${locale.label} is missing from Language/Region`)
+        .toContain(`value="${locale.id}"`);
+      expect(html, `${locale.label} is missing from Language/Region`).toContain(locale.label);
+    }
+  });
+
+  it('lists only that locale voices once a language is chosen', () => {
+    const korean = speechHtml({ edgeReadAloudLocale: 'ko-KR' });
+
+    expect(korean).toContain('ko-KR-SunHiNeural');
+    expect(korean).toContain('SunHi (Female)');
+    // An English voice must not be offered under Korean, or the two menus disagree and the
+    // runtime is handed a voice for a language the reader did not select.
+    expect(korean).not.toContain('en-US-AvaNeural');
+    expect(korean).toContain('Voices Microsoft offers for Korean.');
+  });
+
+  it('disables the voice control under Auto-detect rather than hiding it', () => {
+    // Matching the Rewrite Text output language pair. A control that vanishes leaves the
+    // reader wondering where the voices went; an inert one says a choice will be made.
+    const auto = speechHtml({ edgeReadAloudLocale: 'auto' });
+
+    // The markup again, not the class name: the stylesheet defines .setting-inactive on
+    // every render, so a bare substring check passes whether the label carries it or not.
+    expect(auto).toContain('<label class="setting setting-inactive">');
+    expect(auto).toContain('Chosen automatically');
+    // The markup, not the bare attribute: the webview script carries the same string in its
+    // event handler on every render, so a substring check passes whether the select exists
+    // or not.
+    expect(auto).not.toContain('<select data-edge-voice-preset>');
+  });
+
+  it('keeps the editable voice identifier as the escape hatch', () => {
+    // Quebec French and Mexican Spanish have no entry in the twenty, and Microsoft adds
+    // voices between catalog regenerations. Typing an identifier must still work.
+    const html = speechHtml({ edgeReadAloudLocale: 'fr-FR' });
+    expect(html).toContain('data-setting="readAloud.edgeVoice"');
+    expect(html).toContain('Editable Edge TTS voice ID');
+  });
+
+  it('shows a voice the catalog does not carry rather than dropping it silently', () => {
+    const custom = speechHtml({
+      edgeReadAloudLocale: 'fr-FR',
+      edgeReadAloudVoice: 'fr-CA-SylvieNeural'
+    });
+    expect(custom).toContain('Custom voice ID');
+    expect(custom).toContain('fr-CA-SylvieNeural');
   });
 });

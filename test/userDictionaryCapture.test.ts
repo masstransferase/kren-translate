@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   captureUserDictionaryDraft,
   HttpUserDictionaryProviderTransport,
-  USER_DICTIONARY_GENERATION_SCHEMA,
+  userDictionaryGenerationSchema,
   UserDictionaryMalformedOutputError,
   userDictionaryGenerationInstruction,
   type UserDictionaryGenerationRequest,
@@ -37,6 +37,18 @@ const validOutput = {
   aliases: []
 };
 
+const CONTEXT_SENTENCE = 'We should get rid of the obsolete ledger before filing.';
+
+// Named once so both boundary tests check the same list. Two copies is how the context test
+// ends up proving less than the context-free one it was modelled on.
+const FORBIDDEN_ITEMS = {
+  'surrounding text': 'The quarterly report says get rid of this ledger before filing.',
+  'file name': 'confidential-quarterly-report.md',
+  'workspace path': 'C:/work/private-client',
+  'existing entry content': 'A previously saved confidential definition.',
+  'provider credential': ['test', 'credential', 'must', 'not', 'leave'].join('-')
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -69,22 +81,61 @@ describe('User Dictionary LLM capture boundary', () => {
 
     const expectedRequest = {
       instruction: userDictionaryGenerationInstruction(settings),
-      expression: 'get rid of'
+      expression: 'get rid of',
+      schema: userDictionaryGenerationSchema()
     };
     expect(outgoing).toEqual([expectedRequest]);
-    expect(Object.keys(outgoing[0] ?? {}).sort()).toEqual(['expression', 'instruction']);
+    expect(Object.keys(outgoing[0] ?? {}).sort())
+      .toEqual(['expression', 'instruction', 'schema']);
 
     const serialized = JSON.stringify(outgoing);
-    const forbiddenItems = {
-      'surrounding text': 'The quarterly report says get rid of this ledger before filing.',
-      'file name': 'confidential-quarterly-report.md',
-      'workspace path': 'C:/work/private-client',
-      'existing entry content': 'A previously saved confidential definition.',
-      'provider credential': ['test', 'credential', 'must', 'not', 'leave'].join('-')
-    };
-    for (const [name, forbidden] of Object.entries(forbiddenItems)) {
+    for (const [name, forbidden] of Object.entries(FORBIDDEN_ITEMS)) {
       expect(serialized, name).not.toContain(forbidden);
     }
+  });
+
+  // Smart Word Capture widens what leaves the machine by exactly one sentence, and the
+  // boundary above is the only thing that says by how much. Asserting the sentence arrives
+  // would prove half of it; the half that matters is that nothing else came with it.
+  it('sends the context sentence and still nothing else from the document', async () => {
+    const outgoing: UserDictionaryGenerationRequest[] = [];
+    const transport: UserDictionaryProviderTransport = {
+      provider: 'gemini',
+      model: 'gemini-dictionary-test',
+      async generate(request) {
+        outgoing.push(request);
+        return { ...validOutput, contextSenseIndex: 0 };
+      }
+    };
+
+    await captureUserDictionaryDraft(
+      'get rid of',
+      settings,
+      transport,
+      new AbortController().signal,
+      {
+        contextSentence: CONTEXT_SENTENCE,
+        now: () => '2026-08-12T00:00:00.000Z',
+        uuid: (() => {
+          let id = 0;
+          return () => `entry-or-sense-${++id}`;
+        })()
+      }
+    );
+
+    expect(outgoing[0]?.instruction).toContain(CONTEXT_SENTENCE);
+    expect(outgoing[0]?.expression).toBe('get rid of');
+    expect(Object.keys(outgoing[0] ?? {}).sort())
+      .toEqual(['expression', 'instruction', 'schema']);
+
+    const serialized = JSON.stringify(outgoing);
+    for (const [name, forbidden] of Object.entries(FORBIDDEN_ITEMS)) {
+      expect(serialized, name).not.toContain(forbidden);
+    }
+    // The paragraph the sentence was cut from never travels, so the neighbouring sentences
+    // are the specific thing this proves absent.
+    expect(serialized).not.toContain('Nobody had reviewed it.');
+    expect(serialized).not.toContain('The audit was overdue.');
   });
 
   it('builds provider HTTP envelopes with no extra user-authored context', async () => {
@@ -104,7 +155,8 @@ describe('User Dictionary LLM capture boundary', () => {
     });
     const request = {
       instruction: userDictionaryGenerationInstruction(settings),
-      expression: 'get rid of'
+      expression: 'get rid of',
+      schema: userDictionaryGenerationSchema()
     };
 
     await transport.generate(request, new AbortController().signal);
@@ -122,7 +174,7 @@ describe('User Dictionary LLM capture boundary', () => {
           type: 'json_schema',
           name: 'kren_user_dictionary_entry',
           strict: true,
-          schema: USER_DICTIONARY_GENERATION_SCHEMA
+          schema: userDictionaryGenerationSchema()
         }
       },
       reasoning: { effort: 'low' }

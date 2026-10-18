@@ -1,3 +1,4 @@
+import { providerHttpError } from './httpError.js';
 import { countCloudTranslationCharacters } from '../cloudTranslationUsage.js';
 import { ProviderError } from '../errors.js';
 import type { TranslationProvider, TranslationRequest, TranslationResult } from '../types.js';
@@ -42,11 +43,10 @@ export class GoogleCloudTranslationProvider implements TranslationProvider {
 
     const payload = (await response.json().catch(() => ({}))) as GoogleTranslationPayload;
     if (!response.ok) {
-      const detail = typeof payload.error?.message === 'string' ? ` ${payload.error.message}` : '';
       const action = response.status === 401 || response.status === 403
         ? 'setGoogleCloudTranslationKey'
         : undefined;
-      throw new ProviderError(`Google Cloud Translation request failed (${response.status}).${detail}`, action);
+      throw new ProviderError(providerHttpError('Google Cloud Translation', response.status), action);
     }
 
     const translated = payload.data?.translations?.[0]?.translatedText;
@@ -57,6 +57,7 @@ export class GoogleCloudTranslationProvider implements TranslationProvider {
     const detectedSourceLanguage = payload.data?.translations?.[0]?.detectedSourceLanguage;
     return {
       kind: 'translation',
+      operation: request.operation,
       providerId: this.id,
       sourceText: request.text,
       sourceLanguage: typeof detectedSourceLanguage === 'string'

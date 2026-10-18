@@ -1,4 +1,4 @@
-# KREN: Dictionary, Translate & Rewrite
+# KREN: LLM-based Multilingual Dictionary, Translate & Rewrite
 
 KREN is a privacy-conscious language workbench for dictionaries, offline grammar checking, translation, nuance explanation, multilingual rewriting, and read-aloud inside VS Code.
 
@@ -41,7 +41,7 @@ Open the KREN Secondary Sidebar menu and choose **Settings**. The settings page 
 
 ## Privacy and cost
 
-- Remote operations receive only explicitly submitted text and chosen settings, never surrounding files, workspace data, open tabs, or chat history.
+- Remote operations receive only explicitly submitted text and chosen settings, never surrounding files, workspace data, open tabs, or chat history. The one exception is Smart Word Capture (on by default): Add to User Dictionary also sends the single sentence around the selected word.
 - Grammar Check is offline. KREN collects no telemetry, keeps no operation history, and stores keys in VS Code Secret Storage.
 - **Open Full Details** writes a copy to the KREN Output channel, which VS Code may retain in session logs.
 - Google Cloud Translation has a local 500,000-character monthly ceiling. Provider terms, quotas, retention, and billing remain authoritative.
@@ -60,4 +60,4 @@ The same User Manual is available from KREN's in-panel menu.
 
 KREN is independent and is not endorsed by its dictionary, AI, translation, or speech providers.
 
-Source code and documentation are MIT-licensed. The named KREN artwork and brand assets are excluded from that grant; see [KREN Brand Assets](BRAND_ASSETS.md).
+From KREN 1.99.80, source code and documentation are licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE): free for personal and other noncommercial use; commercial use needs the author's permission. Releases published earlier under the MIT License stay under the MIT License. The named KREN artwork and brand assets are excluded from that grant; see [KREN Brand Assets](BRAND_ASSETS.md).

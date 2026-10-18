@@ -2,7 +2,11 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
-import { WindowsEdgeReadAloudPlayer } from '../src/windowsEdgeReadAloud.js';
+import { WindowsEdgeReadAloudPlayer } from '../src/speech/speechCenter.js';
+import {
+  edgeSpeechVoiceGender,
+  otherGenderEdgeVoice
+} from '../src/windowsEdgeReadAloud.js';
 
 const audio = {
   directory: 'C:\\Temp\\kren-edge-tts-test',
@@ -19,6 +23,31 @@ function fakeChild(withInput = false): { child: ChildProcess; input?: PassThroug
 }
 
 describe('Microsoft Edge online Read Aloud', () => {
+  it('V226 native playback reports its start marker after synthesis without exposing text', async () => {
+    const synthesis = fakeChild(true), playback = fakeChild(); const output = new PassThrough();
+    Object.defineProperty(playback.child, 'stdout', { value: output });
+    const spawn = vi.fn((_command, _args, options) => options.env?.KREN_AUDIO_FILE ? playback.child : synthesis.child);
+    const player = new WindowsEdgeReadAloudPlayer('win32', spawn, async () => audio, vi.fn(async () => {}), async () => true);
+    const started = vi.fn(); const pending = player.speak('Hello there.', { onStarted: started });
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2)); expect(started).not.toHaveBeenCalled();
+    synthesis.child.emit('exit', 0);
+    output.write('KREN_SPEECH_STARTED\n'); expect(started).toHaveBeenCalledOnce();
+    playback.child.emit('exit', 0); await pending;
+    expect(started).toHaveBeenCalledOnce();
+  });
+  it('V124 chooses the opposite default from the Edge catalog gender', () => {
+    expect(edgeSpeechVoiceGender('en-US-AvaNeural')).toBe('female');
+    // Changed 2026-09-20: Standard conversation replay uses the stored defaults.
+    const defaults = { female: 'en-US-AvaNeural', male: 'en-US-ChristopherNeural' };
+    expect(otherGenderEdgeVoice(edgeSpeechVoiceGender('en-US-AvaNeural'), defaults))
+      .toBe('en-US-ChristopherNeural');
+    expect(edgeSpeechVoiceGender('en-US-ChristopherNeural')).toBe('male');
+    expect(otherGenderEdgeVoice(edgeSpeechVoiceGender('en-US-ChristopherNeural'), defaults))
+      .toBe('en-US-AvaNeural');
+    expect(otherGenderEdgeVoice(edgeSpeechVoiceGender('future-voice'), defaults))
+      .toBe('en-US-ChristopherNeural');
+  });
+
   it('sends only cleaned text through stdin, downloads audio, and plays it invisibly', async () => {
     const synthesis = fakeChild(true);
     const playback = fakeChild();
@@ -74,7 +103,8 @@ describe('Microsoft Edge online Read Aloud', () => {
     expect(playbackOptions).toMatchObject({
       shell: false,
       windowsHide: true,
-      stdio: 'ignore',
+      // 2026-10-12: Native playback reports its start without changing synthesis.
+      stdio: ['ignore', 'pipe', 'ignore'],
       env: { KREN_AUDIO_FILE: audio.file, KREN_AUDIO_VOLUME: '100' }
     });
     expect(removeAudio).toHaveBeenCalledWith(audio);

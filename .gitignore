@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# Static panel review artifacts (also covered by dist/).
+dist/panel-gallery/
+dist/panel-canvas/
 *.vsix
 .vscode-test/
 coverage/

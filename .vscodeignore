@@ -4,6 +4,11 @@
 src/
 test/
 dist/test/
+dist/panel-gallery/**
+dist/panel-gallery-*/**
+dist/panel-canvas/**
+dist/v[0-9]*/**
+dist/.*/**
 .vscode-test.mjs
 vitest.config.ts
 node_modules/
@@ -22,3 +27,6 @@ SAFETY_TEST_PLAN_1.0.2.md
 VALIDATED_BUILD_1.0.3.md
 STARTUP_SIDEBAR_TEST_1.0.4.md
 tools/
+*.log
+.public-tree-manifest.json
+AGENTS.md

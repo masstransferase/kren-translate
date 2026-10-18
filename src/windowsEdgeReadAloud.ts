@@ -1,9 +1,30 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareTextForSpeech } from './windowsReadAloud.js';
+import { EDGE_SPEECH_LOCALES } from '@kren/core/edge-speech';
+
+export type SpeechVoiceGender = 'female' | 'male';
+
+/** Reads the catalog's own `(Female)` or `(Male)` label instead of guessing from a name. */
+export function edgeSpeechVoiceGender(voiceId: string): SpeechVoiceGender | undefined {
+  const voice = EDGE_SPEECH_LOCALES.flatMap((locale) => locale.voices)
+    .find((candidate) => candidate.id === voiceId);
+  if (/\(Female\)$/u.test(voice?.label ?? '')) return 'female';
+  if (/\(Male\)$/u.test(voice?.label ?? '')) return 'male';
+  return undefined;
+}
+
+// Ava, not Ana: en-US-AnaNeural is Microsoft's child voice, although the catalog labels it only
+// "(Female)", and the owner heard a four-year-old reading their answers (2026-09-19).
+export function otherGenderEdgeVoice(
+  gender: SpeechVoiceGender | undefined,
+  defaults: { female: string; male: string }
+): string {
+  return gender === 'male' ? defaults.female : defaults.male;
+}
 
 type SpawnProcess = (
   command: string,
@@ -11,13 +32,13 @@ type SpawnProcess = (
   options: SpawnOptions
 ) => ChildProcess;
 
-interface TemporaryAudio {
+export interface EdgeTemporaryAudio {
   directory: string;
   file: string;
 }
 
-type CreateTemporaryAudio = () => Promise<TemporaryAudio>;
-type RemoveTemporaryAudio = (audio: TemporaryAudio) => Promise<void>;
+type CreateEdgeTemporaryAudio = () => Promise<EdgeTemporaryAudio>;
+type RemoveEdgeTemporaryAudio = (audio: EdgeTemporaryAudio) => Promise<void>;
 type VerifyAudio = (file: string) => Promise<boolean>;
 
 export interface EdgeReadAloudOptions {
@@ -26,6 +47,7 @@ export interface EdgeReadAloudOptions {
   ratePercent?: number;
   volume?: number;
   playback?: EdgeAudioPlayback;
+  onStarted?: () => void;
 }
 
 export type EdgeReadAloudResult =
@@ -39,9 +61,9 @@ export interface EdgeAudioPlayback {
   stop(): boolean;
 }
 
-interface ActiveSpeech {
+export interface EdgeActiveSpeech {
   processes: Set<ChildProcess>;
-  audio: TemporaryAudio;
+  audio: EdgeTemporaryAudio;
   generation: number;
   stopExternal?: () => boolean;
 }
@@ -103,6 +125,7 @@ try {
   $player.Volume = [Math]::Max(0, [Math]::Min(1, ([double]$env:KREN_AUDIO_VOLUME / 100)))
   $timer.Start()
   $player.Play()
+  [Console]::Out.WriteLine('KREN_SPEECH_STARTED')
   [System.Windows.Threading.Dispatcher]::PushFrame($script:krenFrame)
 } catch {
   $script:krenFailed = $true
@@ -115,18 +138,43 @@ if ($script:krenFailed -or $script:krenTimedOut) { exit 1 }
 exit 0
 `.trim();
 
-export class WindowsEdgeReadAloudPlayer {
-  private active: ActiveSpeech | undefined;
-  private generation = 0;
+export class WindowsEdgeReadAloudTransport {
+  private active: EdgeActiveSpeech | undefined;
+  protected generation = 0;
 
   public constructor(
     private readonly platform: NodeJS.Platform = process.platform,
     private readonly spawnProcess: SpawnProcess = (command, args, options) =>
       spawn(command, args, options),
-    private readonly createTemporaryAudio: CreateTemporaryAudio = createEdgeTemporaryAudio,
-    private readonly removeTemporaryAudio: RemoveTemporaryAudio = removeEdgeTemporaryAudio,
-    private readonly verifyAudio: VerifyAudio = verifyEdgeAudio
+    private readonly createTemporaryAudio: CreateEdgeTemporaryAudio = createEdgeTemporaryAudio,
+    private readonly removeTemporaryAudio: RemoveEdgeTemporaryAudio = removeEdgeTemporaryAudio,
+    private readonly verifyAudio: VerifyAudio = verifyEdgeAudio,
+    private readonly writeAudio: (file: string, audio: Buffer) => Promise<void> = writeFile
   ) {}
+
+  // 2026-10-13: Cloud Read Aloud uses the existing hidden player when the panel is closed.
+  public async playBase64(audioBase64: string, volume: number, onStarted?: () => void): Promise<EdgeReadAloudResult> {
+    if (this.platform !== 'win32') return 'failed';
+    this.stop();
+    const generation = ++this.generation;
+    let audio: EdgeTemporaryAudio;
+    try { audio = await this.createTemporaryAudio(); } catch { return 'failed'; }
+    if (generation !== this.generation) {
+      await this.removeTemporaryAudio(audio).catch(() => undefined);
+      return 'stopped';
+    }
+    const active: EdgeActiveSpeech = { generation, audio, processes: new Set<ChildProcess>() };
+    this.active = active;
+    try {
+      await this.writeAudio(audio.file, Buffer.from(audioBase64, 'base64'));
+      if (generation !== this.generation) return 'stopped';
+      if (!await this.verifyAudio(audio.file)) return 'failed';
+      if (generation !== this.generation) return 'stopped';
+      const playback = this.startAudioPlayback(audio.file, volume, active, onStarted);
+      return playback ? await playback.completion : 'failed';
+    } catch { return generation === this.generation ? 'failed' : 'stopped'; }
+    finally { await this.finish(active); }
+  }
 
   public async speak(
     text: string,
@@ -137,7 +185,7 @@ export class WindowsEdgeReadAloudPlayer {
 
     this.stop();
     const generation = ++this.generation;
-    let audio: TemporaryAudio;
+    let audio: EdgeTemporaryAudio;
     try {
       audio = await this.createTemporaryAudio();
     } catch {
@@ -148,12 +196,12 @@ export class WindowsEdgeReadAloudPlayer {
       return 'stopped';
     }
 
-    const active: ActiveSpeech = { generation, audio, processes: new Set<ChildProcess>() };
+    const active: EdgeActiveSpeech = { generation, audio, processes: new Set<ChildProcess>() };
     this.active = active;
     const useExternalPlayback = Boolean(options.playback);
     const playback = useExternalPlayback
       ? undefined
-      : this.startAudioPlayback(audio.file, 100, active);
+      : this.startAudioPlayback(audio.file, 100, active, options.onStarted);
     if (!useExternalPlayback && !playback) {
         await this.finish(active);
         return 'failed';
@@ -179,17 +227,17 @@ export class WindowsEdgeReadAloudPlayer {
     let playbackResult: EdgeReadAloudResult;
     if (options.playback) {
       active.stopExternal = () => options.playback?.stop() ?? false;
-      playbackResult = await options.playback.play(audio.file);
+      playbackResult = await this.playExternalAudio(options, audio, active);
       active.stopExternal = undefined;
-      if (playbackResult === 'failed' && this.generation === generation) {
-        const fallback = this.startAudioPlayback(audio.file, 100, active);
-        playbackResult = fallback ? await fallback.completion : 'failed';
-      }
     } else {
       playbackResult = await playback?.completion ?? 'failed';
     }
     await this.finish(active);
     return playbackResult;
+  }
+
+  protected playExternalAudio(options: EdgeReadAloudOptions, audio: EdgeTemporaryAudio, _active: EdgeActiveSpeech): Promise<EdgeReadAloudResult> {
+    return options.playback!.play(audio.file);
   }
 
   public stop(): boolean {
@@ -210,9 +258,9 @@ export class WindowsEdgeReadAloudPlayer {
 
   private async synthesize(
     text: string,
-    audio: TemporaryAudio,
+    audio: EdgeTemporaryAudio,
     options: EdgeReadAloudOptions,
-    active: ActiveSpeech
+    active: EdgeActiveSpeech
   ): Promise<EdgeReadAloudResult> {
     const pythonCommand = safePythonCommand(options.pythonCommand);
     const voice = safeEdgeVoice(options.voice);
@@ -262,10 +310,11 @@ export class WindowsEdgeReadAloudPlayer {
     });
   }
 
-  private startAudioPlayback(
+  protected startAudioPlayback(
     audioFile: string,
     volume: number | undefined,
-    active: ActiveSpeech
+    active: EdgeActiveSpeech,
+    onStarted?: () => void
   ): { child: ChildProcess; completion: Promise<EdgeReadAloudResult> } | undefined {
     let child: ChildProcess;
     try {
@@ -284,7 +333,7 @@ export class WindowsEdgeReadAloudPlayer {
         {
           shell: false,
           windowsHide: true,
-          stdio: 'ignore',
+          stdio: ['ignore', 'pipe', 'ignore'],
           env: edgePlaybackEnvironment(audioFile, volume)
         }
       );
@@ -292,6 +341,15 @@ export class WindowsEdgeReadAloudPlayer {
       return undefined;
     }
     active.processes.add(child);
+    let started = false;
+    let output = '';
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      output = (output + chunk.toString()).slice(-64);
+      if (!started && this.generation === active.generation && output.includes('KREN_SPEECH_STARTED')) {
+        started = true;
+        onStarted?.();
+      }
+    });
     const completion = new Promise<EdgeReadAloudResult>((resolve) => {
       let settled = false;
       const finish = (result: EdgeReadAloudResult): void => {
@@ -311,7 +369,7 @@ export class WindowsEdgeReadAloudPlayer {
     return { child, completion };
   }
 
-  private async finish(active: ActiveSpeech): Promise<void> {
+  private async finish(active: EdgeActiveSpeech): Promise<void> {
     if (this.active?.generation === active.generation) this.active = undefined;
     for (const child of active.processes) child.kill();
     active.processes.clear();
@@ -374,12 +432,12 @@ function restrictedWindowsEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
-async function createEdgeTemporaryAudio(): Promise<TemporaryAudio> {
+async function createEdgeTemporaryAudio(): Promise<EdgeTemporaryAudio> {
   const directory = await mkdtemp(join(tmpdir(), 'kren-edge-tts-'));
   return { directory, file: join(directory, 'speech.mp3') };
 }
 
-async function removeEdgeTemporaryAudio(audio: TemporaryAudio): Promise<void> {
+async function removeEdgeTemporaryAudio(audio: EdgeTemporaryAudio): Promise<void> {
   await rm(audio.directory, { recursive: true, force: true });
 }
 

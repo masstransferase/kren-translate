@@ -4,9 +4,11 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
+    # 2026-10-12: version updates off (GitHub policy G4); security alerts stay on.
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
+    # 2026-10-12: version updates off (GitHub policy G4); security alerts stay on.
+    open-pull-requests-limit: 0

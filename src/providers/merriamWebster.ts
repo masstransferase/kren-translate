@@ -62,17 +62,18 @@ export class MerriamWebsterProvider {
       const result = await new MerriamWebsterThesaurusProvider(this.apiKey).lookup(request, signal);
       return result ? { result } : undefined;
     }
-    return this.fetchAndNormalize(request.text, request, signal, true);
+    return this.fetchAndNormalize(request, signal);
   }
 
   private async fetchAndNormalize(
-    query: string,
     request: DictionaryRequest,
-    signal: AbortSignal,
-    followSuggestion: boolean
+    signal: AbortSignal
   ): Promise<MerriamWebsterLookupWithMetadata | undefined> {
+    // A no-match response contains spelling suggestions, not entries for the requested
+    // text. Keep the request text as the only lookup key, because following a suggestion
+    // and returning its definition would answer a different question.
     const url = new URL(
-      `https://www.dictionaryapi.com/api/v3/references/${this.reference}/json/${encodeURIComponent(query)}`
+      `https://www.dictionaryapi.com/api/v3/references/${this.reference}/json/${encodeURIComponent(request.text)}`
     );
     url.searchParams.set('key', this.apiKey);
 
@@ -95,24 +96,14 @@ export class MerriamWebsterProvider {
       );
     }
 
+    if (!Array.isArray(payload)) throw new ProviderError('Merriam-Webster returned an invalid response. Try again.');
     const result = parseMerriamWebsterResponse(payload, request, this.id);
     if (result) {
       const entryId = firstMerriamWebsterEntryId(payload, request.text);
       return { result, ...(entryId ? { entryId } : {}) };
     }
 
-    const suggestion = followSuggestion ? firstSuggestion(payload, request.text) : undefined;
-    if (!suggestion) return undefined;
-    const suggested = await this.fetchAndNormalize(suggestion, request, signal, false);
-    if (!suggested) return undefined;
-    return {
-      ...suggested,
-      result: {
-        ...suggested.result,
-        sourceText: request.text,
-        note: `No exact entry was returned for “${request.text}”; showing Merriam-Webster's suggestion “${suggestion}”.`
-      }
-    };
+    return undefined;
   }
 }
 
@@ -120,8 +111,7 @@ function firstMerriamWebsterEntryId(payload: unknown, query: string): string | u
   if (!Array.isArray(payload)) return undefined;
   const records = payload.filter(isRecord);
   const matching = records.filter((record) => recordMatchesQuery(record, query));
-  const candidates = matching.length > 0 ? matching : records;
-  const selected = candidates.find((record) => normalizeSection(record) !== undefined);
+  const selected = matching.find((record) => normalizeSection(record) !== undefined);
   return stringValue(recordValue(selected?.meta)?.id);
 }
 
@@ -133,8 +123,17 @@ export function parseMerriamWebsterResponse(
 ): DictionaryResult | undefined {
   if (!Array.isArray(payload)) return undefined;
   const allRecords = payload.filter(isRecord);
-  const matchingRecords = allRecords.filter((record) => recordMatchesQuery(record, request.text));
-  const records = matchingRecords.length > 0 ? matchingRecords : allRecords;
+  /*
+   * No match is no answer. This fell back to every record the API returned, so a lookup for
+   * one word could be answered with another word's definition, and two different misses
+   * converging on one suggested word displayed the same unrelated meaning twice. The owner
+   * saw exactly that on 2026-09-03: `yesterday` and `race` both returned "the day before
+   * yesterday", which is the definition of `ereyesterday` and of neither word asked for.
+   *
+   * The fallback looked like tolerance and was the opposite: it is what turned a miss, which
+   * KREN can report honestly, into a wrong answer it cannot tell apart from a right one.
+   */
+  const records = allRecords.filter((record) => recordMatchesQuery(record, request.text));
   if (records.length === 0) return undefined;
 
   const sections = records
@@ -376,14 +375,6 @@ export function cleanMerriamWebsterMarkup(value: string): string {
     .replace(/\s+/gu, ' ')
     .replace(/^\s*:\s*/u, '')
     .trim();
-}
-
-function firstSuggestion(payload: unknown, original: string): string | undefined {
-  if (!Array.isArray(payload)) return undefined;
-  return payload
-    .filter((value): value is string => typeof value === 'string')
-    .map((value) => value.trim())
-    .find((value) => value.length > 0 && value.toLocaleLowerCase('en-US') !== original.toLocaleLowerCase('en-US'));
 }
 
 function firstPronunciation(headwordInfo: Record<string, unknown> | undefined): string | undefined {

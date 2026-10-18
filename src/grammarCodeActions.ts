@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { isGrammarIssueId } from './grammarIssueId.js';
 import type { GrammarIssue, GrammarResult } from './types.js';
 
 export interface GrammarDiagnosticState {
@@ -136,8 +137,14 @@ function grammarIssueId(diagnostic: vscode.Diagnostic): string | undefined {
   if (diagnostic.source !== 'KREN · Harper' || typeof diagnostic.code !== 'string') {
     return undefined;
   }
-  const match = /^kren-grammar:(issue-\d+)$/u.exec(diagnostic.code);
-  return match?.[1];
+  // Matched `issue-\d+` only until 2026-08-22, which is the Harper worker's format alone.
+  // A Smart Grammar or spacing underline therefore offered no Quick Fix actions at all: no
+  // correction, no More details, no Add to local dictionary, no Ignore. The identifier is
+  // now recognised by shape, in one place shared with the panel's own validator.
+  const identifier = diagnostic.code.startsWith('kren-grammar:')
+    ? diagnostic.code.slice('kren-grammar:'.length)
+    : undefined;
+  return isGrammarIssueId(identifier) ? identifier : undefined;
 }
 
 function moreDetailsAction(

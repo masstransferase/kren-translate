@@ -112,8 +112,16 @@ describe('Gemini privacy boundary', () => {
       parts: [{ text: 'We need to leverage synergies.' }]
     }]);
     expect(body.systemInstruction.parts[0]?.text).toContain('detectedLanguage');
-    expect(body.systemInstruction.parts[0]?.text).toContain('same language');
-    expect(body.systemInstruction.parts[0]?.text).toContain('never translate');
+    // Changed 2026-08-24. An English output language now asks for English, translating when
+    // the source is not, which is the whole point of the axis and did not work before. The
+    // "never translate" clause survives on Same as source and is asserted below.
+    expect(body.systemInstruction.parts[0]?.text)
+      .toContain('Write every variant in English, translating the text when it is written in another language.');
+    expect(body.systemInstruction.parts[0]?.text).not.toContain('never translate');
+
+    const sameAsSource = buildGeminiRewriteRequestBody({ ...request, englishVariety: 'sameAsSource' });
+    expect(sameAsSource.systemInstruction.parts[0]?.text)
+      .toContain('Write every variant in that same language and never translate it.');
     expect(body.systemInstruction.parts[0]?.text).toContain('British English');
     expect(body.systemInstruction.parts[0]?.text).toContain('precise technical prose');
     expect(body.systemInstruction.parts[0]?.text).toContain('appropriately qualified stance');
@@ -147,7 +155,8 @@ describe('Gemini privacy boundary', () => {
       variants: [{ id: 'minimal', text: '이 문장을 더 자연스럽게 고쳐 주세요.' }]
     }, request, 'gemini');
     expect(result.sourceLanguage).toBe('ko');
-    expect(result.targetLanguage).toBe('ko');
+    // 2026-10-05: detected source stays Korean; the selected British output axis makes speech use English.
+    expect(result.targetLanguage).toBe('en');
     expect(result.variants[0]?.label).toBe('Minimal Rewrite');
   });
 
@@ -245,6 +254,44 @@ describe('Gemini privacy boundary', () => {
       action: 'configureGeminiModel'
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  // Added 2026-09-22: V138 names the exhausted quota so the output channel can show which one.
+  // The tutor path has its own test; this pins the shared provider that Translate, Rewrite and
+  // Explain use. Mutation on 2026-09-22 showed nothing covered it.
+  it('names the exhausted quota and does not retry it', async () => {
+    const body = {
+      error: {
+        code: 429,
+        message: 'You exceeded your current quota.',
+        status: 'RESOURCE_EXHAUSTED',
+        details: [{
+          '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+          violations: [{
+            quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests',
+            quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'
+          }]
+        }]
+      }
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status: 429 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const request: TranslationRequest = {
+      text: 'partner-ready data packages.',
+      sourceLanguage: 'en',
+      targetLanguage: 'ko',
+      kind: 'translation',
+      operation: 'translate'
+    };
+
+    // Changed 2026-10-17: V259, R14 finding 1, the error names the quota window (perDay), never the
+    // provider's quota name.
+    const failure = new GeminiProvider(
+      'test-key', 'gemini-3.5-flash', 'configureGeminiModel', 'minimal', 4
+    ).translate(request, new AbortController().signal);
+    await expect(failure).rejects.toThrow(/perDay/u);
+    await expect(failure).rejects.not.toThrow(/GenerateRequestsPerDayPerProjectPerModel/u);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes optional rewrite change notes without adding request context', () => {

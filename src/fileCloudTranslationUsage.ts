@@ -79,6 +79,14 @@ export class FileCloudTranslationUsage {
     }
   }
 
+  public reset(): Promise<void> {
+    const operation = this.pending.then(() => this.withLock(() => this.write({
+      month: googleBillingMonth(this.now()), characters: 0
+    })));
+    this.pending = operation.catch(() => undefined);
+    return operation;
+  }
+
   private async write(state: CloudTranslationUsageState): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true });
     const temporary = `${this.filePath}.${randomUUID()}.tmp`;

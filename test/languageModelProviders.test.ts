@@ -94,7 +94,7 @@ describe('language-model provider contracts', () => {
     targetLanguage: 'ko',
     kind: 'translation',
     operation: 'explain',
-    explanationLanguage: 'bilingual'
+    explanationLanguage: 'ko'
   };
 
   it('normalizes an OpenAI structured explanation response', async () => {

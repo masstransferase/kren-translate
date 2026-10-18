@@ -14,6 +14,7 @@ export interface ReadAloudOptions {
   voice?: string;
   rate?: number;
   volume?: number;
+  onStarted?: () => void;
 }
 
 const WINDOWS_SPEECH_SCRIPT = String.raw`
@@ -29,6 +30,7 @@ try {
   }
   $speaker.Rate = [Math]::Max(-10, [Math]::Min(10, [int]$env:KREN_SPEECH_RATE))
   $speaker.Volume = [Math]::Max(0, [Math]::Min(100, [int]$env:KREN_SPEECH_VOLUME))
+  [Console]::Out.WriteLine('KREN_SPEECH_STARTED')
   $speaker.Speak($text)
 } finally {
   $speaker.Dispose()
@@ -83,7 +85,7 @@ export class WindowsReadAloudPlayer {
         {
           shell: false,
           windowsHide: true,
-          stdio: ['pipe', 'ignore', 'ignore'],
+          stdio: ['pipe', 'pipe', 'ignore'],
           env: windowsSpeechEnvironment(options)
         }
       );
@@ -91,6 +93,16 @@ export class WindowsReadAloudPlayer {
       return false;
     }
     this.active = child;
+    // 2026-10-12: Report the player start, after voice setup, rather than process launch.
+    let started = false;
+    let output = '';
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      output = (output + chunk.toString()).slice(-64);
+      if (!started && this.generation === generation && output.includes('KREN_SPEECH_STARTED')) {
+        started = true;
+        options.onStarted?.();
+      }
+    });
 
     return new Promise<boolean>((resolve) => {
       let settled = false;

@@ -1,11 +1,10 @@
+import { validateLanguageModelOutput } from '../languageModelUsage.js';
+import { compatibleFailure, validatedCompatibleText } from '../providers/openAICompatible.js';
+import { providerHttpError } from '../providers/httpError.js';
 import { randomUUID } from 'node:crypto';
 import { parseStructuredJson } from '@kren/core/structured-json';
-import {
-  isRetryableLanguageModelStatus,
-  retryDelayMs,
-  waitForRetry
-} from '@kren/core/retry';
-import { ProviderError } from '../errors.js';
+import { requestWithRetry } from '../requestCenter.js';
+import { ProviderError, attributeProviderError } from '../errors.js';
 import {
   structuredJsonConfigureAction,
   structuredJsonOutputText,
@@ -21,22 +20,22 @@ import type {
   UserDictionaryEntryV1,
   UserDictionaryGenerationOptions,
   UserDictionaryProvider
-} from '@kren/core/user-dictionary';
+} from './providerContract.js';
 import {
-  USER_DICTIONARY_GENERATION_SCHEMA,
+  userDictionaryGenerationSchema,
   UserDictionaryMalformedOutputError,
   assembleUserDictionaryDraft,
   normalizeUserDictionaryTerm,
   userDictionaryGenerationInstruction
-} from '@kren/core/user-dictionary';
+} from './providerContract.js';
 import type {
   UserDictionaryCaptureSettings,
   UserDictionaryThinkingOrEffort
 } from './settings.js';
-import { validateUserDictionaryEntry } from '@kren/core/user-dictionary';
+import { validateUserDictionaryEntry } from './providerContract.js';
 
 export {
-  USER_DICTIONARY_GENERATION_SCHEMA,
+  userDictionaryGenerationSchema,
   UserDictionaryMalformedOutputError,
   assembleUserDictionaryDraft,
   userDictionaryGenerationInstruction
@@ -46,6 +45,13 @@ export type { UserDictionaryGenerationOptions };
 export interface UserDictionaryGenerationRequest {
   instruction: string;
   expression: string;
+  /**
+   * Carried on the request rather than read from a constant by the transport, because the
+   * schema now depends on whether a context sentence was supplied and the transport is the
+   * one place that never knows. A transport reaching for the constant would send a provider
+   * a schema that forbids the very field the instruction asks for.
+   */
+  schema: Record<string, unknown>;
 }
 
 export interface UserDictionaryProviderTransport {
@@ -55,8 +61,10 @@ export interface UserDictionaryProviderTransport {
 }
 
 export interface UserDictionaryProviderTransportOptions {
+  geminiProfile?: 'standard' | 'pro';
   provider: UserDictionaryProvider;
   apiKey: string;
+  accountId?: string;
   model: string;
   thinkingOrEffort: UserDictionaryThinkingOrEffort;
   maxAttempts: number;
@@ -82,6 +90,7 @@ export interface UserDictionaryCaptureResult {
 
 interface GeneratedSense {
   partOfSpeech: string;
+  pronunciation: string;
   definition: string;
   usageNote: string;
   synonyms: string[];
@@ -114,17 +123,19 @@ export async function captureUserDictionaryDraft(
   } = {}
 ): Promise<UserDictionaryEntryV1> {
   const generation: UserDictionaryGenerationOptions = {
-    termSuppliedByUser: options.termSuppliedByUser === true
+    termSuppliedByUser: options.termSuppliedByUser === true,
+    ...(options.contextSentence ? { contextSentence: options.contextSentence } : {})
   };
   const request: UserDictionaryGenerationRequest = {
     instruction: userDictionaryGenerationInstruction(settings, generation),
-    expression
+    expression,
+    schema: userDictionaryGenerationSchema(generation)
   };
   const attempts = boundedAttempts(options.maxMalformedAttempts ?? 3, 3);
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const value = await transport.generate(request, signal);
-      return assembleUserDictionaryDraft(
+      return validateLanguageModelOutput(value, () => assembleUserDictionaryDraft(
         expression,
         settings,
         transport.provider,
@@ -133,7 +144,7 @@ export async function captureUserDictionaryDraft(
         options.now,
         options.uuid,
         generation
-      );
+      ));
     } catch (error) {
       if (!(error instanceof UserDictionaryMalformedOutputError) || attempt >= attempts - 1) {
         throw error;
@@ -198,6 +209,7 @@ export function applyUserDictionaryDraftEdits(
       senses: senses.map((sense, index) => ({
         id: base.senses[index]?.id ?? uuid(),
         ...(sense.partOfSpeech ? { partOfSpeech: sense.partOfSpeech } : {}),
+        ...(sense.pronunciation ? { pronunciation: sense.pronunciation } : {}),
         definition: sense.definition,
         ...(sense.usageNote ? { usageNote: sense.usageNote } : {}),
         synonyms: sense.synonyms,
@@ -218,6 +230,8 @@ export class HttpUserDictionaryProviderTransport implements UserDictionaryProvid
   public readonly provider: UserDictionaryProvider;
   public readonly model: string;
   private readonly apiKey: string;
+  private readonly accountId?: string;
+  private readonly geminiProfile: 'standard' | 'pro';
   private readonly thinkingOrEffort: UserDictionaryThinkingOrEffort;
   private readonly maxAttempts: number;
   private readonly request: typeof fetch;
@@ -225,6 +239,8 @@ export class HttpUserDictionaryProviderTransport implements UserDictionaryProvid
   public constructor(options: UserDictionaryProviderTransportOptions) {
     this.provider = options.provider;
     this.apiKey = options.apiKey;
+    this.accountId = options.accountId;
+    this.geminiProfile = options.geminiProfile ?? 'standard';
     this.model = options.model;
     this.thinkingOrEffort = options.thinkingOrEffort;
     this.maxAttempts = boundedAttempts(options.maxAttempts, 3);
@@ -232,76 +248,67 @@ export class HttpUserDictionaryProviderTransport implements UserDictionaryProvid
   }
 
   public async generate(
+    request: UserDictionaryGenerationRequest, signal: AbortSignal
+  ): Promise<unknown> {
+    try { return await this.generateOnce(request, signal); }
+    catch (error) { throw attributeProviderError(error, { provider: this.provider, model: this.model, geminiProfile: this.geminiProfile }); }
+  }
+
+  private async generateOnce(
     request: UserDictionaryGenerationRequest,
     signal: AbortSignal
   ): Promise<unknown> {
-    for (let attempt = 0; attempt < this.maxAttempts; attempt += 1) {
-      let response: Response;
-      try {
-        response = await this.request(
-          providerUrl(this.provider, this.model),
-          providerRequestInit(
-            this.provider,
-            this.apiKey,
-            this.model,
-            this.thinkingOrEffort,
-            request,
-            signal
-          )
-        );
-      } catch (error) {
-        if (signal.aborted) throw error;
-        if (attempt < this.maxAttempts - 1) {
-          await waitForRetry(retryDelayMs(attempt), signal);
-          continue;
+    return requestWithRetry({
+      request: { feature: 'userDictionary', provider: this.provider, model: this.model, geminiProfile: this.geminiProfile },
+      signal, maxAttempts: this.maxAttempts,
+      send: () => this.request(structuredJsonUrl(this.provider, this.model, this.accountId),
+        providerRequestInit(this.provider, this.apiKey, this.model, this.thinkingOrEffort, request, signal, this.accountId)),
+      failure: ({ cause, status, retryable }) => cause === 'quotaExhausted'
+        ? new ProviderError(`${this.provider} returned ${status}. Check provider quota and billing before retrying.`, undefined, false, status, 'quotaExhausted')
+        : providerFailure(this.provider, status, retryable),
+      refused: () => this.provider === 'groq' || this.provider === 'cloudflare' ? compatibleFailure(this.provider, 'refused')
+        : new ProviderError(new UserDictionaryMalformedOutputError().message, undefined, false, undefined, 'refused'),
+      decode: envelope => {
+        const raw = this.provider === 'groq' || this.provider === 'cloudflare'
+          ? validatedCompatibleText({ provider: this.provider, model: this.model, schema: request.schema }, envelope)
+          : providerOutputText(this.provider, envelope);
+        if (!raw) throw new UserDictionaryMalformedOutputError();
+        try {
+          const value = parseStructuredJson(raw);
+          if (!isRecord(value)) throw new UserDictionaryMalformedOutputError();
+          return value;
+        } catch {
+          throw new UserDictionaryMalformedOutputError();
         }
-        throw providerFailure(this.provider, undefined, true);
       }
-      if (!response.ok) {
-        if (isRetryableLanguageModelStatus(response.status) && attempt < this.maxAttempts - 1) {
-          await waitForRetry(
-            retryDelayMs(attempt, response.headers.get('retry-after')),
-            signal
-          );
-          continue;
-        }
-        throw providerFailure(
-          this.provider,
-          response.status,
-          isRetryableLanguageModelStatus(response.status)
-        );
-      }
-      const envelope = await response.json().catch(() => undefined);
-      const raw = providerOutputText(this.provider, envelope);
-      if (!raw) throw new UserDictionaryMalformedOutputError();
-      try {
-        return parseStructuredJson(raw);
-      } catch {
-        throw new UserDictionaryMalformedOutputError();
-      }
-    }
-    throw providerFailure(this.provider, undefined, true);
+    });
   }
 }
 
 function validateGeneratedSense(value: unknown): GeneratedSense {
-  if (!isRecord(value) || !hasExactFields(value, [
-    'partOfSpeech', 'definition', 'usageNote', 'synonyms', 'antonyms',
+  // The draft editor gained a per-sense pronunciation field for heteronyms. A draft that
+  // predates it, or one whose field the host did not render, arrives without the key.
+  const sense = isRecord(value) && !Object.hasOwn(value, 'pronunciation')
+    ? { ...value, pronunciation: '' }
+    : value;
+  if (!isRecord(sense) || !hasExactFields(sense, [
+    'partOfSpeech', 'pronunciation', 'definition', 'usageNote', 'synonyms', 'antonyms',
     'relatedTerms', 'examples'
-  ]) || typeof value.partOfSpeech !== 'string' || typeof value.definition !== 'string' ||
-      !value.definition.trim() || typeof value.usageNote !== 'string' ||
-      !isStringArray(value.synonyms, 20) || !isStringArray(value.antonyms, 20) ||
-      !isStringArray(value.relatedTerms, 20) || !isStringArray(value.examples, 3)) {
+  ]) || typeof sense.partOfSpeech !== 'string' || typeof sense.definition !== 'string' ||
+      !sense.definition.trim() || typeof sense.usageNote !== 'string' ||
+      !isStringArray(sense.synonyms, 20) || !isStringArray(sense.antonyms, 20) ||
+      !isStringArray(sense.relatedTerms, 20) || !isStringArray(sense.examples, 3)) {
     throw new UserDictionaryMalformedOutputError();
   }
   return {
-    partOfSpeech: value.partOfSpeech.trim(),
-    definition: value.definition.trim(),
-    usageNote: value.usageNote.trim(),
-    synonyms: cleanStrings(value.synonyms),
-    antonyms: cleanStrings(value.antonyms),
-    relatedTerms: cleanStrings(value.relatedTerms),
-    examples: cleanStrings(value.examples)
+    partOfSpeech: sense.partOfSpeech.trim(),
+    pronunciation: typeof sense.pronunciation === 'string' ? sense.pronunciation.trim() : '',
+    definition: sense.definition.trim(),
+    usageNote: sense.usageNote.trim(),
+    synonyms: cleanStrings(sense.synonyms),
+    antonyms: cleanStrings(sense.antonyms),
+    relatedTerms: cleanStrings(sense.relatedTerms),
+    examples: cleanStrings(sense.examples)
   };
 }
 
@@ -338,7 +345,8 @@ function providerRequestInit(
   model: string,
   thinkingOrEffort: UserDictionaryThinkingOrEffort,
   request: UserDictionaryGenerationRequest,
-  signal: AbortSignal
+  signal: AbortSignal,
+  accountId?: string
 ): RequestInit {
   return structuredJsonRequestInit(
     {
@@ -346,7 +354,8 @@ function providerRequestInit(
       model,
       thinkingOrEffort,
       apiKey,
-      schema: USER_DICTIONARY_GENERATION_SCHEMA,
+      accountId,
+      schema: request.schema,
       schemaName: 'kren_user_dictionary_entry'
     },
     { instruction: request.instruction, input: request.expression },
@@ -367,7 +376,9 @@ function providerFailure(
   retryable: boolean
 ): ProviderError {
   return new ProviderError(
-    `${structuredJsonProviderName(provider)} User Dictionary request failed${status === undefined ? '' : ` (${status})`}. No entry was saved.`,
+    (provider === 'groq' || provider === 'cloudflare') && status !== undefined
+      ? providerHttpError(structuredJsonProviderName(provider), status) + ' No entry was saved.'
+      : `${structuredJsonProviderName(provider)} User Dictionary request failed${status === undefined ? '' : ` (${status})`}. No entry was saved.`,
     structuredJsonConfigureAction(provider),
     retryable,
     status
