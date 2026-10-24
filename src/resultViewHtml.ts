@@ -1057,11 +1057,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .tutor-conversation-settings > .setting:first-of-type { padding-top: 9px; border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); }
     .tutor-conversation-custom { display: grid; gap: 5px; margin-top: 10px; }
     .tutor-conversation-custom textarea { width: 100%; min-height: 58px; box-sizing: border-box; padding: 6px 7px; resize: vertical; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--kren-field-border); font: inherit; }
-    @media (max-width: 600px) {
-      [data-persist-id="tutor-voice"] .setting:has([data-tutor-conversation-live-voice]),
-      [data-persist-id="tutor-voice"] .setting:has([data-setting="tutor.readAloud.voice"]),
-      [data-llm-routing="tutor"] .setting:has([data-model-preset]) { grid-template-columns: minmax(0, 1fr); }
-    }
+    /* 2026-10-24: owner (I82): voice and model rows keep the shared two-column row at every width,
+       shrinking the description like every other setting; V210 had stacked them below 600 px. */
     .tutor-chat-viewport { position: relative; isolation: isolate; min-width: 0; }
     .tutor-chat-viewport-picture { width: 100%; aspect-ratio: 9 / 16; }
     .tutor-chat-viewport > [data-tutor-picture] { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; z-index: 0; }
