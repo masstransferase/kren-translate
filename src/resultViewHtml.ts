@@ -1441,6 +1441,20 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     // first lines above the fold.
     const scrollIsStable = activeScreen === 'settings' || activeScreen === 'credentials' || activeScreen === 'manual' ||
       activeScreen === 'userDictionary' || activeScreen === 'tutor';
+    // 2026-10-24: V310. A routing dropdown makes the host replace this document and patch the
+    // settings block. The position was saved only by the debounced scroll event below, so a
+    // change inside that window restored an older one, and the patch moved it unseen. A change
+    // now saves the position before any handler posts, and a patch runs inside holdScroll.
+    function saveScrollNow() {
+      if (scrollIsStable) savePanelState({ scroll: { screen: activeScreen, top: window.scrollY } });
+    }
+    function holdScroll(update) {
+      const left = window.scrollX;
+      const top = window.scrollY;
+      update();
+      if (window.scrollX !== left || window.scrollY !== top) window.scrollTo(left, top);
+    }
+    window.addEventListener('change', saveScrollNow, true);
     let scrollTimer = 0;
     if (scrollIsStable) {
       window.addEventListener('scroll', () => {
@@ -3119,7 +3133,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
         applyConditionalSettings();
       }
       if (message.command === 'modelCatalogReady') patchModelCatalog(message);
-      if (message.command === 'tutorVoiceModelReady') patchTutorVoiceModel(message);
+      if (message.command === 'tutorVoiceModelReady') holdScroll(() => patchTutorVoiceModel(message));
       if (message.command === 'tutorConversationRender') patchTutorConversationRender(message);
       if (message.command === 'tutorConversationSceneReady') patchTutorConversationScene(message);
       if (message.command === 'tutorConversationPictureRequestFinished') tutorPictureRequestPending = false;

@@ -6,7 +6,9 @@ import { createContext, runInContext, runInNewContext } from 'node:vm';
 export function mountedPanel(html: string, postMessage: (message: Record<string, unknown>) => void,
   media: { playError?: { name: string }; state?: Record<string, unknown>;
     style?: (element: { getAttribute(name: string): string | null }) => Record<string, string | undefined>;
-    startupError?: string } = {}) {
+    startupError?: string;
+    // 2026-10-24: V310. A browser keeps what setState stored and scrollTo moves the page; both are opt-in so older tests keep their static state.
+    stateful?: boolean; scrollable?: boolean } = {}) {
   const $ = load(html);
   const cache = new Map<unknown, Element>();
   const events = new Map<unknown, Map<string, Array<(event: any) => void>>>();
@@ -120,8 +122,10 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     documentElement: wrap($('html'))!, body: wrap($('body'))!, activeElement: null as Element | null,
     fonts: { ready: Promise.resolve() }, addEventListener: (name: string, callback: (event: any) => void) => listen(document, name, callback) };
   const window = { addEventListener: (name: string, callback: (event: any) => void) => listen(window, name, callback),
-    setTimeout, clearTimeout, scrollTo() {}, scrollY: 0, innerWidth: 800, innerHeight: 600 };
-  const api = { getState: () => { if (media.startupError) throw new Error(media.startupError); return media.state ?? {}; }, setState() {}, postMessage };
+    setTimeout, clearTimeout, scrollX: 0, scrollY: 0, innerWidth: 800, innerHeight: 600,
+    scrollTo(x: number, y: number): void { if (media.scrollable) { window.scrollX = x; window.scrollY = y; } } };
+  const api = { getState: () => { if (media.startupError) throw new Error(media.startupError); return media.state ?? {}; },
+    setState(value: Record<string, unknown>) { if (media.stateful) media.state = value; }, postMessage };
   const observers: Array<() => void> = [];
   const context = createContext({ document, window, acquireVsCodeApi: () => api,
     HTMLElement: Element, Element, Node: Element, InputEvent: PanelInputEvent, HTMLTextAreaElement: Textarea, HTMLSelectElement: Select, HTMLButtonElement: Button,
@@ -143,7 +147,7 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
       emit(window, 'error', { message: (error as Error).message, lineno: 12, colno: 7 });
     }
   }
-  return { document, query: document.querySelector, message: (message: Record<string, unknown>) => emit(window, 'message', { data: message }),
+  return { document, state: () => media.state, query: document.querySelector, message: (message: Record<string, unknown>) => emit(window, 'message', { data: message }),
     // Changed 2026-10-21 (owner, I56/I57): native details toggles reach document capture listeners.
     event: (element: Element, name: string) => {
       emit(element, name, { target: element });
@@ -153,7 +157,8 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
       const event = Object.assign(new PanelInputEvent(inputType), { target: element });
       emit(element, 'input', event); emit(document, 'input', event);
     },
-    change: (element: Element) => emit(document, 'change', { target: element }),
+    // 2026-10-24: V310. A change reaches window listeners first, as it does in a browser (capture phase).
+    change: (element: Element) => { emit(window, 'change', { target: element }); emit(document, 'change', { target: element }); },
     click: (element: Element) => { const event = { target: element, preventDefault() {} }; emit(element, 'click', event); emit(document, 'click', event); },
     key: (key: string) => emit(document, 'keydown', { key, preventDefault() {}, stopImmediatePropagation() {} }),
     mutate: () => observers.forEach(callback => callback()),
