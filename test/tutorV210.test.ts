@@ -129,19 +129,16 @@ describe('V210 tutor review findings', () => {
     expect(actions.querySelector('[data-tutor-transcription-status]')).toBeNull();
   });
 
-  it('4: Live Voice, Windows Voice and tutor model selects have full-width rows at 600 px with Preview in the same control', () => {
+  // Changed 2026-10-24 (owner, I82): these rows no longer stack below 600 px. They keep the
+  // shared two-column .setting row, so the description shrinks as in every other setting.
+  it('4: Live Voice, Windows Voice and tutor model selects keep the shared two-column row, with Preview in the same control', () => {
     const selectors = ['[data-persist-id="tutor-voice"] .setting:has([data-tutor-conversation-live-voice])',
       '[data-persist-id="tutor-voice"] .setting:has([data-setting="tutor.readAloud.voice"])',
       '[data-llm-routing="tutor"] .setting:has([data-model-preset])'];
     for (const selector of selectors) {
-      let matched = false;
-      css.walkRules(rule => {
-        if (!rule.selectors.includes(selector)) return;
-        expect(rule.parent).toMatchObject({ name: 'media', params: '(max-width: 600px)' });
-        expect(declarations(selector)['grid-template-columns']).toBe('minmax(0, 1fr)'); matched = true;
-      });
-      expect(matched, selector).toBe(true);
+      css.walkRules(rule => { expect(rule.selectors, selector).not.toContain(selector); });
     }
+    expect(declarations('.setting')['grid-template-columns']).toBe('minmax(0, 1fr) minmax(120px, 42%)');
     const $ = load(html);
     expect($('[data-tutor-conversation-live-voice]').siblings('[data-command="previewTutorGeminiVoice"]')).toHaveLength(1);
     expect(declarations('.setting-control').display).toBe('flex');
@@ -190,12 +187,17 @@ describe('V210 tutor review findings', () => {
   it('9: tutor voice and routing labels use Title Case, including repeated summary labels', () => {
     const $ = load(html);
     const titles = $('[data-persist-id="tutor-voice"] .setting-title, [data-llm-routing="tutor"] .setting-title').map((_, node) => $(node).text()).get();
-    for (const title of ['Thorough model', 'Fallback Tutor Model', 'Image Model', 'Fast model', 'Live Model', 'Live Voice', 'Windows Voice', 'Edge TTS Voice']) {
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    for (const title of ['Thorough model', 'Fast thinking level', 'Image Model', 'Fast model', 'Live Model', 'Live Voice', 'Windows Voice', 'Edge TTS Voice']) {
       expect(titles).toContain(title);
     }
     // 2026-10-11: V221 specifies sentence case for the Fast and Thorough model roles.
     for (const title of titles) {
-      if (/^(?:Fast|Thorough) model/u.test(title)) expect(title).toMatch(/^(?:Fast|Thorough) model(?: Identifier)?$/u);
+      // 2026-10-21: V286 specifies the exact sentence-case label for this control.
+      if (/^Sentence pause$/iu.test(title)) expect(title).toBe('Sentence pause');
+      // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+      else if (/^(?:Fast thinking level|Use Fast when Thorough is unavailable)$/u.test(title)) expect(title).toMatch(/^(?:Fast thinking level|Use Fast when Thorough is unavailable)$/u);
+      else if (/^(?:Fast|Thorough) model/u.test(title)) expect(title).toMatch(/^(?:Fast|Thorough) model(?: Identifier)?$/u);
       else expect(title).toBe(title.replace(/\b[a-z]/gu, letter => letter.toUpperCase()));
     }
     const summaries = $('[data-persist-id="tutor-setting"] .rewrite-group-summary').text();

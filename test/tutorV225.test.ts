@@ -114,6 +114,7 @@ function host(speakerOn = true, learnerStarts = false, reader?: () => Promise<vo
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
 it('Chirp fallback keeps the scene until Edge finishes and releases opening text on fallback', async () => {
+  vi.useFakeTimers();
   let f!: ReturnType<typeof host>;
   const fallbackEnds: Array<() => void> = [];
   const chirp = new GoogleChirpSpeech(async () => undefined,
@@ -126,6 +127,8 @@ it('Chirp fallback keeps the scene until Edge finishes and releases opening text
   // 2026-10-12: A fallback start is not the end of the scene narration.
   expect(f.view.tutorState.conversation.openingReveal).toBe('scene');
   fallbackEnds[0]!(); await flush();
+  // Changed 2026-10-22 (V295): the opening follows the fixed post-intro pause.
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(fallbackEnds).toHaveLength(2);
   expect(f.view.tutorState.conversation.openingReveal).toBe('opening');
   fallbackEnds[1]!(); await flush();
@@ -134,6 +137,7 @@ it('Chirp fallback keeps the scene until Edge finishes and releases opening text
 });
 
 it('Standard reveals the scene, then the first line, then reachable learner controls as speech ends', async () => {
+  vi.useFakeTimers();
   const f = host();
   expect(f.view.tutorState.conversation).toMatchObject({ ...roles, openingReveal: 'scene' });
   expect(f.speech.mock.calls).toEqual([[result.scene, 'en', 'tutor']]);
@@ -142,6 +146,8 @@ it('Standard reveals the scene, then the first line, then reachable learner cont
   expect(html()('[data-tutor-chat-mic-control]').is('[hidden]')).toBe(true);
   expect(html()('[data-tutor-composer-stop]').is('[hidden]')).toBe(true);
   f.pending[0]!.resolve(); await flush();
+  // Changed 2026-10-22 (V295): scene completion starts a one-second barrier.
+  await vi.advanceTimersByTimeAsync(1_000);
   // 2026-10-12: Wait for the player's start, separately from the scene's completion.
   expect(f.view.tutorState.conversation.openingReveal).toBe('waiting');
   expect(html()('[data-tutor-kren-bubble]').text()).not.toContain(result.opening);
@@ -168,9 +174,12 @@ it('speaker off reveals the first line and controls at once without speech', () 
   expect(f.messages.find(m => m.command === 'tutorConversationOpeningReady')).toMatchObject({ opening: result.opening, reveal: 'ready' });
 });
 it('learner starts after the scene ends without a tutor utterance', async () => {
+  vi.useFakeTimers();
   const f = host(true, true);
   expect(f.view.tutorState.conversation.openingReveal).toBe('scene');
   f.pending[0]!.resolve(); await flush();
+  // Changed 2026-10-22 (V295): learner controls also wait after the intro.
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(f.speech).toHaveBeenCalledOnce();
   expect(f.view.tutorState.conversation.openingReveal).toBeUndefined();
 });
@@ -182,6 +191,8 @@ it.each(['failure', 'canceled', 'timeout'] as const)('a %s advances the opening 
   // 2026-10-12: Synthesis has a separate two-minute safety deadline.
   if (event === 'timeout') await vi.advanceTimersByTimeAsync(120_000);
   await flush();
+  // Changed 2026-10-22 (V295): a reading deadline ends narration before the intro pause.
+  if (event === 'timeout') await vi.advanceTimersByTimeAsync(1_000);
   if (event === 'timeout') { expect(f.view.tutorState.conversation.openingReveal).toBe('waiting'); f.pending[1]!.resolve(); await flush(); }
   expect(f.view.tutorState.conversation.openingReveal).toBeUndefined();
   expect(f.view.tutorConversationOpeningWait).toBeUndefined();

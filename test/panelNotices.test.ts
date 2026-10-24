@@ -21,6 +21,8 @@ function browser(initial: PanelNotice[] = []) {
     get tagName() { return this.tag.toUpperCase(); }
     get parentElement(): Element | null { return this.parent ?? null; }
     getAttribute(key: string) { return key === 'class' ? this.className : this.attributes.get(key) ?? null; }
+    // Changed 2026-10-23 (V301, verification R28): match the browser attribute API when restoring suspended busy cards.
+    hasAttribute(key: string) { return this.attributes.has(key); }
     getBoundingClientRect() { return { left: 0, right: 300, top: 0, bottom: 200, width: 300, height: 200 }; }
     style = { pointerEvents: '' };
     get isConnected(): boolean { return this === body || !!this.parent?.isConnected; }
@@ -198,7 +200,8 @@ describe('V228 notice cards', () => {
     const post = vi.fn(); const fallback = vi.fn(async () => 'Retry Now');
     const queue = new PanelNoticeQueue(() => true, post, fallback);
     await expect(queue.show('error', 'Failure', 'Retry Now', 'Set key')).resolves.toBe('Retry Now');
-    expect(fallback).toHaveBeenCalledExactlyOnceWith('error', 'Failure', {}, ['Retry Now', 'Set key']);
+    // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+    expect(fallback).toHaveBeenCalledExactlyOnceWith('error', 'Failure', { modal: true }, ['Retry Now', 'Set key']);
     expect(post).not.toHaveBeenCalled();
   });
   // Changed 2026-10-18: V267, owner item I50, choice questions use VS Code's dialog.
@@ -268,7 +271,8 @@ describe('V228 host notice routing', () => {
     const h = host(); const pending = h.queue.show('warning', 'Delete entry?', { modal: true }, 'Delete');
     const plain = h.queue.show('error', 'An error'); h.queue.close();
     await expect(pending).resolves.toBeUndefined(); await plain;
-    expect(h.fallback.mock.calls).toEqual([['warning', 'Delete entry?', { modal: true }, ['Delete']], ['error', 'An error', {}, []]]);
+    // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+    expect(h.fallback.mock.calls).toEqual([['warning', 'Delete entry?', { modal: true }, ['Delete']], ['error', 'An error', { detail: undefined, modal: true }, ['OK']]]);
     expect(h.queue.snapshot()).toEqual([]);
   });
   // Changed 2026-10-18: V267, owner item I50, choice questions use VS Code's dialog.

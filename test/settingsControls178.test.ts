@@ -106,14 +106,16 @@ describe('the Model control lists every discovered model', () => {
     const at = on.indexOf('data-model-preset="rewrite.model"');
     const control = on.slice(at, on.indexOf('</select>', at));
     expect(control).toContain('value="gemini-3.1-pro-preview" selected');
-    expect(control).toContain('<option value="__custom__">Custom model identifier</option>');
+    // Changed 2026-10-22 (V297, owner I67/I68): credential attributes may decorate the custom option.
+    const custom = load(on)('[data-model-preset="rewrite.model"] option[value="__custom__"]');
+    expect(custom).toHaveLength(1);
+    expect(custom.text()).toMatch(/custom.*identifier/iu);
   });
 
   it('falls to Custom when the stored model is not one of the discovered ones', () => {
     const off = settingsHtml({ rewriteModel: 'some-future-model' });
-    const at = off.indexOf('data-model-preset="rewrite.model"');
-    const control = off.slice(at, off.indexOf('</select>', at));
-    expect(control).toContain('<option value="__custom__" selected>');
+    // Changed 2026-10-22 (V297, owner I67/I68): assert selection independently of gray/accessibility attributes.
+    expect(load(off)('[data-model-preset="rewrite.model"] option[selected]').attr('value')).toBe('__custom__');
     const field = off.indexOf('data-setting="rewrite.model"');
     expect(off.slice(field, field + 80)).toContain('value="some-future-model"');
   });
@@ -176,7 +178,9 @@ describe('Explanation language no longer offers Bilingual', () => {
   });
 
   it('tells the model one language, never two', () => {
-    const gemini = readFileSync('src/providers/gemini.ts', 'utf8');
+    // Changed 2026-10-19: V269 (F7 run 2) moved this branch into core's providerRequests;
+    // read the installed copy VS Code runs. The exact sentence is also pinned by v269Requests.
+    const gemini = readFileSync('node_modules/@kren/core/src/providerRequests/features.ts', 'utf8');
     const at = gemini.indexOf('const explanationLanguage =');
     const branch = gemini.slice(at, gemini.indexOf(';', at));
     expect(branch).not.toContain('both English and Korean');

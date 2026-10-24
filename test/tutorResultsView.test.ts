@@ -3,6 +3,16 @@ import { TUTOR_DEFAULTS } from '../src/tutor/defaults.js';
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { load } from 'cheerio';
+import { mountedPanel } from './support/mountedPanel.js';
+import { tutorSpeechPlaybackBarriers } from '../src/speech/speechAdapter.js';
+
+// Changed 2026-10-22 (V294, owner I60/I64): Refresh patches model options, preserving the document and selected slots.
+function catalogPatchedHtml(html: string, message: Record<string, unknown>) {
+  const panel = mountedPanel(html, () => {});
+  panel.message(message);
+  return panel.document.documentElement.outerHTML;
+}
+
 
 const executeCommand = vi.hoisted(() => vi.fn(async () => undefined));
 const showWarningMessage = vi.hoisted(() => vi.fn(async (
@@ -21,7 +31,8 @@ vi.mock('vscode', () => ({
       : fallback
   }) },
   Uri: { joinPath: (...parts: unknown[]) => parts },
-  window: { showWarningMessage }
+  // Changed 2026-10-23 (V300, verification R28): feature credential failures now reach the shared modal popup.
+  window: { showWarningMessage, showErrorMessage: vi.fn(async () => undefined) }
 }));
 
 import {
@@ -345,6 +356,11 @@ function createProvider(
     await handleMessage(message);
     if (['askTutorQuestion', 'submitTutorConversationTurn', 'submitTutorTool', 'startTutorConversation'].includes((message as { command: string }).command)) {
       for (let step = 0; step < 16; step += 1) await Promise.resolve();
+      // Changed 2026-10-22 (V295): generic completed openings include the intro pause.
+      // Deferred speech and tests with fake timers still control their own boundary.
+      if (!vi.isFakeTimers() && provider.tutorIntroCompletionWait) {
+        await vi.waitFor(() => expect(provider.tutorIntroCompletionWait).toBeUndefined(), { timeout: 2_000 });
+      }
     }
   };
   // Changed 2026-09-20: V125 makes Live the product default. This controller harness has no
@@ -410,9 +426,14 @@ describe('V204 completed lesson conversations', () => {
     const $ = load(renderTutorConversation(internals.tutorState));
     // Changed 2026-10-04: V205 leaves the lesson selectable and guards it with a modal.
     expect($('[data-tutor-conversation-from] option[value="lesson"]').is('[disabled]')).toBe(false);
-    expect($('.tutor-conversation-start > p').text()).toBe('Finish the lesson and its practice first.');
+    // Changed 2026-10-21 (owner, I56/I57): completion moves to disabled Start and Demo tooltips.
+    expect($('.tutor-conversation-start > p').text()).toMatch(/start.*speak.*microphone/iu);
+    for (const command of ['startTutorConversation', 'startTutorConversationDemo']) {
+      expect($(`.tutor-conversation-start [data-command="${command}"][disabled]`).attr('title'))
+        .toBe('Finish the lesson and its practice first.');
+    }
     expect($('.tutor-conversation-start').closest('details')).toHaveLength(0);
-    expect($('.tutor-conversation-start > [data-command="useTutorSituationSource"]').attr('tabindex')).not.toBe('-1');
+    expect($('.tutor-conversation-start [data-tutor-open-conversation-settings]').attr('tabindex')).not.toBe('-1');
     await internals.handleMessage({ command: 'startTutorConversation' });
     await internals.handleMessage({ command: 'startTutorConversationDemo' });
     expect(actions.generateTutor).not.toHaveBeenCalled();
@@ -1082,7 +1103,7 @@ describe('AI English Tutor controller', () => {
     });
     expect(internals.tutorState.settings.learnerLevel).toBe('A1');
     expect(internals.tutorState.selection).toEqual([{ nodeId: leaf.id, role: 'primary' }]);
-    // Changed 2026-10-04: reset keeps the default unfinished lesson blocked; choose an available Source.
+    // Changed 2026-10-21 (owner, I56/I57): Reset defaults to A situation; select it explicitly for this rendering check.
     await internals.handleMessage({ command: 'updateTutorConversationFrom', input: 'situation' });
     const rendered = load(renderTutorConversation(internals.tutorState));
     const setup = rendered('[data-tutor-conversation-setup]');
@@ -4150,9 +4171,9 @@ describe('AI English Tutor controller', () => {
     // Changed 2026-10-03: panel reset returns lesson choices to their defaults.
     expect(internals.tutorState.settings.exampleCount).toBe(createTutorViewState().settings.exampleCount);
     expect(internals.tutorState.settings.learnerLevel).toBe(createTutorViewState().settings.learnerLevel);
-    // Changed 2026-09-24 for V148: keep the role=status announcement and also use the
-    // host information path, whose dialog gives the reader an explicit OK acknowledgement.
-    expect(actions.notify).toHaveBeenCalledWith('information', 'AI English Tutor was reset.');
+    // Changed 2026-10-23 (V305, owner I74/D41 A): the live announcement replaces the duplicate success popup.
+    expect(actions.notify).not.toHaveBeenCalled();
+    expect(internals.pendingTutorAnnouncement).toBe('AI English Tutor was reset.');
   });
 
   it('V45 R7 offers reset on an untouched page', async () => {
@@ -4206,6 +4227,13 @@ describe('V154 model conversation demo', () => {
     actions.settings!.mockReturnValue({
       ...PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'edgeOnline'
     });
+    // Changed 2026-10-23 (V303, owner I63): observe playback independently of the prepared request.
+    const played = vi.fn();
+    actions.readAloudText!.mockImplementation(async (text: string) => {
+      const barrier = tutorSpeechPlaybackBarriers.get(actions.readAloudText!);
+      if (barrier && !await barrier()) return;
+      played(text);
+    });
     const postMessage = vi.fn(async (_message: unknown) => true);
     internals.view = { webview: {
       html: '', cspSource: 'test', asWebviewUri: () => ({ toString: () => 'test' }), postMessage
@@ -4217,7 +4245,9 @@ describe('V154 model conversation demo', () => {
     await vi.waitFor(() => expect(actions.readAloudText).toHaveBeenCalledWith(cast.scene, 'en', 'tutor'));
     await internals.handleMessage({ command: 'stopTutorConversation' });
     expect(internals.tutorState.conversation.status).toBe('stopped');
-    expect(actions.readAloudText).toHaveBeenCalledTimes(1);
+    // Changed 2026-10-23 (V303, owner I63): intro played; the first line prepared but was canceled before playback.
+    expect(actions.readAloudText).toHaveBeenCalledTimes(2);
+    expect(played.mock.calls).toEqual([[cast.scene]]);
     expect(postMessage.mock.calls.some(([message]) =>
       (message as { command?: string }).command === 'tutorConversationDemoLine')).toBe(false);
   });
@@ -4318,10 +4348,13 @@ describe('V154 model conversation demo', () => {
     });
 
     await internals.handleMessage({ command: 'startTutorConversationDemo' });
-    await vi.waitFor(() => expect(batches).toBe(2));
+    // Changed 2026-10-23 (V303, owner I63): prefetch and the first speech request precede the bubble's release at the mark.
+    await vi.waitFor(() => expect(batches).toBe(2), { timeout: 2_500 });
     await vi.waitFor(() => expect(actions.readAloudText).toHaveBeenCalledWith(
       lines[0]!.text, 'en', 'tutor', 'en-US-AvaNeural'
     ), { timeout: 2_500 });
+    await vi.waitFor(() => expect(postMessage.mock.calls.filter(([message]) =>
+      (message as { command?: string }).command === 'tutorConversationDemoLine')).toHaveLength(1), { timeout: 2_500 });
     await internals.handleMessage({ command: 'stopTutorConversation' });
     expect(inFlightSignal?.aborted).toBe(true);
     expect(actions.stopReadAloud).toHaveBeenCalled();
@@ -5007,10 +5040,9 @@ it('Delete & Reset deletes the report and resets the session as Reset does', asy
   await vi.waitFor(() => expect(internals.tutorState.diagnosticReport).toBeUndefined());
   expect(internals.tutorState.selection).toEqual([]);
   expect(internals.tutorState.question ?? '').toBe('');
-  // Changed 2026-09-24 for V148: this whole-page change uses the same dismissible host path.
-  expect(actions.notify).toHaveBeenCalledWith(
-    'information', 'The diagnostic report was deleted and AI English Tutor was reset.'
-  );
+  // Changed 2026-10-23 (V305, owner I74/D41 A): retain the reset announcement without a second success card.
+  expect(actions.notify).not.toHaveBeenCalled();
+  expect(internals.pendingTutorAnnouncement).toBe('The diagnostic report was deleted and AI English Tutor was reset.');
 });
 
 it('Delete offers only Delete prompts while other tutor work is running', async () => {
@@ -6935,7 +6967,11 @@ describe('V114 tutor model refresh', () => {
     await internals.handleMessage({ command: 'refreshGeminiLiveModels' });
     await vi.waitFor(() => expect(actions.refreshGeminiLiveModels).toHaveBeenCalledOnce());
     await vi.waitFor(() => {
-      const $ = load(internals.view!.webview.html);
+      // Changed 2026-10-22 (V294, owner I60/I64): Refresh patches model options, preserving the document and selected slots.
+      const message = vi.mocked(internals.view!.webview.postMessage).mock.calls
+        .map(([message]) => message as Record<string, unknown>).find(message => message.command === 'modelCatalogReady');
+      expect(message).toBeDefined();
+      const $ = load(catalogPatchedHtml(internals.view!.webview.html, message!));
       expect($('[data-model-preset="tutor.liveModel"] option[value="gemini-4.0-conversation"]'))
         .toHaveLength(1);
       expect($('[data-model-preset="tutor.model"] option[value="gemini-4.0-conversation"]'))
@@ -7013,9 +7049,9 @@ describe('V114 tutor model refresh', () => {
     await internals.handleMessage({ command: 'refreshOpenAIModels' });
     await vi.waitFor(() => expect(actions.refreshOpenAIModels).toHaveBeenCalledOnce());
     await vi.waitFor(() => {
-      // Changed 2026-10-03: V190 refreshes model controls without replacing the document.
+      // Changed 2026-10-22 (V294, owner I60/I64): Refresh sends catalog data without replacing controls.
       expect(internals.view!.webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
-        command: 'tutorVoiceModelReady', html: expect.stringContaining('gpt-found-on-refresh')
+        command: 'modelCatalogReady', catalog: 'openai', models: expect.arrayContaining([expect.objectContaining({ id: 'gpt-found-on-refresh' })])
       }));
     });
   });
@@ -7182,7 +7218,8 @@ describe('V89 conversation controls', () => {
     }
   );
 
-  it('V114 applies Source setting in one render and overrides remembered MODE folding', async () => {
+  // Changed 2026-10-21 (owner, I56/I57): Setting is local, and the retired source-changing command is ignored.
+  it('V285 removes Source setting and keeps an unfinished saved source unchanged', async () => {
     const { internals, actions } = createProvider();
     actions.settings!.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE });
     internals.view = { webview: {
@@ -7191,19 +7228,17 @@ describe('V89 conversation controls', () => {
     } };
     internals.tutorState.conversation.from = 'lesson';
     await internals.handleMessage({ command: 'showTutor' });
-    expect(load(internals.view.webview.html)('[data-command="useTutorSituationSource"]'))
-      .toHaveLength(1);
-
-    await internals.handleMessage({ command: 'useTutorSituationSource' });
+    const before = { ...internals.tutorState.conversation };
     const $ = load(internals.view.webview.html);
-    expect(internals.tutorState.conversation.from).toBe('situation');
-    // Changed 2026-10-04: Cheerio val() ignores selected options inside optgroups when an ungrouped first option exists.
-    expect($('[data-tutor-conversation-situation] option[selected]').attr('value')).toBe(TUTOR_SITUATIONS[0]!.id);
-    expect($('details[data-persist-id="tutor-conversation-mode"]').is('[open]')).toBe(true);
-    expect($('details[data-persist-id="tutor-conversation-mode"]').is('[data-force-open]')).toBe(true);
+    expect($('[data-tutor-open-conversation-settings]')).toHaveLength(1);
+    expect($('[data-tutor-open-conversation-settings]').attr('data-command')).toBeUndefined();
     expect($('[data-command="useTutorSituationSource"]')).toHaveLength(0);
-    // Changed 2026-09-25 for V153: Source setting reveals the shortened Start button.
-    expect($('[data-command="startTutorConversation"]').text()).toBe('Start');
+    await internals.handleMessage({ command: 'useTutorSituationSource' });
+    expect(internals.tutorState.conversation).toEqual(before);
+    expect($('[data-tutor-conversation-situation] option[selected]').attr('value')).toBe(TUTOR_SITUATIONS[0]!.id);
+    expect($('details[data-persist-id="tutor-conversation-mode"]').is('[open]')).toBe(false);
+    expect($('details[data-persist-id="tutor-conversation-mode"]').is('[data-force-open]')).toBe(false);
+    expect($('[data-command="startTutorConversation"][disabled]').text()).toBe('Start');
   });
 
   it('V140 changes the remaining active MODE choices without replacing the composer', async () => {
@@ -7814,30 +7849,32 @@ describe('V89 conversation controls', () => {
     );
   });
 
-  it('V135 refuses a known Live-only fallback before it can become an ordinary request', async () => {
-    const generateTutor = vi.fn();
-    const { internals, actions } = createProvider(generateTutor);
-    actions.settings = vi.fn(() => ({
-      ...PANEL_SETTINGS_FIXTURE,
-      tutorProvider: 'gemini',
-      tutorProfile: 'standard',
-      tutorModel: 'gemini-ordinary-model',
-      tutorFallbackEnabled: true,
-      tutorFallbackModel: TUTOR_LIVE_MODEL_DEFAULT
-    })) as never;
-    internals.refresh();
-    Object.assign(internals.tutorState.conversation, {
-      status: 'active', currentQuestion: 'Hello?', draftAnswer: 'Hi.', replies: 'standard'
-    });
-    actions.generateTutor!.mockClear();
+  // Changed 2026-10-23 (V300, verification R28): Fast supplies fallback and the error names its current setting.
+  it('V135 refuses a known Live-only Fast model before it can become an ordinary request', async () => {
+    configurationValues.set('tutor.hintModel', TUTOR_LIVE_MODEL_DEFAULT);
+    try {
+      const generateTutor = vi.fn();
+      const { internals, actions } = createProvider(generateTutor);
+      actions.settings = vi.fn(() => ({
+        ...PANEL_SETTINGS_FIXTURE,
+        tutorProvider: 'gemini',
+        tutorProfile: 'standard',
+        tutorModel: 'gemini-ordinary-model',
+        tutorFallbackEnabled: true
+      })) as never;
+      internals.refresh();
+      Object.assign(internals.tutorState.conversation, {
+        status: 'active', currentQuestion: 'Hello?', draftAnswer: 'Hi.', replies: 'standard'
+      });
+      actions.generateTutor!.mockClear();
 
-    await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await vi.waitFor(() => expect(internals.tutorState.conversation.busy).toBe(false));
+      await internals.handleMessage({ command: 'submitTutorConversationTurn' });
+      await vi.waitFor(() => expect(internals.tutorState.conversation.busy).toBe(false));
 
-    expect(actions.generateTutor).not.toHaveBeenCalled();
-    expect(internals.tutorState.conversation.failure).toBe(
-      'Gemini Live model gemini-3.8-live cannot answer ordinary requests. Change kren.tutor.fallbackModel in LLM ROUTING.'
-    );
+      expect(actions.generateTutor).not.toHaveBeenCalled();
+      expect(internals.tutorState.conversation.failure).toContain(TUTOR_LIVE_MODEL_DEFAULT);
+      expect(internals.tutorState.conversation.failure).toMatch(/cannot answer ordinary requests.*kren\.tutor\.hintModel.*LLM ROUTING/u);
+    } finally { configurationValues.delete('tutor.hintModel'); }
   });
 
   it('V135 keeps a raw 400 body out of the panel and writes redacted detail to the output log', async () => {
@@ -8301,11 +8338,14 @@ describe('V177 Lesson action handlers', () => {
       provider.render();
       const before = webview.html;
       await internals.handleMessage({ command });
-      await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'tutorVoiceModelReady' })));
-      const message = webview.postMessage.mock.calls.map(([message]) => message as { command: string; html: string })
-        .find((message) => message.command === 'tutorVoiceModelReady')!;
-      const $ = load(message.html);
-      for (const key of ['model', 'fallbackModel', 'hintModel']) {
+      await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'modelCatalogReady' })));
+      const message = webview.postMessage.mock.calls.map(([message]) => message as Record<string, unknown>)
+        .find((message) => message.command === 'modelCatalogReady')!;
+      // Changed 2026-10-22 (V294, owner I60/I64): Refresh patches model options, preserving the document and selected slots.
+      const $ = load(catalogPatchedHtml(before, message));
+      // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+      expect($('[data-model-preset="tutor.fallbackModel"]')).toHaveLength(0);
+      for (const key of ['model', 'hintModel']) {
         expect($(`[data-model-preset="tutor.${key}"] option[value="ordinary-refreshed"]`)).toHaveLength(1);
       }
       expect(webview.html).toBe(before);
@@ -8554,6 +8594,8 @@ it('V177b refreshes both Resets when conversation opening finishes without repla
   completeOpening({ scene: 'You meet a new colleague.', opening: 'How was your first week?' });
   await vi.waitFor(() => expect(internals.tutorState.conversation.busy).toBe(false));
   await vi.waitFor(() => expect(internals.tutorConversationController).toBeUndefined());
+  // Changed 2026-10-22 (V295): opening speech follows the fixed one-second intro pause.
+  await vi.waitFor(() => expect(internals.tutorState.conversation.openingReveal).toBeUndefined(), { timeout: 2_500 });
   expect(renderDocument).not.toHaveBeenCalled();
   const ready = messages.find((message) => message.command === 'tutorConversationOpeningReady')!;
   expect(ready.resetAvailability).toEqual({ master: true, lesson: true });
@@ -8579,9 +8621,10 @@ it('V177b refreshes both Resets when conversation opening finishes without repla
 
   // Stop-state and Hint patches also carry host-owned availability changes to this document.
   const listener = script.slice(script.indexOf('      const message = event.data;', script.indexOf("window.addEventListener('message'")), script.indexOf("      if (message.command === 'playPronunciation'", script.indexOf("window.addEventListener('message'")));
-  const update = new Function('document', 'HTMLButtonElement', 'event', sync + listener);
+  // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+  const update = new Function('document', 'HTMLButtonElement', 'event', 'linkCredentialReasons', sync + listener);
   for (const resetAvailability of [{ master: false, lesson: false }, { master: true, lesson: false }, { master: true, lesson: true }]) {
-    update(document, Button, { data: { command: 'tutorResetAvailability', resetAvailability } });
+    update(document, Button, { data: { command: 'tutorResetAvailability', resetAvailability } }, vi.fn());
     expect(document.querySelector('[data-command="resetTutorSession"]')!.disabled).toBe(!resetAvailability.master);
     expect(document.querySelector('[data-command="resetTutorLesson"]')!.disabled).toBe(!resetAvailability.lesson);
   }
@@ -8618,17 +8661,27 @@ describe('V188 Image Model controller', () => {
   });
 
   it('refreshes the Image Model list without changing any stored model', async () => {
-    const { internals, actions } = createProvider();
+    const { internals, actions, provider } = createProvider();
     const refresh = vi.fn(async () => [{ id: 'gemini-discovered-image', displayName: 'Discovered image' }]);
     Object.assign(actions, { refreshGeminiImageModels: refresh });
     actions.settings!.mockReturnValue(PANEL_SETTINGS_FIXTURE as never);
-    const webview = { cspSource: 'test', html: '', asWebviewUri: () => ({ toString: () => '' }), postMessage: vi.fn(async () => true) };
+    const webview = { cspSource: 'test', html: '', asWebviewUri: () => ({ toString: () => '' }), postMessage: vi.fn(async (_message: unknown) => true) };
     Object.assign(internals, { activeScreen: 'tutor', view: { webview } });
+    // Changed 2026-10-22 (V294, owner I60/I64): Refresh patches model options, preserving the document and selected slots.
+    provider.render();
+    const initial = webview.html;
     await internals.handleMessage({ command: 'refreshGeminiImageModels' });
-    await vi.waitFor(() => expect(load(webview.html)('[data-model-preset="tutor.imageModel"] option[value="gemini-discovered-image"]')).toHaveLength(1));
+    const patched = () => {
+      const message = vi.mocked(webview.postMessage).mock.calls.map(([message]) => message as Record<string, unknown>)
+        .find(message => message.command === 'modelCatalogReady');
+      expect(message).toBeDefined();
+      return catalogPatchedHtml(initial, message!);
+    };
+    await vi.waitFor(() => expect(load(patched())('[data-model-preset="tutor.imageModel"] option[value="gemini-discovered-image"]')).toHaveLength(1));
     expect(refresh).toHaveBeenCalledOnce();
     expect(actions.updateSetting).not.toHaveBeenCalled();
-    expect(load(webview.html)('[data-model-preset="tutor.model"] option[value="gemini-discovered-image"]')).toHaveLength(0);
+    expect(webview.html).toBe(initial);
+    expect(load(patched())('[data-model-preset="tutor.model"] option[value="gemini-discovered-image"]')).toHaveLength(0);
   });
 });
 

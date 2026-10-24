@@ -1,6 +1,7 @@
 import { tutorConversationRequestControls, tutorConversationHandoff, tutorConversationHandoffInstruction } from './tutor/generation.js';
 import { handoffTutorConversationVoices } from './speech/voiceSelection.js';
 import { tutorConversationCoachingRequest, tutorConversationCoaching } from './tutor/generation.js';
+import { missingCredentialsOf } from './requestCenter.js';
 import { ProviderError } from './errors.js';
 import { tutorLiveTargetMarks, tutorTargetRanges, type TutorTargetMark } from './tutor/lessonConversation.js';
 import { tutorLearnerTurnNotShown, tutorLearnerTurnText, tutorSpokenAnswerForDisplay } from './tutor/learnerLanguage.js';
@@ -19,7 +20,8 @@ import { tutorConversationReply, tutorConversationHandoffNote } from './tutor/st
 import { TutorLiveSession, TutorLiveSessionError } from './tutor/liveSession.js';
 import { LiveConversationTurnTiming, StandardConversationTurnTiming } from './tutor/conversationTiming.js';
 import { closeTutorDemoResources } from './resultsViewDemo.js';
-import { cancelTutorConversationReplayAll, speakTutorConversationSequence } from './resultsViewReplay.js';
+import { cancelTutorConversationReplayAll, speakTutorConversationSequence, waitForTutorIntroCompletion } from './resultsViewReplay.js';
+import { holdTutorLiveOpeningAudio } from './resultsViewLive.js';
 import { configuredTutorPressToTalk, configuredTutorPauseBeforeReply, configuredTutorSpeechDetection, configuredTutorMicrophoneSensitivity } from './resultsViewConfiguration.js';
 import { scheduleTutorConversationHintPrefetch } from './resultsViewHints.js';
 import { advanceTutorConversationTurn } from './resultsViewConversation.js';
@@ -107,7 +109,45 @@ export async function startLiveTutorOpening(view: KrenResultsViewProvider,
       try {
         await session.sendTurn(openingContext.learnerStarts
           ? 'Read the established scene aloud as neutral third-person narration, then wait silently for the learner to begin. Do not speak in character.'
-          : `Read the established scene aloud as neutral third-person narration. Then switch into character and say exactly this opening: ${JSON.stringify(generatedOpening.opening)}`);
+          : 'Read the established scene aloud as neutral third-person narration. End this turn without speaking in character.');
+        if (!view.tutorLiveReplyText.trim()) throw new TutorLiveSessionError('protocol');
+        let introReady: Promise<boolean> | undefined;
+        if (view.tutorState.conversation.speakerOn) {
+          if (view.tutorLiveReplyAudio.length > 0) await view.tutorLiveOpeningAudioReady;
+          let audioEnded!: () => void;
+          const ended = new Promise<void>(resolve => { audioEnded = resolve; });
+          introReady = waitForTutorIntroCompletion(view,
+            () => view.tutorConversationController === controller &&
+              view.tutorState.conversation.status === 'active' && view.tutorLiveSession === session,
+            controller.signal, true, audioEnded);
+          void introReady.then(ready => {
+            audioEnded();
+            // Stop must retire the pending turn too, because more chunks can arrive later.
+            if (!ready && !view.tutorLiveFailed && view.tutorConversationController === controller) {
+              controller.abort();
+              closeTutorLiveSession(view, false);
+            }
+          });
+          await ended;
+          if (controller.signal.aborted || view.tutorConversationController !== controller) return;
+          if (openingContext.learnerStarts && !await introReady) {
+            if (view.tutorLiveFailed && !controller.signal.aborted && view.tutorConversationController === controller) {
+              throw new TutorLiveSessionError('socketClosed');
+            }
+            return;
+          }
+        }
+        if (controller.signal.aborted || view.tutorConversationController !== controller) return;
+        if (!openingContext.learnerStarts) {
+          beginTutorLiveReply(view, true);
+          if (introReady) holdTutorLiveOpeningAudio(view, introReady);
+          await session.sendTurn(`Switch into character and say exactly this opening: ${JSON.stringify(generatedOpening.opening)}`);
+        }
+        if (introReady && !await introReady) {
+          // A failed socket cancels the intro wait too, so let the opening use Standard.
+          if (view.tutorLiveFailed) throw new TutorLiveSessionError('socketClosed');
+          return;
+        }
       } finally {
         view.tutorLiveOpeningNarration = false;
       }
@@ -130,8 +170,7 @@ export async function startLiveTutorOpening(view: KrenResultsViewProvider,
       if (generatedOpening) {
         const safeError = error instanceof TutorLiveSessionError
           ? error : new TutorLiveSessionError('socketOpen');
-        disableTutorLive(view, safeError, 'opening', error instanceof ProviderError &&
-          (error.action === 'setGeminiKey' || error.action === 'setGeminiProKey'));
+        disableTutorLive(view, safeError, 'opening', missingCredentialsOf(error));
         completeTutorConversationOpening(view, generatedOpening, controller, false);
         if (view.tutorConversationController === controller) {
           view.tutorConversationController = undefined;
@@ -408,6 +447,7 @@ export function submitStandardTutorTurn(view: KrenResultsViewProvider,
           failure: tutorConversationFailureMessage(view, error)
         }
       };
+      view.showMissingCredentialError(error, true);
     }).finally(() => {
       if (view.tutorConversationController !== controller) return;
       view.tutorConversationController = undefined;
@@ -650,6 +690,7 @@ export async function submitLiveTutorTurn(view: KrenResultsViewProvider,
           busy: false,
           failure: tutorConversationFailureMessage(view, coachingResult.error)
         } };
+        view.showMissingCredentialError(coachingResult.error, true);
       }
       view.tutorConversationController = undefined;
       view.render();

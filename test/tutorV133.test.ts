@@ -1,3 +1,4 @@
+// Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
 import { readFileSync } from 'node:fs';
 import { load } from 'cheerio';
 import { describe, expect, it } from 'vitest';
@@ -41,13 +42,15 @@ describe('V133 routing controls', () => {
   it('shows the fallback controls on both Gemini profiles for the tutor and every other feature', () => {
     const tutor = load(render('tutor'));
     for (const key of [
-      'tutor.fallbackEnabled', 'tutor.fallbackModel', 'tutor.fallbackThinkingOrEffort'
+      'tutor.fallbackEnabled'
     ]) {
       const control = tutor(`[data-setting="${key}"]`);
       expect(control, `${key} is not rendered`).toHaveLength(1);
       expect(control.parents('[data-provider-value="gemini"]')).toHaveLength(1);
       expect(control.parents('[data-gemini-profile-value="pro"]')).toHaveLength(0);
     }
+    expect(tutor('[data-setting="tutor.fallbackModel"],[data-setting="tutor.fallbackThinkingOrEffort"]')).toHaveLength(0);
+    expect(tutor('[data-setting="tutor.hintThinkingOrEffort"]')).toHaveLength(1);
 
     const ordinary = load(render('settings'));
     for (const prefix of ['translation', 'explanation', 'rewrite']) {
@@ -92,9 +95,9 @@ describe('V133 routing controls', () => {
     const fallback = load(render('tutor', {
       ...PANEL_SETTINGS_FIXTURE,
       tutorFallbackEnabled: true,
-      tutorFallbackModel: 'gemini-3.8-live'
+      tutorHintModel: 'gemini-3.8-live'
     }));
-    expect(fallback('[data-model-preset="tutor.fallbackModel"]').closest('.setting').text())
+    expect(fallback('[data-model-preset="tutor.hintModel"]').closest('.setting').text())
       .toMatch(/Live-only.*cannot answer ordinary requests/u);
 
     const unknown = load(render('tutor', {

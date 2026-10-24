@@ -35,6 +35,12 @@ describe('V228 reader wording', () => {
         expect(text).toMatch(/Gemini overload after automatic retries[\s\S]*that request/u);
         expect(text).toMatch(/does not exhaust the Gemini pool until midnight/u);
       }
+    } else if (wording === live) {
+      // Changed 2026-10-23 (V304, owner I75): retain the key/model/text-provider contract without pinning the profile wording.
+      for (const text of [guide, manual]) {
+        expect(text).toMatch(/Live needs[^.]*Live Gemini Profile[^.]*key[^.]*live-capable Live Model/u);
+        expect(text).toContain('the tutor text Provider can stay as it is');
+      }
     } else if (wording === timeout) {
       // Changed 2026-10-17: V261, F5 owner canvas edit, both manuals retain the timeout exceptions.
       expect(guide).toMatch(timeout); expect(manual).toMatch(timeout);
@@ -79,7 +85,8 @@ describe('V228 reader wording', () => {
     tutor.conversation.situationPicture = 'graduallyEntering'; tutor.conversation.pictureTransparency = '40'; tutor.conversation.balloonTransparency = '20';
     const html = render(tutor, { tutorConversationSpeechDetection: 'geminiKren', tutorConversationMicrophoneCloseWait: 4 });
     const $ = load(html); const summary = $('[data-tutor-conversation-advanced] > summary .rewrite-group-summary').text();
-    expect(summary).toBe(`Reply: ${replies === 'standard' ? 'Standard | Send: When I stop speaking' : 'Live (Gemini)'} | Picture: Gradually Entering, Realistic, 40%, 20% | Microphone: Balanced, 2sec, Gemini + KREN, 4sec | Press to talk: Off | Live transcription language: English | Take-home card: On`);
+    // Changed 2026-10-24 (V309, owner I80): Replies and the Situation picture mode are summarized under MODE.
+    expect(summary).toBe(`${replies === 'standard' ? 'Send: When I stop speaking | ' : ''}Picture: Realistic, 40%, 20% | Microphone: Balanced, 2sec, Gemini + KREN, 4sec | Press to talk: Off | Live transcription language: English | Take-home card: On`);
     const script = $('script').text();
     const begin = script.indexOf('function tutorConversationAdvancedSummary(values)');
     const end = script.indexOf('\n    const activeScreen', begin);
@@ -97,8 +104,10 @@ describe('V228 reader wording', () => {
     const tutor = createTutorViewState(); tutor.conversation.situationPicture = 'none';
     const $ = load(render(tutor));
     const advanced = $('[data-tutor-conversation-advanced]');
-    expect(advanced.children('summary').text()).toContain('| Picture: None | Microphone:');
-    expect(advanced.find('.setting-title').slice(0, 2).map((_, element) => $(element).text()).get()).toEqual(['Replies', 'Live transcription language']); // Changed 2026-10-18: V263, owner item I43, Send was removed.
+    // Changed 2026-10-24 (V309, owner I80): Replies and the Situation picture mode are summarized under MODE.
+    expect($('details[data-persist-id="tutor-conversation-mode"] > summary').text()).toContain('Picture: None');
+    expect(advanced.children('summary').text()).not.toContain('Picture: None');
+    expect(advanced.find('.setting-title').slice(0, 2).map((_, element) => $(element).text()).get()).toEqual(['Live transcription language', 'Reply length']); // Changed 2026-10-18: V263, owner item I43, Send was removed.
     const style = $('[data-setting="tutor.conversation.pictureStyle"]');
     expect(style.is(':disabled')).toBe(true); expect(style.attr('title')).toBe('Choose a Situation picture mode to enable Picture style');
     // Changed 2026-10-17: V262, owner item I39, exercise the picture-control patch instead of pinning its script syntax.
@@ -128,7 +137,10 @@ describe('V228 reader wording', () => {
     const tutor = createTutorViewState(); tutor.conversation.speakerOn = false; tutor.conversation.from = 'situation';
     expect(load(render(tutor))('[data-command="startTutorConversationDemo"]').attr('title')).toBe('Turn the speaker on to run Demo');
     tutor.conversation.speakerOn = true;
-    expect(load(render(tutor, { credentialPresence: {} }))('[data-command="startTutorConversationDemo"]').attr('title')).toMatch(/Gemini.*key/u);
+    // Changed 2026-10-23 (V304, owner I75): Live Demo stays reachable to ask the missing-key question.
+    const liveDemo = load(render(tutor, { credentialPresence: {} }))('[data-command="startTutorConversationDemo"]');
+    expect(liveDemo.is('[disabled]')).toBe(false);
+    expect(liveDemo.attr('title')).toMatch(/Hear.*conversation/u);
     const manual = load(render())('#manual-screen').text().replace(/\s+/gu, ' ');
     for (const paragraph of guide.split('\n').filter(line => line.startsWith('With Standard replies and the speaker on,') || line.startsWith('Chirp requests speech by sentence,'))) {
       // 2026-10-14: V232 changes speech guidance; check its meaning rather than copying a paragraph.
@@ -140,7 +152,24 @@ describe('V228 reader wording', () => {
           expect(text).toMatch(/Local Windows reads[\s\S]*remaining text[\s\S]*tutor voice settings/u);
           expect(text).toMatch(/one speech notice[\s\S]*per conversation/u);
         }
-      } else expect(manual).toContain(paragraph.trim());
+      } else {
+        // Changed 2026-10-22 (V295): the guide adds the pause sentence; the manual is frozen.
+        // Preserve the shared meaning checks without pinning their entire paragraphs together.
+        for (const text of [paragraph, manual]) {
+          expect(text).toMatch(/situation intro appears and is read to the end first/u);
+            // Changed 2026-10-23 (V303, owner I63): this meaning is unchanged when Dots begins a sentence.
+            expect(text).toMatch(/dots appear in the chat until the first KREN line starts playing/iu);
+          expect(text).toMatch(/microphone and Stop appear when that line finishes/u);
+          // Changed 2026-10-23 (V307, verification R30): both compact and guide wording qualify muted controls by opening readiness.
+          expect(text).toMatch(/(?:speaker off, text and controls|muted, text\/controls) appear.*opening is ready/iu);
+        }
+        expect(paragraph).toMatch(/text and controls appear.*opening is ready/u);
+        expect(paragraph).toMatch(/Turning the speaker off.*intro pause.*opening without audio/u);
+          // Changed 2026-10-23 (V303, owner I63): the guide anchors sound to sound and qualifies preparation and Windows startup.
+          expect(paragraph).toMatch(/first chat audio starts one second after the intro's last sound/u);
+          expect(paragraph).toMatch(/audio is ready if preparation takes longer/u);
+          expect(paragraph).toMatch(/Local Windows starts its speech call at that mark.*startup time/u);
+      }
     }
     expect(manual).toMatch(/hidden native Windows player[\s\S]*open or closed/u);
     expect(manual).toMatch(/temporary MP3[\s\S]*deleted after playback or Stop/u);

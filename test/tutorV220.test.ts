@@ -55,6 +55,10 @@ it('patches Requests today without replacing the active composer', () => {
   const patch = source.split("if (message.command === 'languageModelUsage') {")[1]!.split("if (message.command === 'tutorConversationHintPrefetchSetting')")[0]!;
   const usage = { innerHTML: '' }, composer = { value: 'Keep this draft.' };
   const document = { querySelector: (selector: string) => selector.includes('language-model-usage') ? usage : composer };
-  runInNewContext(`(function() { if (true) {${patch} })()`, { document, message: { html: '<h3>Requests today</h3>' } });
+  // Changed 2026-10-22 (V296, owner I66/I71/I72): the isolated usage patch also requests a fresh row measurement.
+  let measurements = 0;
+  runInNewContext(`(function() { if (true) {${patch} })()`, { document, message: { html: '<h3>Requests today</h3>' },
+    sizeLanguageModelUsage: () => { measurements++; } });
+  expect(measurements).toBe(1);
   expect(usage.innerHTML).toContain('Requests today'); expect(composer.value).toBe('Keep this draft.');
 });

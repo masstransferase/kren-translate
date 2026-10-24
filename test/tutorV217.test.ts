@@ -173,8 +173,11 @@ describe('V217 Credentials screen', () => {
     const usage = $('#settings-screen [data-settings-section="usage"]');
     expect(usage.find('summary h3').text()).toBe('Usage');
     expect(usage.find('[data-setting], [data-action]').map((_, n) => $(n).attr('data-setting') ?? $(n).attr('data-action')).get())
-      // 2026-10-11: provider switching is the new stored Usage control; credentials remain separate.
-      .toEqual(['llm.providerSwitch', 'display.mode', 'request.timeoutMs', 'kren.restoreDefaultSettings', 'kren.resetKren']);
+      // Changed 2026-10-22 (V299, owner I69): Usage gains eight global routing controls and Apply to All; credentials remain separate.
+      .toEqual(['llm.providerSwitch', 'display.mode', 'request.timeoutMs', 'global.provider', 'global.geminiProfile',
+        'global.model', 'global.alternateModel', 'global.thinkingOrEffort', 'global.fallbackEnabled',
+        'global.fallbackModel', 'global.fallbackThinkingOrEffort', 'kren.applyGlobalRouting',
+        'kren.restoreDefaultSettings', 'kren.resetKren']);
     expect(usage.attr('data-persist-id')).toBe('settings-usage');
   });
   it('manual and guide name the new routes and the Take-home card switch', () => {

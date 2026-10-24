@@ -1,7 +1,8 @@
-import { runTutorContentRequest, type ContentValidation, type RequestIdentity, recordedRequestOutcome, requestFailure, presentRequestFailure } from './requestCenter.js';
+import { missingCredentialError, missingCredentialMessage, missingCredentialsOf, runTutorContentRequest, type ContentValidation, type RequestIdentity, recordedRequestOutcome, requestFailure, presentRequestFailure } from './requestCenter.js';
+import * as vscode from 'vscode';
 import { tutorConversationRequestControls, tutorConversationCoachOpening } from './tutor/generation.js';
 import { tutorConversationCoachingRequest, tutorConversationCoaching } from './tutor/generation.js';
-import { CloudflareAiError, CLOUDFLARE_AUTHENTICATION, CLOUDFLARE_PICTURE_ALLOWANCE, CLOUDFLARE_PICTURE_CREDENTIALS } from './providers/cloudflare.js';
+import { CloudflareAiError, cloudflareMissingCredentialError, CLOUDFLARE_AUTHENTICATION, CLOUDFLARE_PICTURE_ALLOWANCE } from './providers/cloudflare.js';
 import { cancelTutorTakeHome } from './resultsViewTakeHome.js';
 import { showTutorLessonUnavailable } from './resultsViewSettings.js';
 import { tutorLessonConversationReadiness, tutorLessonConversationContext, resolveTutorConversationSituation, tutorTargetRanges, tutorLiveTargetMarks } from './tutor/lessonConversation.js';
@@ -91,6 +92,7 @@ export async function generateTutorConversation(view: KrenResultsViewProvider,
       onProviderBackoff: (milliseconds) => timing.providerBackoff(milliseconds)
     } : selectedRoute;
     const knownModels = [...view.proModels, ...view.liveModels];
+    const fastModel = route.fastModel ?? configuredTutorHintModel();
     const liveOnlyModel = route.provider === 'gemini' &&
       isKnownGeminiLiveOnlyModel(route.model, knownModels)
       ? {
@@ -99,9 +101,9 @@ export async function generateTutorConversation(view: KrenResultsViewProvider,
             ? 'kren.tutor.alternateModel'
             : 'kren.tutor.model'
         }
-      : route.provider === 'gemini' && route.fallbackEnabled &&
-          isKnownGeminiLiveOnlyModel(route.fallbackModel, knownModels)
-        ? { model: route.fallbackModel, setting: 'kren.tutor.fallbackModel' }
+      : route.provider === 'gemini' &&
+          isKnownGeminiLiveOnlyModel(fastModel, knownModels)
+        ? { model: fastModel, setting: 'kren.tutor.hintModel' }
         : undefined;
     if (liveOnlyModel) {
       throw new TutorOrdinaryLiveModelError(
@@ -220,6 +222,51 @@ export function tutorConversationHintLanguageModelRoute(view: KrenResultsViewPro
   }
 
 
+const pendingLiveStarts = new WeakSet<KrenResultsViewProvider>();
+
+/** Ask before any opening request, and save the chosen route before continuing. */
+export function guardTutorLiveStart(view: KrenResultsViewProvider, start: () => void): boolean {
+  if (pendingLiveStarts.has(view)) return false;
+  if (view.tutorState.conversation.replies !== 'liveGemini') return true;
+  const settings = view.actions.settings();
+  const profile = settings.tutorLiveProfile ?? 'standard';
+  const keys = settings.credentialPresence;
+  if (profile === 'pro' ? keys?.geminiAlternate : keys?.geminiDefault) return true;
+  const label = profile === 'pro' ? 'Paid' : 'Free Tier';
+  const other = profile === 'pro' ? 'standard' : 'pro';
+  const otherLabel = other === 'pro' ? 'Paid' : 'Free Tier';
+  const otherStored = other === 'pro' ? keys?.geminiAlternate : keys?.geminiDefault;
+  const useOther = `Use Gemini ${otherLabel}`;
+  const choices = [...(otherStored ? [useOther] : []), 'Switch to Standard'];
+  pendingLiveStarts.add(view);
+  void (async () => {
+    try {
+      const choice = await view.showInformationMessage(
+        `Live replies need the Gemini ${label} key. Set it in Credentials, choose the other profile for Live, or switch Replies to Standard.`,
+        { modal: true }, ...choices);
+      if (choice === useOther && otherStored) {
+        const config = vscode.workspace.getConfiguration('kren');
+        const scope = config.inspect<string>('tutor.liveGeminiProfile');
+        // Replace the effective override because a Global write cannot change it.
+        const target = scope?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+          : scope?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : undefined;
+        if (target !== undefined) await config.update('tutor.liveGeminiProfile', other, target);
+        else await view.actions.updateSetting('tutor.liveGeminiProfile', other);
+      } else if (choice === 'Switch to Standard') {
+        view.tutorState = { ...view.tutorState, conversation: { ...view.tutorState.conversation, replies: 'standard' } };
+        view.persistTutorPreferences();
+      } else return;
+      pendingLiveStarts.delete(view);
+      start();
+    } catch {
+      view.actions.notify('error', 'KREN could not save the Live reply choice. Try Start again.');
+    } finally {
+      pendingLiveStarts.delete(view);
+    }
+  })();
+  return false;
+}
+
 export function startTutorConversation(view: KrenResultsViewProvider): void {
     if (view.tutorState.conversation.status === 'active') {
       if (!view.tutorState.conversation.busy &&
@@ -234,6 +281,7 @@ export function startTutorConversation(view: KrenResultsViewProvider): void {
       void showTutorLessonUnavailable(view);
       return;
     }
+    if (!guardTutorLiveStart(view, () => startTutorConversation(view))) return;
     cancelTutorConversationReplayAll(view);
     view.tutorLiveConversationAudio.clear();
     view.tutorConversationRawAnswers.clear();
@@ -438,7 +486,7 @@ export function completeTutorConversationOpening(view: KrenResultsViewProvider,
       const coach = current.from === 'speakAndRephrase';
       speakTutorConversationSequence(view,
         [...(result.scene ? [result.scene] : []), ...(result.opening ? [result.opening] : [])],
-        'The scene or opening could not be read aloud. Try Replay again.', false, true,
+        'The scene or opening could not be read aloud. Try Replay again.', false, Boolean(result.scene),
         (completed) => advanceTutorConversationOpening(view, !coach && completed === 1 && Boolean(result.opening) ? 'waiting' : 'ready'),
         (index) => { if (index === (coach ? 0 : 1)) advanceTutorConversationOpening(view, 'opening'); }
       );
@@ -498,13 +546,20 @@ export function cancelTutorConversationPicture(view: KrenResultsViewProvider): v
   void view.view?.webview.postMessage({ command: 'tutorConversationPictureRequestFinished' });
 }
 
+const tutorPictureCredentialNotices = new WeakSet<object>();
+const tutorPictureCredentialPauses = new WeakSet<object>();
+
 /** Reconcile current host state; callers never decide whether to request an intro or continuation. */
-export function pauseTutorPictures(view: KrenResultsViewProvider, reason: 'paidKey' | 'quota' | 'missing' | 'authentication' | 'timeout' | 'other', cloudflare = view.actions.settings().tutorPictureProvider === 'cloudflare'): void {
+export function pauseTutorPictures(view: KrenResultsViewProvider, reason: 'paidKey' | 'quota' | 'missing' | 'authentication' | 'timeout' | 'other', cloudflare = view.actions.settings().tutorPictureProvider === 'cloudflare', credentialError?: unknown): void {
   // A newly saved key can reconcile the pending intro; repeated failures stay stopped.
   view.tutorConversationPictureStopped = reason !== 'missing';
-  const text = cloudflare
-    ? reason === 'missing' ? CLOUDFLARE_PICTURE_CREDENTIALS
-      : reason === 'quota' ? CLOUDFLARE_PICTURE_ALLOWANCE
+  const presence = view.actions.settings().credentialPresence;
+  const missing = reason === 'missing' ? missingCredentialsOf(credentialError) ? credentialError : cloudflare
+    ? cloudflareMissingCredentialError(Boolean(presence?.cloudflareAccountId), Boolean(presence?.cloudflareApiToken))
+    : missingCredentialError('gemini', 'pro') : undefined;
+  const details = missingCredentialsOf(missing);
+  const text = details ? missingCredentialMessage(details) : cloudflare
+    ? reason === 'quota' ? CLOUDFLARE_PICTURE_ALLOWANCE
         : reason === 'authentication' ? `Pictures paused: Cloudflare picture ${CLOUDFLARE_AUTHENTICATION} The conversation continues without pictures.`
         : reason === 'timeout' ? 'Pictures paused: the Cloudflare picture request timed out. The conversation continues without pictures.'
         : 'Pictures paused: Cloudflare could not provide a usable picture. The conversation continues without pictures.'
@@ -512,11 +567,17 @@ export function pauseTutorPictures(view: KrenResultsViewProvider, reason: 'paidK
     ? 'Pictures paused: situation pictures need a Gemini Paid API key with billing enabled. The conversation continues without pictures.'
     : reason === 'quota'
     ? 'Pictures paused: Google refused the picture request for quota. Pictures may need a Gemini Paid API key with billing enabled. The conversation continues without pictures.'
-    : reason === 'missing'
-      ? 'Pictures paused: no Gemini Paid key is set. The conversation continues without pictures.'
-      : 'Pictures paused: Gemini could not provide a usable picture. The conversation continues without pictures.';
+    : 'Pictures paused: Gemini could not provide a usable picture. The conversation continues without pictures.';
   view.tutorState.conversation.picturePaused = text;
   void view.view?.webview.postMessage({ command: 'tutorPicturePaused', text });
+  if (missing) {
+    const identity = view.tutorSpeechConversation;
+    tutorPictureCredentialPauses.add(identity);
+    if (!tutorPictureCredentialNotices.has(identity)) {
+      tutorPictureCredentialNotices.add(identity);
+      view.showMissingCredentialError(missing, true);
+    }
+  }
 }
 
 const tutorPictureReplacements = new WeakSet<object>();
@@ -548,7 +609,8 @@ export function ensureTutorConversationPicture(view: KrenResultsViewProvider): v
       : settings.credentialPresence?.geminiAlternate === true;
     const developing = ['switching', 'graduallyEntering'].includes(conversation.situationPicture);
     if (credentialsPresent && !view.tutorConversationPictureStopped &&
-        (conversation.picturePaused?.includes('no Gemini Paid key') || conversation.picturePaused === CLOUDFLARE_PICTURE_CREDENTIALS)) {
+        tutorPictureCredentialPauses.has(view.tutorSpeechConversation)) {
+      tutorPictureCredentialPauses.delete(view.tutorSpeechConversation);
       conversation.picturePaused = undefined;
       void view.view?.webview.postMessage({ command: 'tutorPicturePaused', text: '' });
     }
@@ -595,6 +657,7 @@ export function ensureTutorConversationPicture(view: KrenResultsViewProvider): v
       ? view.actions.generateSituationPicture(scene, controller.signal, reference)
       : view.actions.generateSituationPicture(scene, controller.signal);
     let temporarilyRateLimited = false;
+    let credentialMissing = false;
     void request.then((image) => {
       if (controller.signal.aborted || view.tutorConversationPictureController !== controller ||
           view.tutorState.conversation.status !== 'active' || view.tutorConversationPictureEpoch !== epoch ||
@@ -608,6 +671,11 @@ export function ensureTutorConversationPicture(view: KrenResultsViewProvider): v
     }).catch((error: unknown) => {
       if ((!controller.signal.aborted || timedOut) && view.tutorConversationPictureController === controller &&
           view.tutorState.conversation.status === 'active' && view.tutorConversationPictureEpoch === epoch) {
+        if (missingCredentialsOf(error)) {
+          credentialMissing = true;
+          pauseTutorPictures(view, 'missing', cloudflare, error);
+          return;
+        }
         // 2026-10-12: a temporary Cloudflare 429 neither consumes the conversation's
         // picture failure budget nor triggers an immediate retry of the same request.
         temporarilyRateLimited = cloudflare && error instanceof CloudflareAiError && error.status === 429 && !error.allowance;
@@ -640,7 +708,8 @@ export function ensureTutorConversationPicture(view: KrenResultsViewProvider): v
         if (!view.tutorConversationPicturePending) {
           void view.view?.webview.postMessage({ command: 'tutorConversationPictureRequestFinished' });
         }
-        if (!replaceCharacter && !temporarilyRateLimited) ensureTutorConversationPicture(view);
+        // Credential presence can be stale, so a missing-key response waits for a later action or update.
+        if (!replaceCharacter && !temporarilyRateLimited && !credentialMissing) ensureTutorConversationPicture(view);
       }
     });
   }
@@ -677,6 +746,7 @@ export function failTutorConversationOpening(view: KrenResultsViewProvider, erro
       ...current, currentQuestion: '', busy: false,
       failure: tutorConversationFailureMessage(view, error, true)
     } };
+    view.showMissingCredentialError(error, true);
     view.render();
   }
 
@@ -699,7 +769,7 @@ export async function openTutorLiveSession(view: KrenResultsViewProvider,
     const pressToTalk = view.tutorLivePressToTalk;
     const audioGeneration = ++view.tutorLiveAudioGeneration;
     let session!: TutorLiveSession;
-    void view.waveOutPlayer.start(
+    view.tutorLiveOpeningAudioReady = view.waveOutPlayer.start(
       (error) => failTutorLiveAudio(view, error, audioGeneration),
       (completedBuffers, queuedBuffers) =>
         tutorLivePlaybackProgress(view, completedBuffers, queuedBuffers, audioGeneration)
@@ -734,6 +804,7 @@ export async function openTutorLiveSession(view: KrenResultsViewProvider,
     let lateReplyText = false;
     let inputAcceptedLate = false;
     session = new TutorLiveSession({
+      geminiProfile: view.actions.settings().tutorLiveProfile ?? 'standard',
       handoffEnabled: view.tutorState.conversation.from !== 'speakAndRephrase',
       apiKey,
       model: configuredTutorLiveModel(),

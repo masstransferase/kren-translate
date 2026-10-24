@@ -1,3 +1,5 @@
+// Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+import { missingCredentialError, missingCredentialsOf, showMissingCredentialNotice } from '../../src/requestCenter.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -48,7 +50,8 @@ export async function checkV267Questions() {
     assert.match(dialog.message, opening);
     assert.deepEqual(dialog.choices, choices);
     // Compare the executed caller's complete arguments, including optional detail and modal.
-    assert.deepEqual(JSON.parse(JSON.stringify(dialog)), JSON.parse(JSON.stringify({ kind: call.kind, message: call.message, options: call.options, choices: call.choices })));
+    // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+    assert.deepEqual(JSON.parse(JSON.stringify(dialog)), JSON.parse(JSON.stringify({ kind: call.kind, message: call.message, options: { ...call.options, modal: true }, choices: call.choices })));
     assert.equal(h.dialogs.length, calls.length, 'Exactly one native dialog per question');
     assert.equal(h.panel().query('[data-kren-notice]'), null);
     verified++;
@@ -79,6 +82,7 @@ export async function checkV267Questions() {
     const context = { secrets: { get: async () => undefined, delete: async () => { mutations++; } },
       globalState: { get: () => false, update: async () => { mutations++; } } };
     const scope = {
+      missingCredentialError, missingCredentialsOf, showMissingCredentialNotice,
       showKrenWarningMessage: h.view.showWarningMessage.bind(h.view), showKrenErrorMessage: h.view.showErrorMessage.bind(h.view),
       resultsView: h.view, ProviderError, errorMessage: (error: Error) => error.message,
       recordedRequestOutcome: () => undefined, handleLookupErrorSelection: async () => {}, actionLabel: () => 'Set key',
@@ -98,7 +102,7 @@ export async function checkV267Questions() {
       verify(second, [...choices]).answer(); await pending;
     }
     await ask(() => ext.deleteAllApiKeys(context), /^Delete every API key/u, ['Delete All API Keys']);
-    await ask(() => ext.testKoreanDictionary(context), /^KREN: no Korean Basic Dictionary/u, ['Set Dictionary API Key']);
+    await ask(() => ext.testKoreanDictionary(context), /Korean Basic Dictionary.*Credentials/u, ['Open Credentials']);
     await ask(() => ext.update('python -m pip install -U edge-tts'), /^Run python/u, ['Update']);
     await ask(() => ext.ensureEdgeTtsConsent(context), /^KREN Edge Online speech/u, ['Continue']);
     for (const [provider, opening] of [['groq', /^Groq receives/u], ['openai', /^OpenAI API use/u]] as const) {

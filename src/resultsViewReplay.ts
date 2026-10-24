@@ -3,6 +3,8 @@ import { stopTutorTakeHomeSpeech } from './resultsViewTakeHome.js';
 import { tutorLiveReplayAvailable, failTutorLiveAudio, stopTutorLiveAudio, playTutorLiveAudio, postTutorLiveSpeakerState, logTutorLiveAudioError, tutorConversationReplayAvailable } from './resultsViewLive.js';
 import type { KrenResultsViewProvider, TutorConversationSpeechItem } from './resultsView.js';
 import { TUTOR_DEFAULTS } from './tutor/defaults.js';
+import { sentencePause, splitSpeechSentences } from './speech/sentencePause.js';
+import { tutorSpeechPlaybackBarriers, type SpeechPlaybackBarrier } from './speech/speechAdapter.js';
 import {
   TUTOR_CONVERSATION_ENGLISH_ONLY_INSTRUCTION,
   tutorLiveSessionCredential,
@@ -98,7 +100,14 @@ export function closeTutorReplayAudioPlayer(view: KrenResultsViewProvider): void
     view.tutorLiveAudioGeneration += 1;
   }
 
+const tutorIntroMuteCompletions = new WeakMap<object, () => void>();
+
 export function cancelTutorConversationReplayAll(view: KrenResultsViewProvider, stopSpeech = true): void {
+    // Muting stops sound but releases the opening. Stop, navigation and abort still cancel it.
+    const mutedIntro = !stopSpeech && !view.tutorState.conversation.speakerOn && view.tutorIntroCompletionWait;
+    const release = mutedIntro && tutorIntroMuteCompletions.get(mutedIntro);
+    if (release) release();
+    else cancelTutorIntroCompletion(view);
     if (!view.tutorConversationSpeechSequenceRunning &&
         !view.tutorState.conversation.replayAllSpeaking) return;
     view.tutorReplayAllGeneration += 1;
@@ -130,6 +139,52 @@ export function cancelTutorConversationReplayAll(view: KrenResultsViewProvider, 
     view.postTutorConversationStopState();
   }
 
+export function cancelTutorIntroCompletion(view: KrenResultsViewProvider): void {
+    view.tutorIntroCompletionWait?.cancel();
+  }
+
+/** The caller has finished reading the real intro. Live also needs native buffer completion. */
+export async function waitForTutorIntroCompletion(view: KrenResultsViewProvider,
+    isCurrent: () => boolean, signal?: AbortSignal, livePlayback = false, onPlaybackComplete?: () => void): Promise<boolean> {
+    if (signal?.aborted || !isCurrent()) return false;
+    cancelTutorIntroCompletion(view);
+    let canceled = false;
+    await new Promise<void>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stopReadAloud = view.actions.stopReadAloud;
+      const stopOpening = () => {
+        cancelTutorIntroCompletion(view);
+        cancelTutorConversationReplayAll(view, false);
+        stopReadAloud.call(view.actions);
+      };
+      const finish = () => {
+        if (timer !== undefined) clearTimeout(timer);
+        if (view.actions.stopReadAloud === stopOpening) view.actions.stopReadAloud = stopReadAloud;
+        signal?.removeEventListener('abort', cancel);
+        if (view.tutorIntroCompletionWait === wait) view.tutorIntroCompletionWait = undefined;
+        tutorIntroMuteCompletions.delete(wait);
+        resolve();
+      };
+      const cancel = () => { canceled = true; finish(); };
+      const playbackComplete = () => {
+        const completedAt = livePlayback && view.tutorLivePlaybackQueuedUntil > 0
+          ? view.tutorLivePlaybackQueuedUntil : Date.now();
+        if (timer === undefined) {
+          timer = setTimeout(finish, Math.max(0, completedAt + 1_000 - Date.now()));
+          onPlaybackComplete?.();
+        }
+      };
+      const wait = { cancel, playbackComplete };
+      tutorIntroMuteCompletions.set(wait, finish);
+      view.tutorIntroCompletionWait = wait;
+      // The host Stop action also owns a silent opening pause, when no reader is active.
+      view.actions.stopReadAloud = stopOpening;
+      signal?.addEventListener('abort', cancel, { once: true });
+      if (!livePlayback || view.tutorLivePlaybackBlockedUntil !== Number.POSITIVE_INFINITY) playbackComplete();
+    });
+    return !canceled && !signal?.aborted && isCurrent();
+  }
+
 export function tutorReplayLearnerEdgeVoice(view: KrenResultsViewProvider): string | undefined {
     return view.actions.settings().tutorReadAloudProvider === 'edgeOnline'
       ? tutorConversationVoicePlan(view).learner.edgeVoice : undefined;
@@ -141,7 +196,7 @@ export function tutorReplayLearnerLiveVoice(view: KrenResultsViewProvider): stri
 
   // The learner's voice is passed for this one Standard replay reading. The first V124 version
   // wrote it into settings and restored them afterwards, which a stopped replay could leave changed.
-export async function readTutorConversationText(view: KrenResultsViewProvider, text: string, utteranceVoice?: string): Promise<void> {
+export async function readTutorConversationText(view: KrenResultsViewProvider, text: string, utteranceVoice?: string, playbackBarrier?: SpeechPlaybackBarrier): Promise<void> {
     const settings = view.actions.settings();
     const voice = utteranceVoice ?? tutorVoiceForSource(settings, tutorConversationVoicePlan(view).current);
     const legacyVoice = tutorConversationSpeechVoice(settings, view.tutorState.conversation.liveVoice);
@@ -156,7 +211,12 @@ export async function readTutorConversationText(view: KrenResultsViewProvider, t
       ? { voice: override, conversation: view.tutorSpeechConversation } : undefined;
     view.tutorSpeechUtteranceVoice = reading;
     try {
-      await view.actions.readAloudText(text, 'en', 'tutor', ...(forwardedVoice ? [forwardedVoice] as const : [] as const));
+      if (playbackBarrier) tutorSpeechPlaybackBarriers.set(view.actions.readAloudText, playbackBarrier);
+      let pending: Promise<void>;
+      try {
+        pending = view.actions.readAloudText(text, 'en', 'tutor', ...(forwardedVoice ? [forwardedVoice] as const : [] as const));
+      } finally { tutorSpeechPlaybackBarriers.delete(view.actions.readAloudText); }
+      await pending;
     } finally {
       if (reading && view.tutorSpeechUtteranceVoice === reading) view.tutorSpeechUtteranceVoice = undefined;
     }
@@ -205,6 +265,7 @@ export async function openTutorReplayLearnerSession(view: KrenResultsViewProvide
   ): Promise<TutorLiveSession | undefined> {
     let stage = 'credential request';
     try {
+      const geminiProfile = view.actions.settings().tutorLiveProfile ?? 'standard';
       const credential = await view.actions.generateTutor(
         tutorLiveSessionCredentialRequest(), tutorLanguageModelRoute(view), controller.signal
       );
@@ -212,6 +273,7 @@ export async function openTutorReplayLearnerSession(view: KrenResultsViewProvide
       const apiKey = tutorLiveSessionCredential(credential);
       stage = 'session open';
       const session = new TutorLiveSession({
+        geminiProfile,
         apiKey,
         model: configuredTutorLiveModel(),
         voiceName: tutorReplayLearnerLiveVoice(view),
@@ -227,8 +289,9 @@ export async function openTutorReplayLearnerSession(view: KrenResultsViewProvide
       view.tutorLiveReplayLearnerSession = session;
       await session.connect();
       return session;
-    } catch {
+    } catch (error) {
       if (!controller.signal.aborted && replayGeneration === view.tutorReplayAllGeneration) {
+        view.showMissingCredentialError(error, true);
         view.actions.log(`[conversation Live replay learner voice failed] ${stage} failed; learner lines skipped.`);
       }
       view.tutorLiveReplayLearnerSession?.close();
@@ -360,10 +423,12 @@ export function speakTutorConversationSequence(view: KrenResultsViewProvider,
       postTutorReplayAllState(view, true);
     }
     void (async () => {
+      let introReady: Promise<boolean> | undefined;
+      let introReleased = false;
       try {
         for (const [index, utterance] of spoken.entries()) {
           if (generation !== view.tutorReplayAllGeneration) return;
-          if (index > 0 && introScene) {
+          if (index > 0 && introScene && !introReady) {
             view.tutorConversationIntroSpeaking = false;
             view.postTutorConversationStopState();
           }
@@ -387,17 +452,27 @@ export function speakTutorConversationSequence(view: KrenResultsViewProvider,
             arm(120_000);
             view.tutorConversationSpeechStarted = () => {
               if (generation !== view.tutorReplayAllGeneration) return;
-              arm(Math.min(600_000, Math.max(120_000, utterance.text.length * 180 + 30_000)));
+              const pauseDuration = Math.max(0, splitSpeechSentences(utterance.text).length - 1) *
+                sentencePause(view.actions.settings().tutorSentencePauseMilliseconds);
+              arm(Math.min(600_000, Math.max(120_000, utterance.text.length * 180 + 30_000) + pauseDuration));
               if (started) return;
               started = true;
-              onStart?.(index);
+              // A compatibility fallback can report readiness before playback is released.
+              if (index === 1 && introReady && !introReleased) {
+                void introReady.then(ready => {
+                  if (ready && generation === view.tutorReplayAllGeneration) onStart?.(index);
+                });
+              } else onStart?.(index);
             };
           });
           try {
             const plan = tutorConversationVoicePlan(view);
             const voices = utterance.voices ?? (utterance.speaker === 'learner' ? plan.learner : plan.current);
             await Promise.race([readTutorConversationText(view, utterance.text,
-              tutorVoiceForSource(view.actions.settings(), voices)), safety]);
+              tutorVoiceForSource(view.actions.settings(), voices), index === 1 && introReady
+                ? async () => Boolean(await introReady) && generation === view.tutorReplayAllGeneration && view.tutorState.conversation.speakerOn
+                : undefined), safety]);
+            if (introReady && !await introReady) return;
             // Failure, cancellation or a source without a start signal still releases text.
             if (!started && generation === view.tutorReplayAllGeneration) onStart?.(index);
           } finally {
@@ -406,6 +481,20 @@ export function speakTutorConversationSequence(view: KrenResultsViewProvider,
             if (view.tutorConversationOpeningWait?.timer === timer) view.tutorConversationOpeningWait = undefined;
           }
           if (generation !== view.tutorReplayAllGeneration) return;
+          if (index === 0 && introScene) {
+            introReady = waitForTutorIntroCompletion(view, () => generation === view.tutorReplayAllGeneration);
+            if (spoken.length === 1) { if (!await introReady) return; }
+            else {
+              void introReady.then(ready => {
+                if (!ready || generation !== view.tutorReplayAllGeneration) return;
+                introReleased = true;
+                view.tutorConversationIntroSpeaking = false;
+                view.postTutorConversationStopState();
+                onAdvance?.(1);
+              });
+              continue;
+            }
+          }
           onAdvance?.(index + 1);
         }
       } catch {

@@ -9,7 +9,8 @@ import * as vscode from 'vscode';
 
 vi.mock('vscode', () => ({
   commands: { executeCommand: vi.fn() },
-  window: { showWarningMessage: vi.fn() },
+  // Changed 2026-10-23 (V300, verification R28): missing-picture actions now use the shared modal popup.
+  window: { showWarningMessage: vi.fn(), showErrorMessage: vi.fn(async () => undefined) },
   env: { remoteName: undefined },
   Uri: { joinPath: (...parts: unknown[]) => parts },
   workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) }
@@ -366,8 +367,10 @@ describe('V166 situation picture', () => {
 
   it('offers a reachable, ADVANCED choice with the current default and remembers a validated value', () => {
     const $ = load(html());
-    const advanced = $('details[data-tutor-conversation-advanced]');
+    // Changed 2026-10-24 (V309, owner I80): Situation picture moved from ADVANCED to MODE.
+    const advanced = $('details[data-persist-id="tutor-conversation-mode"]');
     const control = advanced.find('[data-tutor-conversation-situation-picture]');
+    expect($('details[data-tutor-conversation-advanced]').find('[data-tutor-conversation-situation-picture]')).toHaveLength(0);
     expect(control.length).toBe(1);
     // 2026-10-01: V181 replaces the switch with a keyboard-reachable mode select.
     expect(control.is('select')).toBe(true);
@@ -619,7 +622,8 @@ describe('V166 situation picture', () => {
     const row = control.closest('.setting');
     // 2026-10-11: V218 inserts Picture style between Situation picture and transparency.
     expect(row.prev().find('[data-setting="tutor.conversation.pictureStyle"]')).toHaveLength(1);
-    expect(row.prev().prev().find('[data-tutor-conversation-situation-picture]')).toHaveLength(1);
+    // Changed 2026-10-24 (V309, owner I80): Situation picture moved to MODE; Reply length now precedes Picture style.
+    expect(row.prev().prev().find('[data-tutor-conversation-reply-length]')).toHaveLength(1);
     expect(control.closest('details').is('[data-tutor-conversation-advanced]')).toBe(true);
     expect(control.closest('label')).toHaveLength(1);
     expect(control.is('select')).toBe(true);
@@ -775,7 +779,8 @@ describe('V166 situation picture', () => {
       activeScreen: 'tutor', tutor, proModels: [], tutorConversationPicture: VALID_PNG
     });
     // 2026-10-01: V181b checks only a host-supplied committed turn after image initialization.
-    expect(rendered).toMatch(/initializeTutorConversationPicture\(\);\s*checkTutorDevelopingPicture\(null\);\s*applyConditionalSettings\(\);[\s\S]*?<\/script>/u);
+    // Changed 2026-10-22 (V296, owner I66/I71/I72): retain startup order while permitting usage measurement before conditional settings.
+    expect(rendered).toMatch(/initializeTutorConversationPicture\(\);\s*checkTutorDevelopingPicture\(null\);[\s\S]*?applyConditionalSettings\(\);[\s\S]*?<\/script>/u);
     for (const [complete, naturalWidth, shown] of [[true, 1, true], [true, 0, false], [false, 1, false]] as const) {
       const harness = pictureHarness(rendered, { complete, naturalWidth });
       expect(harness.picture.hidden).toBe(!shown);

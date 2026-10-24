@@ -1,3 +1,9 @@
+import {
+  DEFAULT_GEMINI_MODEL as coreDefaultGeminiModel,
+  DEFAULT_PRO_MODELS as coreDefaultProModels,
+  resolveRetiredGeminiModel,
+  normalizeModelSetting as coreNormalizeModelSetting
+} from '@kren/core';
 import { providerHttpError } from './httpError.js';
 import { ProviderError } from '../errors.js';
 
@@ -64,21 +70,18 @@ interface GeminiGeneration {
  * This is a default, never a constraint: every caller reads a user setting and falls back to
  * this only when the user has not chosen. The model field stays editable everywhere.
  */
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+export const DEFAULT_GEMINI_MODEL = coreDefaultGeminiModel;
 
 /** Resolve the retired identifier at read time; never rewrite a stored setting. */
 export function normalizeGeminiModel(model: string): string {
-  return model.trim().replace(/^(models\/)?gemini-3\.5-flash$/u, '$1gemini-3.6-flash');
+  return resolveRetiredGeminiModel(model);
 }
 
 export function normalizeModelSetting<T>(key: string, value: T): T {
-  return (typeof value === 'string' && /model$/iu.test(key) ? normalizeGeminiModel(value) : value) as T;
+  return coreNormalizeModelSetting(key, value);
 }
 
-export const DEFAULT_PRO_MODELS: GeminiModelOption[] = [
-  { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro Preview' },
-  { id: 'gemini-3.6-flash', displayName: 'Gemini 3.6 Flash' }
-];
+export const DEFAULT_PRO_MODELS: GeminiModelOption[] = coreDefaultProModels;
 
 /**
  * Build the two reader-facing catalogs from Google's advertised model metadata.

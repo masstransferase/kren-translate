@@ -192,9 +192,10 @@ describe('the clipboard route updates the panel without surfacing it', () => {
     expect(branch.slice(0, 800)).toContain('if (clipboardText) {');
   });
 
-  it('reports progress and completion in the status bar, never in a notification', () => {
+  it('reports completion through the shared information popup route', () => {
     const branch = source.slice(source.indexOf('if (shouldCopyRewriteToClipboard('));
-    expect(branch.slice(0, 900)).toContain('setStatusBarMessage');
-    expect(branch.slice(0, 900)).not.toContain("notify('information'");
+    // Changed 2026-10-23 (V301, verification R28): D20 routes copy confirmations to a popup with OK.
+    expect(branch.slice(0, 900)).toContain("notify('information'");
+    expect(branch.slice(0, 900)).not.toContain('setStatusBarMessage');
   });
 });

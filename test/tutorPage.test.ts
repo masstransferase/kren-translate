@@ -230,6 +230,8 @@ const settings: KrenPanelSettings = {
   tutorReadAloudVoice: 'Microsoft David Desktop',
   tutorReadAloudRate: 0,
   tutorReadAloudVolume: 100,
+  // 2026-10-21: V286 requires the tutor sentence pause default.
+  tutorSentencePauseMilliseconds: 0,
   quickMenuRewriteVariant: 'all',
   rewriteDomain: 'general',
   rewriteFormality: 'preserve',
@@ -372,6 +374,8 @@ function lessonReader(state: TutorViewState, restored: Record<string, boolean> =
     acquireVsCodeApi: () => ({ getState: () => saved, setState: (value: typeof saved) => { saved = value; } }),
     HTMLDetailsElement: Details,
     document: {
+      // Changed 2026-10-21 (owner, I56/I57): this disclosure-only adapter has no Conversation entry row.
+      querySelector: () => null,
       querySelectorAll: () => sections,
       addEventListener: (name: string, handler: typeof onToggle, capture: boolean) => {
         expect(name).toBe('toggle');
@@ -2488,21 +2492,23 @@ Follow the visible lesson recipe for level B2, 6 examples of 11 to 18 words, and
     expect(conversation).not.toContain('role="dialog"');
     expect(conversation).not.toContain('aria-modal');
 
+    // Changed 2026-10-21 (owner, I56/I57): select lesson explicitly to retain unfinished-source coverage.
     const emptyState = createTutorViewState();
+    emptyState.conversation.from = 'lesson';
     const empty = html(emptyState);
     // Changed 2026-09-16: V105 names this command in CSS, so inspect rendered controls
     // instead of mistaking a stylesheet selector for an available button.
-    // Changed 2026-10-05 (owner issue 17): while the lesson is unfinished only the reason and
-    // Source setting show; Start, Demo and Reset appear once the source is usable.
-    expect(load(empty)('button[data-command="startTutorConversation"]')).toHaveLength(0);
-    expect(load(empty)('button[data-command="startTutorConversationDemo"]')).toHaveLength(0);
-    expect(load(empty)('button[data-command="resetTutorConversationDefaults"]')).toHaveLength(0);
-    expect(load(empty)('button[data-command="useTutorSituationSource"]')).toHaveLength(1);
-    // Changed 2026-09-18: V114 names both Source alternatives in the blocked sentence.
-    expect(empty).toContain(
-      // Changed 2026-10-04: exact unavailable reason is part of the completion contract.
-      'Finish the lesson and its practice first.'
-    );
+    // Changed 2026-10-21 (owner, I56/I57): blocked actions stay reachable and explain completion in their tooltips.
+    for (const command of ['startTutorConversation', 'startTutorConversationDemo']) {
+      const button = load(empty)(`button[data-command="${command}"]`);
+      expect(button).toHaveLength(1);
+      expect(button.is('[disabled]')).toBe(true);
+      expect(button.attr('title')).toBe('Finish the lesson and its practice first.');
+    }
+    expect(load(empty)('[data-tutor-open-conversation-settings]:not([disabled])')).toHaveLength(1);
+    expect(load(empty)('button[data-command="resetTutorConversationDefaults"][hidden]')).toHaveLength(1);
+    expect(load(empty)('button[data-command="useTutorSituationSource"]')).toHaveLength(0);
+    expect(load(empty)('.tutor-conversation-start').text()).not.toContain('Finish the lesson and its practice first.');
   });
 
   it('V66 R1 says an unchanged answer was already correct and keeps the explanation', () => {

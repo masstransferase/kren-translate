@@ -211,7 +211,8 @@ it('Credentials shows only presence, Set and Remove, with the Translation-key no
 });
 it('the in-place source patch hides Edge-only rows and exposes Chirp speed without replacing the draft', () => {
   const source = readFileSync('src/resultViewHtml.ts', 'utf8');
-  const patch = source.split("document.querySelectorAll('[data-provider-for]').forEach((group) => {")[1]!.split("document.querySelectorAll('[data-gemini-profile-for]')")[0]!;
+  // Changed 2026-10-24 (V308, owner I77/I78/I79): isolate the provider loop because tutor summary updates now follow it.
+  const patch = source.split("document.querySelectorAll('[data-provider-for]').forEach((group) => {")[1]!.split('});')[0]! + '});';
   const states = new Map<string, boolean>();
   const groups = ['edgeOnline', 'googleChirp', 'windowsLocal'].map(expected => ({ hasAttribute: () => false,
     getAttribute: (name: string) => name === 'data-provider-for' ? 'tutor.readAloud.provider' : expected,

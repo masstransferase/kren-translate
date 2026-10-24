@@ -100,7 +100,8 @@ describe('V262 Speak and rephrase', () => {
     const unused = panel.document.querySelectorAll('[data-tutor-coach-unused]');
     expect(unused).toHaveLength(8);
     expect([...unused].map(row => row.querySelector('.setting-title')?.textContent)).toEqual([
-      'Situation', 'Swap roles', 'Who starts', 'Correction', 'Reply length', 'Situation picture', 'Picture style', 'Picture transparency'
+      // Changed 2026-10-24 (V309, owner I80): Situation picture now sits in MODE, before ADVANCED's Reply length.
+      'Situation', 'Swap roles', 'Who starts', 'Correction', 'Situation picture', 'Reply length', 'Picture style', 'Picture transparency'
     ]);
     for (const row of unused) {
       expect(row.querySelector('select, input')?.disabled).toBe(true);
@@ -175,6 +176,8 @@ describe('V262 Speak and rephrase', () => {
 
   it('opens Live with a local invitation and only the existing credential setup request', async () => {
     const h = harness();
+    // Changed 2026-10-23 (V304, owner I75): the invitation test starts with a stored Live key.
+    Object.assign(h.settings, { credentialPresence: { geminiDefault: true } });
     h.view.tutorState.conversation.replies = 'liveGemini';
     startTutorConversation(h.view); await flush();
     expect(h.view.tutorState.conversation.currentQuestion).toMatch(/English/u);

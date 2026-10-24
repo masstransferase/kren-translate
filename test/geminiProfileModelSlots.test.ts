@@ -268,7 +268,9 @@ describe('Explanation language is chosen from a list', () => {
   });
 
   it('tells the model to write in the source language, not in English', () => {
-    const gemini = readFileSync('src/providers/gemini.ts', 'utf8');
+    // Changed 2026-10-19: V269 (F7 run 2) moved this branch into core's providerRequests;
+    // read the installed copy VS Code runs. The exact sentence is also pinned by v269Requests.
+    const gemini = readFileSync('node_modules/@kren/core/src/providerRequests/features.ts', 'utf8');
     const at = gemini.indexOf('const explanationLanguage =');
     const branch = gemini.slice(at, gemini.indexOf(';', at));
     expect(branch).toContain('EXPLANATION_SAME_AS_SOURCE');

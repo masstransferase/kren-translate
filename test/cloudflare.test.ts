@@ -38,18 +38,21 @@ describe('Cloudflare Workers AI host boundary', () => {
     expect(form.get('prompt')).not.toContain(reference.picture);
     expect(fetcher).toHaveBeenCalledOnce();
   });
-  it.each(['other', 123, null])('V215 invalid host model %s falls back to schnell', async model => {
+  it.each(['other', 123, null])('V294 invalid host model %s falls back to klein', async model => {
     const fetcher = response({ result: { image: 'AQID' } });
     await generateCloudflareSituationPicture('Cafe.', 'account', 'credential', signal(), undefined, model);
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toMatch(/\/flux-1-schnell$/u);
-    expect(init.body).toBe(JSON.stringify(buildCloudflarePictureRequest('Cafe.')));
+    // Changed 2026-10-22 (V294, owner I60/I64): preserve explicit schnell and default to klein.
+    expect(url).toMatch(/\/flux-2-klein-4b$/u);
+    expect(init.body).toBeInstanceOf(FormData);
+    expect((init.body as FormData).get('prompt')).toBe(buildCloudflarePictureRequest('Cafe.').prompt);
   });
   it('V215 Cloudflare Image Model is a separate closed writable choice with the manifest default', () => {
     const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
     const setting = manifest.contributes.configuration.properties['kren.tutor.cloudflareImageModel'];
     expect(setting.enum).toEqual(['@cf/black-forest-labs/flux-1-schnell', '@cf/black-forest-labs/flux-2-klein-4b']);
-    expect(setting.default).toBe(setting.enum[0]);
+    // Changed 2026-10-22 (V294, owner I60/I64): preserve explicit schnell and default to klein.
+    expect(setting.default).toBe(setting.enum[1]);
     expect(setting.enumDescriptions).toHaveLength(2);
     expect(PANEL_SETTING_KEYS.has('tutor.cloudflareImageModel')).toBe(true);
     for (const model of setting.enum) expect(validatedPanelSetting('tutor.cloudflareImageModel', model)).toBe(model);
@@ -86,10 +89,12 @@ describe('Cloudflare Workers AI host boundary', () => {
     // 2026-10-10: V216 names the Picture Provider option Cloudflare free models exactly.
     expect(manual).toContain('Choose Cloudflare free models in Picture Provider and FLUX.1 schnell or FLUX.2 klein 4B in Image Model');
   });
+  // Changed 2026-10-22 (V294, owner I60/I64): preserve explicit schnell and default to klein.
   it('FLUX sends exact prompt/steps keys and no previous picture or extra reference fields', async () => {
     const fetcher = response({ success: true, result: { image: 'AQIDBA==' } });
     const reference = { picture: 'data:image/png;base64,UFJFVklPVVM=', turns: [{ speaker: 'learner' as const, text: 'Two teas, please.' }] };
-    await expect(generateCloudflareSituationPicture('Cafe scene.', 'account', 'credential', signal(), reference)).resolves.toBe('data:image/jpeg;base64,AQIDBA==');
+    await expect(generateCloudflareSituationPicture('Cafe scene.', 'account', 'credential', signal(), reference,
+      '@cf/black-forest-labs/flux-1-schnell')).resolves.toBe('data:image/jpeg;base64,AQIDBA==');
     expect(fetcher).toHaveBeenCalledOnce();
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/account/ai/run/@cf/black-forest-labs/flux-1-schnell');
@@ -144,8 +149,12 @@ describe('Cloudflare Workers AI host boundary', () => {
   });
   it.each([['', 'credential'], ['account', ''], ['', '']])('requires both host credentials', async (account, token) => {
     const fetcher = response({});
-    await expect(generateCloudflareSituationPicture('Cafe.', account!, token!, signal())).rejects.toThrow(CLOUDFLARE_PICTURE_CREDENTIALS);
-    await expect(transcribeCloudflareAudio(account!, token!, Uint8Array.of(1), signal())).rejects.toThrow(/account ID and API token/u);
+    // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+    const missing = [...(!account ? ['account ID'] : []), ...(!token ? ['API token'] : [])];
+    for (const pending of [generateCloudflareSituationPicture('Cafe.', account!, token!, signal()),
+      transcribeCloudflareAudio(account!, token!, Uint8Array.of(1), signal())]) {
+      await expect(pending).rejects.toMatchObject({ missingCredentials: { provider: 'cloudflare', slots: missing, action: 'openCredentials' } });
+    }
     expect(fetcher).not.toHaveBeenCalled();
   });
   it('loads both SecretStorage slots and bypasses Gemini for Cloudflare dictation', async () => {
@@ -155,7 +164,8 @@ describe('Cloudflare Workers AI host boundary', () => {
     expect(runtime.getSecret).toHaveBeenCalledWith(KREN_SECRET_KEYS.cloudflareAccountId);
     expect(runtime.getSecret).toHaveBeenCalledWith(KREN_SECRET_KEYS.cloudflareApiToken);
     expect(runtime.getSecret).not.toHaveBeenCalledWith(KREN_SECRET_KEYS.gemini);
-    expect(runtime.beforeLanguageModelRequest).not.toHaveBeenCalled();
+    // Changed 2026-10-21 (V289): consent before Groq and Cloudflare transcription.
+    expect(runtime.beforeLanguageModelRequest).toHaveBeenCalledExactlyOnceWith('cloudflare', 'standard');
     expect(fetcher).toHaveBeenCalledOnce();
   });
   it('auto chooses Handy then configured Cloudflare then configured Gemini', () => {

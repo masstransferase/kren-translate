@@ -132,6 +132,8 @@ it.each(['opening', 'reply'])('V230 mounted %s keeps ordering and voice reveal a
   if (kind === 'reply') expect(transcript(h)).toContain(first);
   h.panel().audioEnd(); await flush(); await refreshDuringSpeech(h);
   h.panel().audioStart(); await refreshDuringSpeech(h); h.panel().audioEnd(); await flush();
+  // Changed 2026-10-22 (V295): only the real intro adds a one-second barrier.
+  if (kind === 'opening') await vi.advanceTimersByTimeAsync(1_000);
   expect(transcript(h)).not.toContain(opening.opening);
   h.panel().audioStart(); await flush(); expect(transcript(h)).toContain(opening.opening);
   h.panel().audioEnd(); await flush();

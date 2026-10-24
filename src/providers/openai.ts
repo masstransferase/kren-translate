@@ -1,3 +1,6 @@
+import { buildOpenAIRequestBody, explanationSchema, rewriteSchema, readOpenAIFeatureResponse, type OpenAIReasoningEffort } from '@kren/core/provider-requests';
+export { buildOpenAIRequestBody, explanationSchema, rewriteSchema, type OpenAIReasoningEffort };
+import { readCoreOutput } from './gemini.js';
 import { readProviderListedIds } from './geminiModels.js';
 import { requestWithRetry } from '../requestCenter.js';
 import { providerHttpError } from './httpError.js';
@@ -16,7 +19,7 @@ import {
   rewriteSystemInstruction,
   systemInstruction
 } from './gemini.js';
-import { REWRITE_VARIANT_IDS } from '../rewriteVariants.js';
+
 import { requestStructuredJson } from './structuredJsonTransport.js';
 import type { CompatibleProvider } from './openAICompatible.js';
 import type { LanguageModelRoutingEffort } from '../languageModelRouting.js';
@@ -44,15 +47,6 @@ export class CompatibleLanguageModelProvider implements LanguageModelProvider {
   }
 }
 
-export type OpenAIReasoningEffort = 'auto' | 'none' | 'low' | 'medium' | 'high';
-
-interface OpenAIResponse {
-  output?: Array<{
-    type?: unknown;
-    content?: Array<{ type?: unknown; text?: unknown; refusal?: unknown }>;
-  }>;
-  error?: { message?: unknown };
-}
 export interface LanguageModelOption {
   id: string;
   displayName: string;
@@ -124,41 +118,10 @@ export class OpenAIProvider implements LanguageModelProvider {
         : providerHttpError('OpenAI', status), status === 401 || status === 403 ? 'setOpenAIKey' : 'configureOpenAIModel', retryable, status),
       refused: () => new ProviderError('OpenAI declined the request.', undefined, false, undefined, 'refused'),
       decode: envelope => {
-        const raw = openAIOutputText((envelope ?? {}) as OpenAIResponse);
-        if (!raw) throw new ProviderError('OpenAI returned no usable text output.', undefined, false, undefined, 'structuredOutput');
-        return parseJson(raw, 'OpenAI');
+        return readCoreOutput(() => readOpenAIFeatureResponse(envelope));
       }
     });
   }
-}
-
-export function buildOpenAIRequestBody(
-  model: string,
-  instructions: string,
-  text: string,
-  schemaName: string,
-  schema: Record<string, unknown>,
-  reasoningEffort: OpenAIReasoningEffort = 'auto'
-): Record<string, unknown> {
-  return {
-    model,
-    instructions,
-    input: [{
-      role: 'user',
-      content: [{ type: 'input_text', text }]
-    }],
-    store: false,
-    max_output_tokens: 4096,
-    text: {
-      format: {
-        type: 'json_schema',
-        name: schemaName,
-        strict: true,
-        schema
-      }
-    },
-    ...(reasoningEffort === 'auto' ? {} : { reasoning: { effort: reasoningEffort } })
-  };
 }
 
 export async function listOpenAIModels(
@@ -194,65 +157,6 @@ export async function listOpenAIModelsUnfiltered(apiKey: string, signal: AbortSi
   if (!response.ok) throw new ProviderError(providerHttpError('OpenAI', response.status),
     response.status === 401 || response.status === 403 ? 'setOpenAIKey' : 'configureOpenAIModel');
   return readProviderListedIds(response, 'data');
-}
-
-function openAIOutputText(payload: OpenAIResponse): string | undefined {
-  for (const item of payload.output ?? []) {
-    for (const content of item.content ?? []) {
-      if (content.type === 'refusal' && typeof content.refusal === 'string') {
-        throw new ProviderError('OpenAI declined the request.', undefined, false, undefined, 'refused');
-      }
-      if (content.type === 'output_text' && typeof content.text === 'string' && content.text.trim()) {
-        return content.text.trim();
-      }
-    }
-  }
-  return undefined;
-}
-
-export function explanationSchema(): Record<string, unknown> {
-  return {
-    type: 'object',
-    additionalProperties: false,
-    required: ['kind', 'translatedText', 'alternatives', 'note'],
-    properties: {
-      kind: { type: 'string', enum: ['translation'] },
-      translatedText: { type: 'string' },
-      alternatives: { type: 'array', items: { type: 'string' }, maxItems: 3 },
-      note: { type: 'string' }
-    }
-  };
-}
-
-export function rewriteSchema(request: RewriteRequest): Record<string, unknown> {
-  const includeChangeNotes = request.includeChangeNotes === true;
-  const variantProperties: Record<string, unknown> = {
-    id: { type: 'string', enum: REWRITE_VARIANT_IDS },
-    label: { type: 'string' },
-    text: { type: 'string' }
-  };
-  if (includeChangeNotes) variantProperties.changeNote = { type: 'string' };
-  const count = request.operation === 'rewrite' ? REWRITE_VARIANT_IDS.length : 1;
-  return {
-    type: 'object',
-    additionalProperties: false,
-    required: ['kind', 'detectedLanguage', 'variants'],
-    properties: {
-      kind: { type: 'string', enum: ['rewrite'] },
-      detectedLanguage: { type: 'string' },
-      variants: {
-        type: 'array',
-        minItems: count,
-        maxItems: count,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: includeChangeNotes ? ['id', 'label', 'text', 'changeNote'] : ['id', 'label', 'text'],
-          properties: variantProperties
-        }
-      }
-    }
-  };
 }
 
 function boundedAttempts(value: number): number {

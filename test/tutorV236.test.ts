@@ -11,7 +11,7 @@ import { mountedPanel } from './support/mountedPanel.js';
 import { tutorLessonConversationReadiness } from '../src/tutor/lessonConversation.js';
 import { renderTutorExercises, renderKrenResultViewHtml } from '../src/resultViewHtml.js';
 import { tutorExerciseGenerationRequest, tutorLessonGenerationRequest, validateTutorExamplePracticeSet, type TutorStructuredGenerationRequest, type TutorExamplePracticeSet } from '../src/tutor/generation.js';
-import type { KrenResultsViewProvider } from '../src/resultsView.js';
+import { KrenResultsViewProvider } from '../src/resultsView.js';
 import { PANEL_SETTINGS_FIXTURE } from './support/panelSettingsFixture.js';
 import { routedModel } from '../src/providers/openAICompatible.js';
 import { PanelNoticeQueue, panelNoticeScript, type PanelNotice } from '../src/panelNotices.js';
@@ -44,6 +44,8 @@ function fixture() {
 function viewFor(state: ReturnType<typeof createTutorViewState>, generateTutor: ReturnType<typeof vi.fn>) {
   const testNotices = new PanelNoticeQueue(() => true, async () => true, async () => undefined);
   return {
+    // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+    showMissingCredentialError: KrenResultsViewProvider.prototype.showMissingCredentialError,
     tutorState: state, tutorGeneration: 0, tutorExampleControllers: new Map(), render: vi.fn(), testNotices,
     actions: { generateTutor, settings: () => ({ tutorModel: 'gemini-current' }), log: vi.fn(),
       notify: vi.fn((_kind: string, message: string) => { void testNotices.show('error', message); }) }
@@ -180,7 +182,7 @@ it('1.6 retries unusable excerpts once for every provider and for Regenerate, th
   }
 });
 
-it('1.7 retains the lesson and owned practice after a switched-provider Redraft failure and opens the existing popup', async () => {
+it('1.7 retains the lesson and owned practice after a switched-provider Redraft failure and shows its cause beside the actions', async () => {
   for (const provider of ['gemini', 'groq'] as const) {
     for (const invalid of [false, true]) {
       const { state, lesson } = fixture();
@@ -196,15 +198,22 @@ it('1.7 retains the lesson and owned practice after a switched-provider Redraft 
       }
       const calls = generate.mock.calls as unknown as Array<[TutorStructuredGenerationRequest, { provider: string; model: string }]>;
       expect(calls[0]![1]).toMatchObject({ provider, model: routedModel(provider, 'gemini-current') });
-      expect(view.actions.notify).toHaveBeenCalledWith('error', expect.stringMatching(invalid ? /examples/iu : /unavailable after switch/iu));
+      // Changed 2026-10-23 (V305, owner I74/D41 A): preserve the failure and recovery checks beside the actions instead of in a duplicate card.
+      expect(view.actions.notify).not.toHaveBeenCalled();
       const page = load(renderKrenResultViewHtml({ nonce: 'test', cspSource: '', settings: PANEL_SETTINGS_FIXTURE, proModels: [],
         panelNotices: view.testNotices.snapshot(), tutor: view.tutorState, activeScreen: 'tutor' }));
       expect(page('[data-command="generateTutorLesson"]').text()).toMatch(/redraft/iu);
       const popup = popupReader(view.testNotices.snapshot());
-      expect(popup.elements.find(element => element.attributes.get('role') === 'alertdialog')).toBeDefined();
-      expect(popup.elements.map(element => element.textContent).join(' ')).toMatch(invalid ? /examples/iu : /unavailable after switch/iu);
-      expect(popup.active().tag).toBe('button');
-      expect(popup.active().textContent).toBe('OK');
+      expect(popup.elements.find(element => element.attributes.get('role') === 'alertdialog')).toBeUndefined();
+      expect(page('[data-tutor-action-status] .tutor-failure').text()).toMatch(invalid ? /examples/iu : /unavailable after switch/iu);
+      expect(page('[data-tutor-action-status]').parents('details, [hidden], .hidden')).toHaveLength(0);
+      const reader = mountedPanel(page.html(), () => {});
+      const redraft = reader.query('[data-command="generateTutorLesson"]')!;
+      expect(redraft.disabled).toBe(false);
+      expect(redraft.closest('details, [hidden], .hidden')).toBeNull();
+      redraft.focus();
+      expect(reader.document.activeElement?.tagName).toBe('BUTTON');
+      expect(reader.document.activeElement?.textContent).toBe('Redraft');
     }
   }
 });

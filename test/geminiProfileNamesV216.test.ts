@@ -1,9 +1,12 @@
+// Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+import { missingCredentialError } from '../src/requestCenter.js';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { load } from 'cheerio';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, env: {},
+// Changed 2026-10-23 (V300, verification R28): missing-picture actions now use the shared modal popup.
+vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, env: {}, window: { showErrorMessage: vi.fn(async () => undefined) },
   workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) } }));
 
 import { renderKrenResultViewHtml } from '../src/resultViewHtml.js';
@@ -16,7 +19,8 @@ import { PANEL_SETTINGS_FIXTURE } from './support/panelSettingsFixture.js';
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 // 2026-10-10: No exceptions. Stored identifiers and script comments are not reader-visible text.
 const oldNames = /Default Gemini|Alternate Gemini|default Gemini profile|alternate Gemini profile|Default profile|Alternate profile/iu;
-const missingNotice = 'Pictures paused: no Gemini Paid key is set. The conversation continues without pictures.';
+// Changed 2026-10-22 (V294, owner I60/I64): deferred V293 picture notice names Paid and Credentials.
+const missingNotice = 'Set your Gemini Paid API key in KREN menu, Credentials.';
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
 function harness(paid = true) {
@@ -51,7 +55,7 @@ function hostPictureAction(profile: 'standard' | 'pro', paid = true) {
   const beforeGeminiRequest = vi.fn(async (_profile: string) => undefined);
   const generate = vi.fn(async () => 'data:image/png;base64,AAAA');
   const callback = runInNewContext('(' + action + ')', { context: {},
-    extensionRuntime: () => ({ getSecret, beforeGeminiRequest }), KREN_SECRET_KEYS, TUTOR_DEFAULTS,
+    extensionRuntime: () => ({ getSecret, beforeGeminiRequest }), KREN_SECRET_KEYS, TUTOR_DEFAULTS, missingCredentialError,
     readPanelSettings: () => ({ tutorProfile: profile, tutorPictureProvider: 'gemini' }),
     vscode: { workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) } },
     generateSituationPicture: generate }) as (scene: string, signal: AbortSignal) => Promise<string>;

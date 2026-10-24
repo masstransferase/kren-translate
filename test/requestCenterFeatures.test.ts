@@ -12,6 +12,8 @@ import { PANEL_SETTINGS_FIXTURE } from './support/panelSettingsFixture.js';
 
 const route: TutorLanguageModelRoute = { provider: 'gemini', model: TUTOR_MODELS.gemini.thorough,
   geminiProfile: 'standard', thinkingOrEffort: 'auto', fallbackEnabled: true,
+  // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+  fastModel: 'gemini-reader-fast',
   fallbackModel: 'gemini-fallback', fallbackThinkingOrEffort: 'low' };
 const request = { kind: 'lesson' as const, instruction: 'Return JSON.', input: '{}', schema: {}, schemaName: 'probe' };
 const signal = () => new AbortController().signal;
@@ -125,7 +127,8 @@ describe('V257 actual feature routes', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(busy));
     const failure = await caught(runTutorStructuredRequest(runtime({ 'llm.providerSwitch': false }), route, request, signal()));
     const outcome = recordedRequestOutcome(failure);
-    expect(outcome?.history.map(item => item.route.model)).toEqual([route.model, route.fallbackModel]);
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    expect(outcome?.history.map(item => item.route.model)).toEqual([route.model, route.fastModel]);
     expect(tutorConversationFailureMessage(view(), failure)).toMatch(/so was the fallback model/iu);
   });
 

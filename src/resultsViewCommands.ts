@@ -146,7 +146,6 @@ type ResultsViewCommand =
   | 'updateTutorEdgeMaleVoice'
   | 'updateTutorGeminiFemaleVoice'
   | 'updateTutorGeminiMaleVoice'
-  | 'useTutorSituationSource'
   | 'startTutorConversation'
   | 'startNewTutorConversation'
   | 'startTutorConversationDemo'
@@ -371,7 +370,6 @@ function isCommandMessage(value: unknown): value is {
       command !== 'updateTutorEdgeMaleVoice' &&
       command !== 'updateTutorGeminiFemaleVoice' &&
       command !== 'updateTutorGeminiMaleVoice' &&
-      command !== 'useTutorSituationSource' &&
       command !== 'diagnoseTutorConversation' &&
       command !== 'reviewTutorConversation' &&
       command !== 'resumeTutorConversation' &&

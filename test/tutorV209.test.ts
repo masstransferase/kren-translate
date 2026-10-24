@@ -5,6 +5,8 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
+import { effectivePictureSettings } from '../src/tutor/pictureSettings.js';
 
 const boundary = vi.hoisted(() => ({
   mkdtemp: vi.fn(async () => 'unused'), readFile: vi.fn(), rm: vi.fn(async () => undefined),
@@ -23,7 +25,8 @@ vi.mock('vscode', () => ({
   commands: { executeCommand: vi.fn() }, env: {},
   Uri: { joinPath: (...parts: unknown[]) => parts },
   workspace: { getConfiguration: () => ({ get: (key: string, fallback: unknown) => boundary.configuration.get(key) ?? fallback }) },
-  window: { showWarningMessage: vi.fn(async () => 'Reset panel') }
+  // Changed 2026-10-23 (V300, verification R28): feature credential failures now reach the shared modal popup.
+  window: { showWarningMessage: vi.fn(async () => 'Reset panel'), showErrorMessage: vi.fn(async () => undefined) }
 }));
 
 import { KrenResultsViewProvider } from '../src/resultsView.js';
@@ -35,7 +38,7 @@ import { writeTutorPracticeHint } from '../src/resultsViewHints.js';
 import { replaceTutorExerciseSet } from '../src/tutor/state.js';
 import { renderKrenResultViewHtml, renderTutorConversation, renderTutorExercises } from '../src/resultViewHtml.js';
 import { PANEL_SETTINGS_FIXTURE } from './support/panelSettingsFixture.js';
-import { transcribeCloudflareAudio, CloudflareAiError, CLOUDFLARE_PICTURE_ALLOWANCE, CLOUDFLARE_PICTURE_CREDENTIALS } from '../src/providers/cloudflare.js';
+import { transcribeCloudflareAudio, CloudflareAiError, CLOUDFLARE_PICTURE_ALLOWANCE } from '../src/providers/cloudflare.js';
 import { ensureTutorConversationPicture, cancelTutorConversationPicture } from '../src/resultsViewConversation.js';
 import { generateCloudflareSituationPicture } from '../src/providers/situationPicture.js';
 import { reconcileTutorPictureProviderChange } from '../src/resultsViewSettings.js';
@@ -242,11 +245,20 @@ describe('V215 Cloudflare Image Model and diagnostics', () => {
 
   it('V215 host validates the saved Cloudflare model and passes it with SecretStorage credentials', async () => {
     const source = readFileSync('src/extension.ts', 'utf8');
-    const expression = source.slice(source.indexOf('tutorCloudflareImageModel:') + 'tutorCloudflareImageModel:'.length, source.indexOf('    tutorImageModel:'))
-      .trim().replace(/,\s*$/u, '').replace(' as string | undefined', '').replace('config.get<string>', 'config.get');
-    const readModel = (value: string) => runInNewContext(expression, { config: { get: () => value }, validatedPanelSetting, CLOUDFLARE_IMAGE_MODEL_DEFAULT });
+    // Changed 2026-10-22 (V294, owner I60/I64): inspect feeds the shared resolver; transport still rejects an invalid model.
+    const start = source.indexOf('...effectivePictureSettings(') + 3;
+    const expression = source.slice(start, source.indexOf('    tutorImageModel:', start)).trim().replace(/,\s*$/u, '');
+    const readModel = (value?: string) => runInNewContext(ts.transpileModule('result = ' + expression,
+      { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+      pictureConfiguration: { inspect: (key: string) => key === 'tutor.cloudflareImageModel' ? { globalValue: value } : {} },
+      effectivePictureSettings, storedSecretKeys: new Set(), KREN_SECRET_KEYS: {}
+    }).tutorCloudflareImageModel;
     expect(readModel('@cf/black-forest-labs/flux-2-klein-4b')).toBe('@cf/black-forest-labs/flux-2-klein-4b');
-    expect(readModel('other')).toBe(CLOUDFLARE_IMAGE_MODEL_DEFAULT);
+    expect(readModel(undefined)).toBe(CLOUDFLARE_IMAGE_MODEL_DEFAULT);
+    const fetcher = vi.fn(async (_url: unknown, _init: unknown) => new Response(JSON.stringify({ result: { image: 'AQID' } })));
+    vi.stubGlobal('fetch', fetcher);
+    await generateCloudflareSituationPicture('Cafe.', 'account', 'credential', new AbortController().signal, undefined, readModel('other'));
+    expect(fetcher.mock.calls[0]?.[0]).toContain(CLOUDFLARE_IMAGE_MODEL_DEFAULT);
     const action = source.slice(source.indexOf('generateSituationPicture: async') + 'generateSituationPicture: '.length, source.indexOf('    transcribeTutorAudio:')).trim().replace(/,$/u, '');
     const generate = vi.fn(async () => 'picture');
     const getSecret = vi.fn(async (key: string) => key);
@@ -497,7 +509,9 @@ describe('V213 Cloudflare panel and in-memory dictation', () => {
     h.actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorPictureProvider: 'cloudflare', credentialPresence: { geminiDefault: true, cloudflareAccountId: true } } as never);
     ensureTutorConversationPicture(h.view);
     expect(h.actions.generateSituationPicture).not.toHaveBeenCalled();
-    expect(h.view.tutorState.conversation.picturePaused).toBe(CLOUDFLARE_PICTURE_CREDENTIALS);
+    // Changed 2026-10-23 (V300, verification R28): the stored account ID is omitted from the missing-token message.
+    expect(h.view.tutorState.conversation.picturePaused).toMatch(/Cloudflare.*API token.*Credentials/u);
+    expect(h.view.tutorState.conversation.picturePaused).not.toContain('account ID');
     h.actions.settings.mockReturnValue({ ...h.actions.settings(), credentialPresence: { cloudflareAccountId: true, cloudflareApiToken: true } } as never);
     h.actions.generateSituationPicture.mockRejectedValue(new CloudflareAiError(CLOUDFLARE_PICTURE_ALLOWANCE, true));
     ensureTutorConversationPicture(h.view);
@@ -517,7 +531,8 @@ describe('V213 Cloudflare panel and in-memory dictation', () => {
     h.view.tutorState.conversation.draftAnswer = 'Keep my answer';
     const htmlBefore = h.view.view!.webview.html;
     ensureTutorConversationPicture(h.view);
-    expect(h.view.tutorState.conversation.picturePaused).toMatch(/no Gemini Paid key/u);
+    // Changed 2026-10-22 (V294, owner I60/I64): the deferred V293 absence names Paid and the Credentials destination.
+    expect(h.view.tutorState.conversation.picturePaused).toMatch(/Gemini Paid.*KREN menu, Credentials/u);
     await h.message('updateSetting', { key: 'tutor.pictureProvider', value: 'cloudflare' });
     await flush();
     expect(h.actions.generateSituationPicture).toHaveBeenCalledOnce();

@@ -1,3 +1,4 @@
+import { missingCredentialsOf, missingCredentialMessage } from './requestCenter.js';
 import { tutorConversationRequestControls } from './tutor/generation.js';
 import { cancelTutorTakeHome, finalizeTutorTakeHome } from './resultsViewTakeHome.js';
 import { TUTOR_DEFAULTS } from './tutor/defaults.js';
@@ -7,8 +8,8 @@ import { createTutorReadOnlySession } from './tutor/readOnlySpeech.js';
 import { tutorLessonConversationReadiness, tutorLessonConversationContext, resolveTutorConversationSituation, tutorLiveTargetMarks, tutorTargetRanges } from './tutor/lessonConversation.js';
 import { cancelTutorConversationPicture, ensureTutorConversationPicture, showTutorConversationScene } from './resultsViewConversation.js';
 import { generateTutorConversation } from './resultsViewConversation.js';
-import { tutorLanguageModelRoute } from './resultsViewConversation.js';
-import { stopTutorLiveAudio, failTutorLiveAudio, playTutorLiveAudio } from './resultsViewLive.js';
+import { guardTutorLiveStart, tutorLanguageModelRoute } from './resultsViewConversation.js';
+import { stopTutorLiveAudio, failTutorLiveAudio, playTutorLiveAudio, tutorLivePlaybackProgress, holdTutorLiveOpeningAudio } from './resultsViewLive.js';
 import { tutorFailureMessage } from './resultsViewErrors.js';
 import type { KrenResultsViewProvider } from './resultsView.js';
 import { findTutorSituation, tutorCustomSituation, findTrainingMapNode } from '@kren/core/tutor';
@@ -35,7 +36,7 @@ import {
 } from './tutor/state.js';
 import { TutorLiveSession } from './tutor/liveSession.js';
 import { configuredTutorLiveModel } from './resultsViewConfiguration.js';
-import { cancelTutorConversationReplayAll, closeTutorReplayAudioPlayer, readTutorConversationText } from './resultsViewReplay.js';
+import { cancelTutorConversationReplayAll, closeTutorReplayAudioPlayer, readTutorConversationText, cancelTutorIntroCompletion, waitForTutorIntroCompletion } from './resultsViewReplay.js';
 
 export const TUTOR_DEMO_EXCHANGE_GAP_MS = 1_000;
 
@@ -54,6 +55,7 @@ export function tutorDemoLiveVoice(view: KrenResultsViewProvider, speaker: Tutor
   }
 
 export function closeTutorDemoResources(view: KrenResultsViewProvider, stopSpeech = true): void {
+    cancelTutorIntroCompletion(view);
     view.tutorDemoGeneration += 1;
     view.tutorDemoController?.abort();
     view.tutorDemoController = undefined;
@@ -103,7 +105,7 @@ export async function openTutorDemoLiveSessions(view: KrenResultsViewProvider,
       const audioGeneration = ++view.tutorLiveAudioGeneration;
       const player = await view.waveOutPlayer.start((error) => {
         failTutorLiveAudio(view, error, audioGeneration);
-      });
+      }, (completed, queued) => tutorLivePlaybackProgress(view, completed, queued, audioGeneration));
       if (controller.signal.aborted || generation !== view.tutorDemoGeneration) {
         player.close();
         return;
@@ -113,6 +115,7 @@ export async function openTutorDemoLiveSessions(view: KrenResultsViewProvider,
     }
     const sessions = Object.fromEntries((['male', 'female'] as const).map((speaker) => {
       const session = createTutorReadOnlySession({
+        geminiProfile: view.actions.settings().tutorLiveProfile ?? 'standard',
         apiKey,
         model: configuredTutorLiveModel(),
         voiceName: tutorDemoLiveVoice(view, speaker),
@@ -121,6 +124,9 @@ export async function openTutorDemoLiveSessions(view: KrenResultsViewProvider,
           if (!controller.signal.aborted && generation === view.tutorDemoGeneration) {
             playTutorLiveAudio(view, chunk);
           }
+        },
+        onInterrupted: () => {
+          if (generation === view.tutorDemoGeneration && view.tutorIntroCompletionWait) closeTutorDemoResources(view);
         }
       });
       return [speaker, session];
@@ -132,20 +138,25 @@ export async function openTutorDemoLiveSessions(view: KrenResultsViewProvider,
 export async function speakTutorDemoText(view: KrenResultsViewProvider,
     text: string,
     speaker: TutorConversationDemoSpeaker | undefined,
-    generation: number
+    generation: number,
+    introReady?: Promise<boolean>
   ): Promise<boolean> {
     if (generation !== view.tutorDemoGeneration) return false;
+    if (!view.tutorState.conversation.speakerOn) return true;
     if (view.tutorState.conversation.replies === 'liveGemini' && view.actions.settings().tutorReadAloudProvider !== 'googleChirp') {
       const chosen = speaker ?? view.tutorDemoCounterpartGender;
       const session = view.tutorDemoLiveSessions[chosen];
       if (!session) return false;
       stopTutorLiveAudio(view);
+      if (introReady) holdTutorLiveOpeningAudio(view, introReady);
       await session.sendTurn(`Read exactly this sentence: ${JSON.stringify(text)}`);
+      if (introReady && !await introReady) return false;
       return waitForTutorDemoAudio(view, generation);
     }
     await readTutorConversationText(view, text, view.actions.settings().tutorReadAloudProvider === 'googleChirp'
       ? tutorDemoLiveVoice(view, speaker ?? view.tutorDemoCounterpartGender)
-      : speaker && view.actions.settings().tutorReadAloudProvider === 'edgeOnline' ? tutorDemoEdgeVoice(view, speaker) : undefined);
+      : speaker && view.actions.settings().tutorReadAloudProvider === 'edgeOnline' ? tutorDemoEdgeVoice(view, speaker) : undefined,
+      introReady ? async () => await introReady && generation === view.tutorDemoGeneration && view.tutorState.conversation.speakerOn : undefined);
     return generation === view.tutorDemoGeneration;
   }
 
@@ -234,15 +245,17 @@ export async function requestTutorDemoBatch(view: KrenResultsViewProvider,
     return tutorConversationDemoBatch(value, exchanges);
   }
 
-export function startTutorConversationDemo(view: KrenResultsViewProvider): void {
+export function startTutorConversationDemo(view: KrenResultsViewProvider, confirmedLiveChoice = false): void {
     const setup = view.tutorState.conversation;
     if (setup.status !== 'idle') return;
     if (setup.from === 'lesson' && !tutorLessonConversationReadiness(view.tutorState).ready) {
       void showTutorLessonUnavailable(view); return;
     }
     if (!setup.speakerOn) return;
+    if (!guardTutorLiveStart(view, () => startTutorConversationDemo(view, true))) return;
     cancelTutorTakeHome(view);
-    if (!tutorDemoAvailable(setup.replies, view.actions.settings())) return;
+    // The explicit Standard choice must start Demo, because missing Chirp speech already has a fallback.
+    if (!confirmedLiveChoice && setup.replies !== 'liveGemini' && !tutorDemoAvailable(setup.replies, view.actions.settings())) return;
     const castInput = tutorDemoCastRequest(view);
     if (!castInput) return;
     cancelTutorConversationReplayAll(view);
@@ -297,6 +310,18 @@ export function startTutorConversationDemo(view: KrenResultsViewProvider): void 
         let pendingBatch = requestTutorDemoBatch(view, cast, transcript, exchanges, controller);
         void pendingBatch.catch(() => undefined);
         if (!await speakTutorDemoText(view, cast.scene, undefined, generation)) return;
+        const livePlayback = setup.replies === 'liveGemini' && view.actions.settings().tutorReadAloudProvider !== 'googleChirp';
+        let audioEnded!: () => void;
+        const ended = new Promise<void>(resolve => { audioEnded = resolve; });
+        const introReady = waitForTutorIntroCompletion(view,
+          () => generation === view.tutorDemoGeneration, controller.signal,
+          livePlayback, audioEnded);
+        void introReady.then(ready => {
+          audioEnded();
+          if (!ready && generation === view.tutorDemoGeneration) closeTutorDemoResources(view, false);
+        });
+        if (livePlayback) await ended;
+        let firstLine = true;
         while (!controller.signal.aborted && generation === view.tutorDemoGeneration) {
           const lines = await pendingBatch;
           if (controller.signal.aborted || generation !== view.tutorDemoGeneration) return;
@@ -310,9 +335,16 @@ export function startTutorConversationDemo(view: KrenResultsViewProvider): void 
           if (nextBatch) void nextBatch.catch(() => undefined);
           for (const line of lines) {
             if (controller.signal.aborted || generation !== view.tutorDemoGeneration) return;
-            if (!await waitForTutorDemoExchange(view, generation, controller.signal)) return;
+            if (!firstLine && !await waitForTutorDemoExchange(view, generation, controller.signal)) return;
+            const firstReady = firstLine ? introReady : undefined;
+            firstLine = false;
+            const speech = speakTutorDemoText(view, line.text, line.speaker, generation, firstReady);
+            // Cancellation can reject sendTurn while the mark is still being awaited.
+            void speech.catch(() => undefined);
+            if (firstReady && !await firstReady) return;
+            if (controller.signal.aborted || generation !== view.tutorDemoGeneration) return;
             postTutorDemoLine(view, line, cast);
-            if (!await speakTutorDemoText(view, line.text, line.speaker, generation)) return;
+            if (!await speech) return;
           }
           transcript = continuedTranscript;
           if (!nextBatch) break;
@@ -330,13 +362,15 @@ export function startTutorConversationDemo(view: KrenResultsViewProvider): void 
         finalizeTutorTakeHome(view);
       } catch (error) {
         if (controller.signal.aborted || generation !== view.tutorDemoGeneration) return;
+        view.showMissingCredentialError(error, true);
         view.actions.log(`[conversation demo failed] ${tutorFailureMessage(error)}`);
         cancelTutorConversationPicture(view);
         closeTutorDemoResources(view, false);
         view.tutorState = { ...view.tutorState, conversation: {
           ...view.tutorState.conversation,
           status: 'stopped', busy: false,
-          failure: 'The example conversation stopped because KREN could not continue it.'
+          failure: missingCredentialsOf(error) ? missingCredentialMessage(missingCredentialsOf(error)!)
+            : 'The example conversation stopped because KREN could not continue it.'
         } };
         view.render();
         finalizeTutorTakeHome(view);

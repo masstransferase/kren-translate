@@ -5,7 +5,8 @@ const warning = vi.hoisted(() => vi.fn(async () => 'OK'));
 vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, env: {},
   Uri: { joinPath: (...parts: unknown[]) => parts },
   workspace: { getConfiguration: () => ({ get: (_: string, fallback: unknown) => fallback }) },
-  window: { showWarningMessage: warning } }));
+  // Changed 2026-10-23 (V300, verification R28): missing-picture actions now use the shared modal popup.
+  window: { showWarningMessage: warning, showErrorMessage: vi.fn(async () => undefined) } }));
 import { KrenResultsViewProvider } from '../src/resultsView.js';
 import { renderTutorConversation } from '../src/resultViewHtml.js';
 import { PANEL_SETTINGS_FIXTURE } from './support/panelSettingsFixture.js';
@@ -238,7 +239,8 @@ describe('V205 closing and notices', () => {
     ensureTutorConversationPicture(h.view);
     await vi.waitFor(() => expect(h.view.tutorState.conversation.picturePaused).toBeDefined());
     expect(h.view.tutorConversationPictureStopped).toBe(reason !== 'missing');
-    expect(h.view.tutorState.conversation.picturePaused).toContain(reason === 'missing' ? 'no Gemini Paid key' : 'usable picture');
+    // Changed 2026-10-22 (V294, owner I60/I64): deferred V293 wording identifies Paid and Credentials.
+    expect(h.view.tutorState.conversation.picturePaused).toMatch(reason === 'missing' ? /Gemini Paid.*KREN menu, Credentials/u : /usable picture/u);
     expect(JSON.stringify(h.postMessage.mock.calls)).not.toMatch(/RAW RESPONSE|example.invalid/);
     h.view.tutorState.conversation.status = 'stopped';
     await h.message('startNewTutorConversation');

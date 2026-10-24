@@ -1,6 +1,6 @@
-import { edgeSpeechLocaleFromLatinWords, edgeSpeechLocaleFromScript } from '@kren/core/edge-speech';
+import { detectedLanguage as coreDetectedLanguage } from '@kren/core/languages';
 
 /** Shared detector: script first, then clear evidence from Latin-script words. */
 export function detectedLanguage(text: string): string | undefined {
-  return edgeSpeechLocaleFromScript(text) ?? edgeSpeechLocaleFromLatinWords(text);
+  return coreDetectedLanguage(text);
 }

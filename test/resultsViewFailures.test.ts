@@ -662,7 +662,8 @@ describe('results webview failure reporting', () => {
 
     await vi.waitFor(() => expect(harness.actions.details).toHaveBeenCalledOnce());
     expect(writeText).toHaveBeenCalledWith('Copied result.');
-    expect(showInformationMessage).toHaveBeenCalledWith('A notice the user never dismisses.');
+    // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+    expect(showInformationMessage).toHaveBeenCalledWith('A notice the user never dismisses.', { modal: true }, 'OK');
   });
 
   it('keeps an operation successful when its notification rejects', async () => {
@@ -1407,19 +1408,26 @@ describe('the background voice refresh and a pending settings focus', () => {
 });
 
 describe('the panel wait notice', () => {
+  // Changed 2026-10-23 (V301, verification R28): mounted waits post state changes and retain the original document.
+  const waitNotice = (harness: ReturnType<typeof createHarness>) => harness.webview.postMessage.mock.calls
+    .map(([message]) => message as { command: string; notice?: string })
+    .filter(message => message.command === 'panelProgress').at(-1)?.notice;
   it('covers the panel while a capability command runs, and uncovers it after', async () => {
     let finish = () => undefined as void;
     const harness = createHarness({
       runCommand: vi.fn(() => new Promise<void>((resolve) => { finish = () => { resolve(); }; }))
     });
 
+    await settleMessages();
+    const mountedHtml = harness.webview.html;
     harness.dispatch({ command: 'runCommand', action: 'kren.rewriteEnglishSelection' });
     await settleMessages();
-    expect(harness.webview.html).toContain('Rewriting the selected text. Please wait.');
+    expect(waitNotice(harness)).toBe('Rewriting the selected text. Please wait.');
 
     finish();
     await settleMessages();
-    expect(harness.webview.html).not.toContain('Rewriting the selected text. Please wait.');
+    expect(waitNotice(harness)).toBeUndefined();
+    expect(harness.webview.html).toBe(mountedHtml);
   });
 
   // Setting a key opens an input box and stopping speech returns at once. Covering the
@@ -1464,20 +1472,23 @@ describe('the panel wait notice', () => {
       runCommand: vi.fn(() => new Promise<void>((resolve) => { finishes.push(resolve); }))
     });
 
+    await settleMessages();
+    const mountedHtml = harness.webview.html;
     harness.dispatch({ command: 'runCommand', action: 'kren.translateSelection' });
     await settleMessages();
     harness.dispatch({ command: 'runCommand', action: 'kren.rewriteEnglishSelection' });
     await settleMessages();
-    expect(harness.webview.html).toContain('Rewriting the selected text. Please wait.');
+    expect(waitNotice(harness)).toBe('Rewriting the selected text. Please wait.');
 
     finishes[1]?.();
     await settleMessages();
-    expect(harness.webview.html).toContain('class="busy-overlay"');
-    expect(harness.webview.html).toContain('Translating the selected text. Please wait.');
+    expect(waitNotice(harness)).toBeTruthy();
+    expect(waitNotice(harness)).toBe('Translating the selected text. Please wait.');
 
     finishes[0]?.();
     await settleMessages();
-    expect(harness.webview.html).not.toContain('class="busy-overlay"');
+    expect(waitNotice(harness)).toBeUndefined();
+    expect(harness.webview.html).toBe(mountedHtml);
   });
 
   it('keeps the panel covered when two commands share a notice', async () => {
@@ -1486,6 +1497,8 @@ describe('the panel wait notice', () => {
       runCommand: vi.fn(() => new Promise<void>((resolve) => { finishes.push(resolve); }))
     });
 
+    await settleMessages();
+    const mountedHtml = harness.webview.html;
     harness.dispatch({ command: 'runCommand', action: 'kren.rewriteEnglishSelection' });
     await settleMessages();
     harness.dispatch({ command: 'runCommand', action: 'kren.rewriteEnglishSelection' });
@@ -1493,11 +1506,12 @@ describe('the panel wait notice', () => {
 
     finishes[0]?.();
     await settleMessages();
-    expect(harness.webview.html).toContain('class="busy-overlay"');
+    expect(waitNotice(harness)).toBe('Rewriting the selected text. Please wait.');
 
     finishes[1]?.();
     await settleMessages();
-    expect(harness.webview.html).not.toContain('class="busy-overlay"');
+    expect(waitNotice(harness)).toBeUndefined();
+    expect(harness.webview.html).toBe(mountedHtml);
   });
 
   it('uncovers the panel when the command fails', async () => {
@@ -1505,11 +1519,14 @@ describe('the panel wait notice', () => {
       runCommand: vi.fn(async () => { throw new Error('provider down'); })
     });
 
+    await settleMessages();
+    const mountedHtml = harness.webview.html;
     harness.dispatch({ command: 'runCommand', action: 'kren.translateSelection' });
     await settleMessages();
     await settleMessages();
 
-    expect(harness.webview.html).not.toContain('class="busy-overlay"');
+    expect(waitNotice(harness)).toBeUndefined();
+    expect(harness.webview.html).toBe(mountedHtml);
   });
 });
 
@@ -1787,10 +1804,11 @@ describe('the extension read-aloud hook', () => {
     // that omit it and continue through the shared Read Aloud settings.
     // Changed 2026-09-20: the conversation replay keeps a fourth, optional voice for one reading (the learner's
     // learner voice) that leaves the reader's settings untouched.
-    expect(extension)
-      .toContain('readAloudText: (text, language, settingsSource, edgeVoice) =>');
-    expect(extension)
-      .toContain('readAloudText(context, text, language, settingsSource, edgeVoice)');
+      // Changed 2026-10-23 (V303, owner I63): the named host forwards language, source, voice, and the captured barrier.
+      expect(extension).toContain('readAloudText: panelReadAloudText');
+      const hook = extension.slice(extension.indexOf('const panelReadAloudText ='), extension.indexOf('resultsView = new KrenResultsViewProvider'));
+      expect(hook).toMatch(/speechCenter\.speak\(text, language, settingsSource, edgeVoice,/u);
+      expect(hook).toContain('tutorSpeechPlaybackBarriers.get(panelReadAloudText)');
   });
 
   it('resolves the locale and the voice together before speaking', () => {

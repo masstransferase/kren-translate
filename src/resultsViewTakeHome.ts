@@ -114,6 +114,7 @@ export function finalizeTutorTakeHome(view: KrenResultsViewProvider, retry = fal
       void speakTutorTakeHome(view);
     } catch (error) {
       if (controller.signal.aborted || view.tutorTakeHomeController !== controller) return;
+      view.showMissingCredentialError(error, true);
       // 2026-10-12: the card uses safe error categories, never provider message text.
       view.actions.log(`[conversation take-home failed] ${safePanelErrorMessage(error)}`);
       const failure = error instanceof ProviderError && error.reason === 'quotaExhausted'

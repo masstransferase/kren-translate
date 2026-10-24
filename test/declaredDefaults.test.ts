@@ -24,6 +24,15 @@ import { krenConfigurationKeys, krenResetPlan } from '../src/resetKren.js';
  * send `auto` whatever the reader picked.
  */
 const DECLARED_DEFAULTS: Record<string, unknown> = {
+    // Changed 2026-10-22 (V299, owner I69): saved global choices start with Translation's defaults.
+    "kren.global.provider": "gemini",
+    "kren.global.geminiProfile": "standard",
+    "kren.global.model": "gemini-3.6-flash",
+    "kren.global.alternateModel": "gemini-3.1-pro-preview",
+    "kren.global.thinkingOrEffort": "auto",
+    "kren.global.fallbackEnabled": false,
+    "kren.global.fallbackModel": "gemini-3.6-flash",
+    "kren.global.fallbackThinkingOrEffort": "low",
     // Changed 2026-10-16: V249, F12a, record the default for the opt-out daily check.
     "kren.updates.dailyCheck": true,
     "kren.anthropic.customModels": "[]",
@@ -138,8 +147,8 @@ const DECLARED_DEFAULTS: Record<string, unknown> = {
     // 2026-10-11: V220 chooses on-demand hints as the shipped default.
     "kren.tutor.conversation.hintPrefetch": false,
     "kren.tutor.fallbackEnabled": TUTOR_DEFAULTS.configuration['tutor.fallbackEnabled'],
-    "kren.tutor.fallbackModel": "gemini-3.6-flash",
-    "kren.tutor.fallbackThinkingOrEffort": TUTOR_DEFAULTS.configuration['tutor.fallbackThinkingOrEffort'],
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    "kren.tutor.hintThinkingOrEffort": TUTOR_DEFAULTS.configuration['tutor.hintThinkingOrEffort'],
     "kren.tutor.geminiProfile": TUTOR_DEFAULTS.configuration['tutor.geminiProfile'],
     // Added 2026-09-24: V149 gives only conversation Hint the lower-latency Flash route.
     "kren.tutor.hintModel": TUTOR_DEFAULTS.configuration['tutor.hintModel'],
@@ -153,9 +162,12 @@ const DECLARED_DEFAULTS: Record<string, unknown> = {
     "kren.tutor.pictureProvider": "gemini",
     "kren.tutor.imageModel": "gemini-3.1-flash-lite-image",
     // 2026-10-10: the Cloudflare picture model is a separate choice so the Gemini one survives a switch.
-    "kren.tutor.cloudflareImageModel": "@cf/black-forest-labs/flux-1-schnell",
+    // Changed 2026-10-22 (V294, owner I60/I64): preserve explicit schnell and default to klein.
+    "kren.tutor.cloudflareImageModel": "@cf/black-forest-labs/flux-2-klein-4b",
     "kren.tutor.imageCustomModels": "[]",
     "kren.tutor.liveModel": "gemini-3.8-live",
+    // Changed 2026-10-23 (V306, verification R30): record V304's separate Live profile default.
+    "kren.tutor.liveGeminiProfile": TUTOR_DEFAULTS.configuration['tutor.liveGeminiProfile'],
     "kren.tutor.model": TUTOR_DEFAULTS.configuration['tutor.model'],
     "kren.tutor.provider": "gemini",
     "kren.tutor.readAloud.edgeLocale": "en-US",
@@ -168,6 +180,8 @@ const DECLARED_DEFAULTS: Record<string, unknown> = {
     "kren.tutor.readAloud.rate": 0,
     "kren.tutor.readAloud.voice": "Microsoft David Desktop",
     "kren.tutor.readAloud.volume": 100,
+    // 2026-10-21: V286 records the declared engine-default sentence pause.
+    "kren.tutor.readAloud.sentencePauseMilliseconds": 0,
     "kren.tutor.speechProvider": "auto",
     "kren.tutor.thinkingOrEffort": TUTOR_DEFAULTS.configuration['tutor.thinkingOrEffort'],
     "kren.userDictionary.alternateModel": "gemini-3.1-pro-preview",

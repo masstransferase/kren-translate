@@ -1,9 +1,11 @@
+import { missingCredentialDetails, missingCredentialMessage, missingCredentialSelectionMessage, otherGeminiProfileMessage, type CredentialProvider } from './requestCenter.js';
 import { CREDENTIAL_HELP, type CredentialHelpId } from './credentialHelp.js';
 import type { EnvironmentItem, UpdateFixTarget } from './environmentCheck.js';
 import { panelNoticeScript, panelPopupCardClass, panelScriptErrorScript, type PanelNotice } from './panelNotices.js';
 import { GROQ_RETIRED_MODELS } from './tutor/models.js';
 import { READ_ALOUD_CHIRP_VOICES, normalizedReadAloudChirpVoice } from './readAloudChirp.js';
 import type { LanguageModelUsage } from './languageModelUsage.js';
+import { GLOBAL_ROUTING_DEFAULTS } from './panelSettings.js';
 import { DEFAULT_PROVIDER_ORDER, isQuotaPoolExhaustedToday, validProviderOrder } from './languageModelSwitching.js';
 import { tutorDemoAvailable } from './tutor/demoAvailability.js';
 import { tutorFastModel } from './tutor/thinkingMode.js';
@@ -188,8 +190,7 @@ export const LLM_ROUTING_CONTROL_TITLES = {
 
 const TUTOR_LLM_ROUTING_CONTROL_TITLES = {
   ...LLM_ROUTING_CONTROL_TITLES, geminiProfile: 'Gemini Profile', model: 'Thorough model',
-  thinkingOrEffort: 'Thinking Level', fallbackEnabled: 'Automatic Fallback',
-  fallbackModel: 'Fallback Tutor Model', fallbackThinkingOrEffort: 'Fallback Tutor Model Thinking Level'
+  thinkingOrEffort: 'Thinking Level', fallbackEnabled: 'Use Fast when Thorough is unavailable'
 };
 
 export type GeminiRoutingProfile = 'standard' | 'pro';
@@ -260,6 +261,7 @@ export interface ResultViewHtmlOptions {
   rewriteReplay?: RewriteReplayState;
   grammarChoices?: ReadonlyArray<{ issueId: string; suggestionIndex: number }>;
   busyNotice?: string;
+  busyCancelId?: number;
   panelNotices?: PanelNotice[];
   focusSettingsSection?: string;
   focusTutorTargetId?: string;
@@ -320,6 +322,7 @@ export interface RewriteReplayState {
 }
 
 export interface KrenPanelSettings {
+  globalRouting?: LanguageModelRoutingPanelSettings;
   llmProviderSwitch?: boolean;
   llmProviderOrder?: LanguageModelRoutingProvider[];
   languageModelUsageToday?: readonly LanguageModelUsage[];
@@ -411,12 +414,15 @@ export interface KrenPanelSettings {
   tutorProvider: LanguageModelRoutingProvider;
   tutorModel: string;
   tutorPictureProvider?: 'gemini' | 'cloudflare';
+  tutorPictureProviderAutomatic?: boolean;
   tutorCloudflareImageModel?: string;
   tutorImageModel?: string;
   tutorImageModels?: GeminiModelOption[];
   customTutorImageModels?: string[];
   tutorHintModel?: string;
+  tutorHintThinkingOrEffort?: LanguageModelRoutingEffort;
   tutorLiveModel?: string;
+  tutorLiveProfile?: GeminiRoutingProfile;
   tutorConversationLiveTranscriptionLanguage?: 'english' | 'automatic';
   tutorConversationMicrophoneSensitivity?: TutorMicrophoneSensitivity;
   tutorConversationPauseBeforeReply?: TutorPauseBeforeReply;
@@ -443,6 +449,7 @@ export interface KrenPanelSettings {
   tutorReadAloudVoice: string;
   tutorReadAloudRate: number;
   tutorReadAloudVolume: number;
+  tutorSentencePauseMilliseconds: number;
   quickMenuRewriteVariant: QuickMenuRewriteVariantId;
   rewriteDomain: RewriteDomain;
   rewriteFormality: RewriteFormality;
@@ -531,12 +538,14 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
    * every control underneath it unreachable, and the Cancel button that already existed was
    * one of the things being covered.
    *
-   * Only the tutor's waits are cancellable, and only because the tutor already owns a cancel
-   * command per operation. A wait with nothing to cancel renders the overlay as before.
+   * Tutor waits keep their own cancel commands. Other waits carry an operation identifier
+   * only when the caller supplied a cancellation action.
    */
-  const busyCancel = options.busyNotice === undefined && options.activeScreen === 'tutor'
-    ? tutorWaitingCancel(tutorState)
-    : undefined;
+  const busyCancel = options.busyCancelId !== undefined
+    ? { command: 'cancelPanelProgress', attribute: ` data-operation-id="${options.busyCancelId}"`, label: 'Cancel' }
+    : options.busyNotice === undefined && options.activeScreen === 'tutor'
+      ? tutorWaitingCancel(tutorState)
+      : undefined;
   // A result is held whenever one exists, whichever screen is showing. That is what decides
   // the way back, and it is deliberately not the same condition as the one below, which asks
   // whether the result screen is the one being drawn right now.
@@ -629,7 +638,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
        icon buttons dropped to their own line with most of the row still empty. */
     .top { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
     .top-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 1 1 0; min-width: 0; }
-    .top-actions { display: flex; flex-shrink: 0; align-items: center; gap: 5px; }
+    .top-actions { display: flex; flex-shrink: 0; align-items: center; gap: 0; }
     .icon-button { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border-color: transparent; color: var(--vscode-foreground); background: transparent; font-size: 1rem; }
     [data-tutor-chat-mic-control][hidden], [data-tutor-composer-stop][hidden] { display: none; }
     .icon-button svg { width: 18px; height: 18px; }
@@ -695,7 +704,10 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .intro-header .top-main, .intro-header .top-actions { flex-wrap: wrap; }
     .intro-header .top-actions { max-width: 100%; }
     [data-system-updates] { max-width: 140px; white-space: normal; line-height: 1.2; padding: 4px 6px; font-size: 10px; font-weight: bold; }
+    .system-updates-row { display: flex; justify-content: flex-end; position: relative; top: -50px; }
     .intro-header .brand { gap: 15px; font-size: clamp(2.2rem, 9vw, 4.2rem); color: var(--vscode-descriptionForeground); letter-spacing: -.03em; }
+    /* 2026-10-20 (owner, canvas): the Start page's KREN name is 30px. */
+    .intro-header .brand-name { font-size: 30px; }
     .intro-header .brand-logo { width: clamp(68px, 18vw, 104px); height: clamp(68px, 18vw, 104px); border-radius: 13px; }
     .menu-wrap { position: relative; }
     .menu-button { font-size: 1.35rem; line-height: 1; }
@@ -705,6 +717,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .provider { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: .82rem; text-align: right; }
     .provider span { min-width: 0; overflow-wrap: anywhere; }
     .provider-logo { width: 50px; height: 50px; flex-shrink: 0; object-fit: contain; }
+    /* 2026-10-20 (owner, canvas): 10px above and below every result's provider line (Merriam-Webster, Google Cloud Translation, model names). */
+    .provider { padding-top: 10px; padding-bottom: 10px; }
     [data-kren-kind="light"] .provider-logo-dark, [data-kren-kind="dark"] .provider-logo-light { display: none; }
     .theme-icon-light, [data-kren-kind="dark"] .theme-icon-dark { display: none; }
     [data-kren-kind="dark"] .theme-icon-light { display: block; }
@@ -789,6 +803,10 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     /* Icon-only controls. A square target keeps the drawing from being squeezed by the
        text padding the other buttons need. */
     .icon-button { min-width: 32px; padding: 4px 8px; font-size: 1rem; line-height: 1.2; }
+    /* 2026-10-20 (owner, canvas): six header buttons fit narrow panels with 4px side padding. */
+    .top-actions .icon-button { padding-left: 4px; padding-right: 4px; }
+    /* 2026-10-20 (owner, canvas): no gap between header buttons; the menu keeps 4px on each side. */
+    .top-actions > .menu-wrap { padding-left: 4px; padding-right: 4px; }
     .settings-group { margin-bottom: 14px; padding: 13px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); border-radius: 8px; background: var(--vscode-editor-background); }
     .settings-group h3 { margin: 0; font-size: .9rem; }
     /* Every settings group is a details element, so the heading is the fold control.
@@ -861,6 +879,9 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .duplicate-notice { margin: 0 0 12px; padding: 11px; border-left: 3px solid var(--vscode-editorWarning-foreground); background: var(--vscode-textBlockQuote-background); }
     .credential-row { display: grid; grid-template-columns: minmax(145px, 1fr) 2fr; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); }
     .credential-row.unavailable { color: var(--vscode-descriptionForeground); }
+    .credential-missing { color: var(--vscode-descriptionForeground); }
+    .setting:has(input.credential-missing) .setting-title { color: var(--vscode-descriptionForeground); }
+    select.credential-missing option:not(.credential-missing):not(:disabled) { color: var(--vscode-input-foreground); }
     .credential-row:last-of-type { border-bottom: 0; }
     .credential-status { margin-left: 5px; color: var(--vscode-descriptionForeground); font-size: 0.82em; font-weight: 400; }
     .credential-reason { display: block; margin-top: 3px; color: var(--vscode-descriptionForeground); font-size: .75rem; font-weight: 400; line-height: 1.25; }
@@ -884,6 +905,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
        layout stacks, the grid has the full width and takes two columns until that is narrow
        too. The breakpoints below own the change; this is the side-by-side case. */
     .capability-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .capability-item > .capability { width: 100%; }
     .capability { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; padding: 8px; overflow: hidden; color: var(--vscode-button-foreground); background: var(--vscode-button-background); font-size: .95rem; text-align: center; }
     .capability > span:first-child, .capability.has-reason { display: block; }
     .capability-label { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }
@@ -919,7 +941,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .tutor-master-reset { box-sizing: border-box; width: 60px; padding-left: 6px; padding-right: 6px; flex-shrink: 0; }
     .tutor-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; margin: 0; padding-top: 6px; padding-bottom: 12px; }
     .tutor-lesson-section[data-tutor-lesson-drafted] > .tutor-heading-actions { margin: 16px 0 18px; }
-    .tutor-heading-actions > button { box-sizing: border-box; width: 60px; padding-left: 6px; padding-right: 6px; }
+    .tutor-heading-actions > button, .tutor-conversation-front-actions > button { box-sizing: border-box; width: 60px; padding-left: 6px; padding-right: 6px; }
     .tutor-action-status-region { margin: 0 0 10px; }
     [data-tutor-shared-action] { box-sizing: border-box; inline-size: var(--tutor-shared-action-width, max-content); }
     .tutor-action-status { margin: 7px 0 0; color: var(--vscode-descriptionForeground); }
@@ -1027,7 +1049,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .tutor-page > h2#tutor-conversation-heading { margin-top: 22.18px; }
     .tutor-page > section.tutor-conversation { margin-top: 0; }
     .tutor-conversation-answer { width: 100%; box-sizing: border-box; min-height: 72px; margin-top: 30px; resize: vertical; font: inherit; border: 1px solid var(--kren-field-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
-    .tutor-conversation-answer.tutor-answer-offscreen { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; min-height: 0; margin: 0; overflow: hidden; }
+    .tutor-answer-offscreen { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; min-height: 0; margin: 0; overflow: hidden; opacity: 0; pointer-events: none; }
     .tutor-drawer { position: fixed; z-index: 35; inset: 10px; overflow: auto; padding: 14px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); border-radius: 6px; background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background)); box-shadow: 0 4px 18px var(--vscode-widget-shadow); }
     .tutor-prepared-prompt-text { width: 100%; min-height: 18em; box-sizing: border-box; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--kren-field-border); }
     .tutor-conversation-setup { margin-top: 8px; margin-left: 0; overflow-wrap: anywhere; }
@@ -1035,11 +1057,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .tutor-conversation-settings > .setting:first-of-type { padding-top: 9px; border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); }
     .tutor-conversation-custom { display: grid; gap: 5px; margin-top: 10px; }
     .tutor-conversation-custom textarea { width: 100%; min-height: 58px; box-sizing: border-box; padding: 6px 7px; resize: vertical; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--kren-field-border); font: inherit; }
-    @media (max-width: 600px) {
-      [data-persist-id="tutor-voice"] .setting:has([data-tutor-conversation-live-voice]),
-      [data-persist-id="tutor-voice"] .setting:has([data-setting="tutor.readAloud.voice"]),
-      [data-llm-routing="tutor"] .setting:has([data-model-preset]) { grid-template-columns: minmax(0, 1fr); }
-    }
+    /* 2026-10-24: owner (I82): voice and model rows keep the shared two-column row at every width,
+       shrinking the description like every other setting; V210 had stacked them below 600 px. */
     .tutor-chat-viewport { position: relative; isolation: isolate; min-width: 0; }
     .tutor-chat-viewport-picture { width: 100%; aspect-ratio: 9 / 16; }
     .tutor-chat-viewport > [data-tutor-picture] { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; z-index: 0; }
@@ -1192,14 +1211,17 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .settings-screen[data-settings-focus="all"] .dictionary-key-note .settings-buttons { padding-top: 6px; }
     .settings-screen[data-settings-focus="userDictionary"] .dictionary-key-note button { padding-top: 6px; }
     .credentials-screen > .settings-intro { font-size: 13px; }
-    [data-language-model-usage] { overflow-wrap: anywhere; }
+    [data-language-model-usage] { overflow-wrap: anywhere; overflow-y: auto; border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 12px; margin-top: 16px; box-sizing: border-box; }
+    [data-language-model-usage]:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+    [data-language-model-usage] > h3 { margin-top: 0; }
     .credential-label { color: var(--vscode-descriptionForeground); }
     .tutor-drawer > [data-command="closeTutorTool"] { position: absolute; top: 28px; right: 14px; margin: 0; }
     .tutor-tray { background: var(--vscode-editor-background); box-sizing: border-box; }
     .rewrite-group-fields > .tutor-tray { margin-left: -17px; }
     .tutor-tray-heading { padding-top: 12px; padding-bottom: 6px; }
     .tutor-tray-heading > strong, .tutor-tray > .tutor-tray-row, .tutor-tray > p { padding-left: 15px; padding-right: 6px; }
-    .tutor-conversation-actions:has(> [data-command="startTutorConversationDemo"]) > button { width: 54px; box-sizing: border-box; padding-left: 6px !important; padding-right: 6px !important; }
+    .tutor-conversation-actions:not(.tutor-conversation-front-actions):has(> [data-command="startTutorConversationDemo"]) > button { width: 54px; box-sizing: border-box; padding-left: 6px !important; padding-right: 6px !important; }
+    .tutor-conversation-front-actions { flex-wrap: nowrap; }
     .tutor-tray-actions button { width: 69px !important; height: 34px; padding: 6px 4px; white-space: nowrap; box-sizing: border-box; }
     .tutor-map-information { border-radius: 50% !important; }
     .credentials-screen .credential-row .tutor-map-information { background: var(--vscode-button-secondaryBackground); border: 0; }
@@ -1232,11 +1254,11 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
   <main class="shell">
     <section id="result-screen" class="result-screen${options.activeScreen === 'settings' || options.activeScreen === 'credentials' || options.activeScreen === 'manual' || options.activeScreen === 'userDictionary' || options.activeScreen === 'tutor' || options.activeScreen === 'updates' ? ' hidden' : ''}">${body}</section>
     <section id="updates-screen" class="settings-screen${options.activeScreen === 'updates' ? '' : ' hidden'}">${renderHeader('', false, options.brandImageUri, false, hasHeldResult)}${renderEnvironmentChecks(options.environmentItems ?? [], options.environmentBusy === true)}</section>
-    <section id="settings-screen" class="settings-screen${options.activeScreen === 'settings' ? '' : ' hidden'}" data-settings-focus="${escapeHtml(options.focusSettingsSection ?? 'all')}">${settingsView}</section>
+    <section id="settings-screen" class="settings-screen${options.activeScreen === 'settings' ? '' : ' hidden'}" data-settings-focus="${escapeHtml(options.focusSettingsSection ?? 'all')}">${grayCredentialRoutingMarkup(settingsView, options.settings.credentialPresence ?? {})}</section>
     <section id="credentials-screen" class="settings-screen credentials-screen${options.activeScreen === 'credentials' ? '' : ' hidden'}">${renderCredentials(options.settings, options.brandImageUri, hasHeldResult, options.credentialHelpOpen)}</section>
     <section id="manual-screen" class="manual-screen${options.activeScreen === 'manual' ? '' : ' hidden'}">${manualView}</section>
     <section id="user-dictionary-screen" class="user-dictionary-screen${options.activeScreen === 'userDictionary' ? '' : ' hidden'}">${userDictionaryView}</section>
-    <section id="tutor-screen" class="tutor-screen${options.activeScreen === 'tutor' ? '' : ' hidden'}">${tutorView}${options.tutorAnnouncement ? '<p class="tutor-screen-reader-status" data-tutor-live role="status" aria-live="polite"></p>' : ''}</section>
+    <section id="tutor-screen" class="tutor-screen${options.activeScreen === 'tutor' ? '' : ' hidden'}">${grayCredentialRoutingMarkup(tutorView, options.settings.credentialPresence ?? {})}${options.tutorAnnouncement ? '<p class="tutor-screen-reader-status" data-tutor-live role="status" aria-live="polite"></p>' : ''}</section>
     <audio id="kren-audio" class="${audioClass}" controls ${initialAudio}></audio>
   </main>
   <script data-kren-errors nonce="${options.nonce}">
@@ -1261,6 +1283,19 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       });
     }
     const vscode = acquireVsCodeApi();
+    function sizeLanguageModelUsage() {
+      const box = document.querySelector('[data-language-model-usage]');
+      if (!box) return;
+      const rows = box.querySelectorAll('ul > li');
+      if (rows.length <= 8) {
+        box.style.maxHeight = '';
+        return;
+      }
+      const style = getComputedStyle(box);
+      const height = rows[7].getBoundingClientRect().bottom - box.getBoundingClientRect().top + box.scrollTop
+        + (parseFloat(style.paddingBottom) || 0) + (parseFloat(style.borderBottomWidth) || 0);
+      if (height > 0) box.style.maxHeight = Math.ceil(height) + 'px';
+    }
     function tutorConversationAdvancedSummary(values) {
       return (${tutorConversationAdvancedSummary.toString().replace(/\n/g, '\n      ')})(values);
     }
@@ -1334,6 +1369,15 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     }
     if (forcedSectionState) savePanelState({ openSections: { ...openSections },
       ...(newTutorResetDisclosure ? { tutorResetDisclosureId: tutorResetDisclosure.id } : {}) });
+    function syncTutorConversationFrontActions() {
+      const mode = document.querySelector('details[data-persist-id="tutor-conversation-mode"]');
+      const row = document.querySelector('[data-tutor-conversation-entry-actions]');
+      if (!(mode instanceof HTMLDetailsElement) || !row) return;
+      row.classList.toggle('tutor-conversation-front-actions', !mode.open);
+      row.querySelector('[data-tutor-open-conversation-settings]').hidden = mode.open;
+      row.querySelector('[data-command="resetTutorConversationDefaults"]').hidden = !mode.open;
+    }
+    syncTutorConversationFrontActions();
     // The toggle event does not bubble, so this listens in the capture phase, where a
     // non-bubbling event still reaches an ancestor.
     document.addEventListener('toggle', (event) => {
@@ -1341,6 +1385,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       if (!(section instanceof HTMLDetailsElement)) return;
       const id = section.getAttribute('data-persist-id');
       if (!id) return;
+      if (id === 'tutor-conversation-mode') syncTutorConversationFrontActions();
       savePanelState({ openSections: { ...openSections, [id]: section.open } });
       openSections[id] = section.open;
     }, true);
@@ -1393,7 +1438,30 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     // first lines above the fold.
     const scrollIsStable = activeScreen === 'settings' || activeScreen === 'credentials' || activeScreen === 'manual' ||
       activeScreen === 'userDictionary' || activeScreen === 'tutor';
+    // 2026-10-24: V310. A routing dropdown makes the host replace this document and patch the
+    // settings block. The position was saved only by the debounced scroll event below, so a
+    // change inside that window restored an older one, and the patch moved it unseen. A change
+    // now saves the position before any handler posts, and a patch runs inside holdScroll.
+    // 2026-10-24: V311. A change also records where its control sits on screen, for restoreScroll.
+    function saveScrollNow(event) {
+      if (!scrollIsStable) return;
+      const control = event?.target;
+      const attribute = control instanceof HTMLElement
+        ? ['data-model-preset', 'data-setting'].find((name) => control.hasAttribute(name)) : undefined;
+      const selector = attribute ? control.tagName.toLowerCase() + '[' + attribute + '=' + JSON.stringify(control.getAttribute(attribute)) + ']' : '';
+      const anchor = selector ? { selector, index: Array.from(document.querySelectorAll(selector)).indexOf(control),
+        offset: control.getBoundingClientRect().top } : undefined;
+      savePanelState({ scroll: { screen: activeScreen, top: window.scrollY, ...(anchor ? { anchor } : {}) } });
+    }
+    function holdScroll(update) {
+      const left = window.scrollX;
+      const top = window.scrollY;
+      update();
+      if (window.scrollX !== left || window.scrollY !== top) window.scrollTo(left, top);
+    }
+    window.addEventListener('change', saveScrollNow, true);
     let scrollTimer = 0;
+    let scrollRestorePending = false;
     if (scrollIsStable) {
       window.addEventListener('scroll', () => {
         window.clearTimeout(scrollTimer);
@@ -1444,7 +1512,24 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       focusTutorConversationSetup.scrollIntoView({ block: 'start' });
     } else if (scrollIsStable && restored.scroll && restored.scroll.screen === activeScreen &&
         typeof restored.scroll.top === 'number') {
+      scrollRestorePending = true;
+    }
+    // 2026-10-24: V311. Measured in Edge, the restore ran here, before applyConditionalSettings at
+    // the end of the script hid 191 px of rows above the Live rows, so scroll anchoring pulled the
+    // view up towards Provider; and Provider, which shortens the summary above it, restored 19 px
+    // off. So restoreScroll runs on the final layout and puts a just-changed control back in place.
+    function restoreScroll() {
       window.scrollTo(0, restored.scroll.top);
+      const anchor = restored.scroll.anchor;
+      if (!anchor) return;
+      const control = typeof anchor.selector === 'string' ? document.querySelectorAll(anchor.selector)[anchor.index] : undefined;
+      const box = control instanceof HTMLElement ? control.getBoundingClientRect() : undefined;
+      if (box && (box.width > 0 || box.height > 0) && typeof anchor.offset === 'number') {
+        const shift = box.top - anchor.offset;
+        if (Math.abs(shift) >= 1) window.scrollTo(0, Math.round(window.scrollY + shift));
+      }
+      // Used once: a later document restores the position this one settled on.
+      savePanelState({ scroll: { screen: activeScreen, top: window.scrollY } });
     }
     const focusTutorTarget = document.body.getAttribute('data-focus-tutor-target');
     if (activeScreen === 'tutor' && focusTutorTarget) {
@@ -2303,6 +2388,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
         nextViewport.replaceWith(viewport);
       }
       current.replaceWith(next);
+      syncTutorConversationFrontActions();
       if (answerFocused && answer instanceof HTMLTextAreaElement) answer.focus({ preventScroll: true });
       patchTutorVoiceModel(message);
       initializeTutorConversationPicture();
@@ -2624,6 +2710,12 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     }
     document.addEventListener('click', (event) => {
       const eventElement = event.target instanceof Element ? event.target : null;
+      const credentialsLink = eventElement?.closest('a[data-command="showCredentials"]');
+      if (credentialsLink) {
+        event.preventDefault();
+        vscode.postMessage({ command: 'showCredentials' });
+        return;
+      }
       const move = eventElement?.closest('[data-provider-move]');
       if (move instanceof HTMLButtonElement && !move.disabled) {
         const list = move.closest('[data-provider-order]');
@@ -2666,11 +2758,23 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
         menus.forEach((menu) => menu.classList.add('hidden'));
         return;
       }
+      if (target.getAttribute('data-command') === 'cancelPanelProgress') {
+        vscode.postMessage({ command: 'cancelPanelProgress', operationId: Number(target.getAttribute('data-operation-id')) });
+        return;
+      }
       if (target.getAttribute('aria-disabled') === 'true') return;
       if (target.hasAttribute('data-update-fix-target')) {
         const destination = target.getAttribute('data-update-fix-target');
         savePanelState({ updateFixTarget: destination });
         vscode.postMessage({ command: destination === 'tutor' || destination === 'tutorVoice' ? 'showTutor' : 'showSettings' });
+        return;
+      }
+      if (target.hasAttribute('data-tutor-open-conversation-settings')) {
+        const settings = document.querySelector('details[data-persist-id="tutor-conversation-mode"]');
+        if (settings instanceof HTMLDetailsElement) settings.open = true;
+        syncTutorConversationFrontActions();
+        settings?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        settings?.querySelector('summary')?.focus({ preventScroll: true });
         return;
       }
       if (target.hasAttribute('data-tutor-open-lesson-settings')) {
@@ -2870,9 +2974,63 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       const audioUrl = target.getAttribute('data-audio-url');
       if (audioUrl) void playPronunciation(audioUrl, false);
     });
+    // Keep the mounted document, viewport and focused Refresh button during discovery.
+    let panelProgressOverlay = ${options.busyNotice ? "document.querySelector('.busy-overlay:not([data-kren-notice])')" : 'null'};
+    function patchPanelProgress(notice, cancelId) {
+      if (typeof notice === 'string' && notice) {
+        if (!panelProgressOverlay) {
+          panelProgressOverlay = document.createElement('div');
+          panelProgressOverlay.className = 'busy-overlay';
+          panelProgressOverlay.setAttribute('role', 'alert');
+          panelProgressOverlay.setAttribute('aria-live', 'assertive');
+          const card = document.createElement('div');
+          card.className = 'busy-card';
+          const spinner = document.createElement('span');
+          spinner.className = 'busy-spinner';
+          spinner.setAttribute('aria-hidden', 'true');
+          const text = document.createElement('span');
+          text.className = 'popup-message';
+          card.append(spinner, text);
+          panelProgressOverlay.append(card);
+          document.body.append(panelProgressOverlay);
+        }
+        panelProgressOverlay.querySelector('.busy-card').classList.toggle('popup-long-message', notice.length > 120);
+        panelProgressOverlay.querySelector('.popup-message').textContent = notice;
+        const card = panelProgressOverlay.querySelector('.busy-card');
+        let cancel = card.querySelector('[data-command="cancelPanelProgress"]');
+        if (typeof cancelId === 'number') {
+          const created = !cancel;
+          if (!cancel) {
+            cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.className = 'secondary';
+            cancel.setAttribute('data-command', 'cancelPanelProgress');
+            cancel.textContent = 'Cancel';
+            card.append(cancel);
+          }
+          cancel.setAttribute('data-operation-id', String(cancelId));
+          if (created) cancel.focus({ preventScroll: true });
+        } else cancel?.remove();
+        panelProgressOverlay.style.display = '';
+        document.body.setAttribute('data-busy', '');
+      } else {
+        // A notice can temporarily detach this card. Mark it retired so the notice
+        // script cannot restore a completed wait when the reader dismisses that notice.
+        if (panelProgressOverlay) {
+          panelProgressOverlay.setAttribute('data-panel-progress-retired', '');
+          panelProgressOverlay.remove();
+          panelProgressOverlay = null;
+        }
+        const otherBusy = Array.from(document.querySelectorAll('.busy-overlay:not([data-kren-notice])'))
+          .some(card => card !== panelProgressOverlay && card.style.display !== 'none');
+        if (!otherBusy) document.body.removeAttribute('data-busy');
+      }
+    }
     window.addEventListener('message', (event) => {
       const message = event.data;
+      void Promise.resolve().then(linkCredentialReasons);
       if (!message) return;
+      if (message.command === 'panelProgress') patchPanelProgress(message.notice, message.cancelId);
       if (message.command === 'panelThemeChanged') applyPanelTheme(message);
       if (message.resetAvailability) syncTutorResetAvailability(message);
       if (message.command === 'playPronunciation' && typeof message.url === 'string') {
@@ -2918,7 +3076,10 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       }
       if (message.command === 'languageModelUsage') {
         const usage = document.querySelector('[data-language-model-usage]');
-        if (usage && typeof message.html === 'string') usage.innerHTML = message.html;
+        if (usage && typeof message.html === 'string') {
+          usage.innerHTML = message.html;
+          sizeLanguageModelUsage();
+        }
         return;
       }
       if (message.command === 'tutorConversationHandoff') {
@@ -2980,9 +3141,22 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       }
       if (message.command === 'tutorPicturePaused') {
         const notice = document.querySelector('[data-tutor-picture-paused]');
-        if (notice instanceof HTMLElement) { notice.textContent = message.text; notice.hidden = !message.text; }
+        if (notice instanceof HTMLElement) {
+          notice.textContent = message.text;
+          if (message.text?.includes('KREN menu, Credentials')) {
+            const link = document.createElement('a');
+            link.href = '#'; link.dataset.command = 'showCredentials'; link.textContent = 'Open Credentials';
+            notice.append(' ', link);
+          }
+          notice.hidden = !message.text;
+        }
       }
-      if (message.command === 'tutorVoiceModelReady') patchTutorVoiceModel(message);
+      if (message.command === 'credentialPresenceReady') {
+        credentialPresence = message.presence;
+        applyConditionalSettings();
+      }
+      if (message.command === 'modelCatalogReady') patchModelCatalog(message);
+      if (message.command === 'tutorVoiceModelReady') holdScroll(() => patchTutorVoiceModel(message));
       if (message.command === 'tutorConversationRender') patchTutorConversationRender(message);
       if (message.command === 'tutorConversationSceneReady') patchTutorConversationScene(message);
       if (message.command === 'tutorConversationPictureRequestFinished') tutorPictureRequestPending = false;
@@ -3109,6 +3283,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
         }
       }
     });
+    document.querySelector('.busy-overlay [data-command="cancelPanelProgress"]')?.focus({ preventScroll: true });
     if (player instanceof HTMLAudioElement) {
       player.addEventListener('playing', () => {
         if (playerMode === 'generated') vscode.postMessage({ command: 'generatedAudioStarted', playbackId: generatedAudioPlaybackId });
@@ -3274,6 +3449,38 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       vscode.postMessage({ command: 'updateSetting', key, value });
       applyConditionalSettings();
     });
+    function patchModelCatalog(message) {
+      const focused = document.activeElement;
+      const left = window.scrollX;
+      const top = window.scrollY;
+      document.querySelectorAll('select[data-model-catalog]').forEach(select => {
+        if (select.getAttribute('data-model-catalog') !== message.catalog) return;
+        const selected = select.value;
+        const selectedLabel = select.selectedOptions[0]?.textContent || selected;
+        const custom = JSON.parse(select.getAttribute('data-model-customs') || '[]');
+        const models = [...custom.map(id => ({ id, displayName: id })),
+          ...message.models.filter(model => !custom.includes(model.id))];
+        // A catalog never writes a setting, including when discovery omits its current model.
+        if (selected !== '__custom__' && !models.some(model => model.id === selected)) {
+          models.push({ id: selected, displayName: selectedLabel });
+        }
+        const options = models.map(model => {
+          const option = document.createElement('option');
+          option.setAttribute('value', model.id);
+          option.textContent = model.displayName;
+          return option;
+        });
+        const other = document.createElement('option');
+        other.setAttribute('value', '__custom__');
+        other.textContent = 'Custom model identifier';
+        select.replaceChildren(...options, other);
+        select.value = selected;
+      });
+      applyCredentialGray();
+      if (focused instanceof HTMLElement && focused.isConnected) focused.focus({ preventScroll: true });
+      if (window.scrollX !== left || window.scrollY !== top) window.scrollTo(left, top);
+    }
+
     function patchTutorVoiceModel(message) {
       const selector = 'details[data-persist-id="tutor-setting"]';
       const current = document.querySelector(selector);
@@ -3333,7 +3540,6 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       summary.textContent = tutorConversationAdvancedSummary({
         send: 'When I stop speaking',
         replies: selectedText('[data-tutor-conversation-replies]'),
-        situationPicture: selectedText('[data-tutor-conversation-situation-picture]'),
         pictureStyle: selectedText('[data-setting="tutor.conversation.pictureStyle"]'),
         pictureTransparency: selectedText('[data-tutor-conversation-picture-transparency]'),
         balloonTransparency: selectedText('[data-tutor-conversation-balloon-transparency]'),
@@ -3375,6 +3581,18 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       const send = document.querySelector('[data-tutor-conversation-send]');
       const replies = document.querySelector('[data-tutor-conversation-replies]');
       const replyLength = document.querySelector('[data-tutor-conversation-reply-length]');
+      const situationPicture = document.querySelector('[data-tutor-conversation-situation-picture]');
+      const sourceDescription = source?.closest('label')?.querySelector('.setting-description');
+      if (source instanceof HTMLSelectElement && sourceDescription instanceof HTMLElement) {
+        sourceDescription.textContent = source.value === 'lesson' && source.getAttribute('data-tutor-lesson-ready') === 'false'
+          ? ${JSON.stringify(TUTOR_LESSON_UNAVAILABLE)} : 'Where the conversation takes its subject.';
+      }
+      const pauseDescription = document.querySelector('[data-setting="tutor.readAloud.sentencePauseMilliseconds"]')
+        ?.closest('label')?.querySelector('.setting-description');
+      if (replies instanceof HTMLSelectElement && pauseDescription instanceof HTMLElement) {
+        pauseDescription.textContent = replies.value === 'liveGemini'
+          ? 'Gemini Live sets its own pauses.' : 'Pause between sentences in tutor speech.';
+      }
       const summary = document.querySelector(
         '[data-persist-id="tutor-conversation-mode"] > summary .rewrite-group-summary'
       );
@@ -3385,6 +3603,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
           starts instanceof HTMLSelectElement && register instanceof HTMLSelectElement &&
           coaching instanceof HTMLSelectElement &&
           replies instanceof HTMLSelectElement &&
+          situationPicture instanceof HTMLSelectElement &&
           replyLength instanceof HTMLSelectElement) {
         summary.textContent = 'Source: ' + selectedText(source) + ' | Situation: ' +
           (source.value !== 'anything' ? selectedText(situation) : 'Not used') +
@@ -3392,6 +3611,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
           ' | Who starts: ' + selectedText(starts) +
           ' | Register: ' + selectedText(register) + ' | Correction: ' + selectedText(coaching) +
           ' | Sends when you stop' +
+          ' | Reply: ' + selectedText(replies) + ' | Picture: ' + selectedText(situationPicture) +
           (replyLength.value === 'short' ? '' : ' | Reply length: ' + selectedText(replyLength));
       }
       syncTutorConversationAdvancedSummary();
@@ -3677,16 +3897,66 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       }
       syncTutorConversationAdvancedSummary();
     }
+    function linkCredentialReasons() {
+      document.querySelectorAll('.tutor-failure, .tutor-picture-paused, .tutor-action-status, .tutor-drawer-result p, [role="status"]').forEach(reason => {
+        if (!reason.textContent?.includes('KREN menu, Credentials') || reason.querySelector('[data-command="showCredentials"]')) return;
+        const link = document.createElement('a');
+        link.href = '#'; link.dataset.command = 'showCredentials'; link.textContent = 'Open Credentials';
+        reason.append(' ', link);
+      });
+    }
+    let credentialPresence = ${JSON.stringify(options.settings.credentialPresence ?? {})};
+    const credentialMissing = ${credentialMissing.toString()};
+    const otherGeminiProfileMessage = ${otherGeminiProfileMessage.toString()};
+    const credentialControlState = ${credentialControlState.toString()};
+    function applyCredentialGray() {
+      const gray = (element, missing) => {
+        element.classList.toggle('credential-missing', missing);
+        if (missing) element.setAttribute('aria-description', 'No key stored');
+        else element.removeAttribute('aria-description');
+      };
+      document.querySelectorAll('select[data-setting], select[data-model-preset], input[data-setting]').forEach(control => {
+        const key = control.getAttribute('data-model-preset') || control.getAttribute('data-setting');
+        const state = credentialControlState(key, credentialPresence, settingValue, credentialMissing);
+        if (!state) return;
+        gray(control, state.missing);
+        control.querySelectorAll('option').forEach(option => gray(option, state.options ? Boolean(state.options[option.value]) : state.missing));
+      });
+    }
+    function updateCredentialNotes() {
+      document.querySelectorAll('[data-credential-setting]').forEach(note => {
+        const key = note.getAttribute('data-credential-setting');
+        const selected = settingValue(key);
+        const provider = key === 'tutor.liveGeminiProfile' ? 'gemini' : selected === 'googleChirp' ? 'googleCloudTextToSpeech'
+          : key === 'translationProvider' && selected === 'gemini' ? '' : selected;
+        const profileKey = note.getAttribute('data-credential-profile-setting');
+        const profile = (profileKey && settingValue(profileKey)) || note.getAttribute('data-credential-profile');
+        const base = credentialMissing(credentialPresence, provider, profile)
+          ? JSON.parse(note.getAttribute('data-credential-notes') || '{}')[provider + ':' + profile] || '' : '';
+        const text = base + (base && profileKey ? otherGeminiProfileMessage(provider, profile, credentialPresence) : '');
+        note.hidden = !text;
+        note.querySelector('span').textContent = text;
+      });
+    }
     function applyConditionalSettings() {
+      applyCredentialGray();
+      linkCredentialReasons();
+      updateCredentialNotes();
       syncTutorSpeechDetection();
       document.querySelectorAll('[data-provider-for]').forEach((group) => {
         if (group.hasAttribute('data-model-slot')) return;
         const key = group.getAttribute('data-provider-for');
         const expected = group.getAttribute('data-provider-value');
-        const liveProfile = group.hasAttribute('data-tutor-live-profile') &&
-          document.querySelector('[data-tutor-conversation-replies]')?.value === 'liveGemini';
-        group.classList.toggle('hidden', !liveProfile && (!key || !expected || settingValue(key) !== expected));
+        group.classList.toggle('hidden', !key || !expected || settingValue(key) !== expected);
       });
+      const tutorRoutingSummary = document.querySelector('[data-llm-routing="tutor"] > summary .rewrite-group-summary');
+      if (tutorRoutingSummary instanceof HTMLElement) {
+        const entries = tutorRoutingSummary.textContent.split(' | ')
+          .filter(entry => !entry.startsWith('Gemini Profile: '));
+        if (settingValue('tutor.provider') === 'gemini') entries.splice(1, 0,
+          'Gemini Profile: ' + (settingValue('tutor.geminiProfile') === 'pro' ? 'Paid' : 'Free Tier'));
+        tutorRoutingSummary.textContent = entries.join(' | ');
+      }
       document.querySelectorAll('[data-gemini-profile-for]').forEach((group) => {
         if (group.hasAttribute('data-model-slot')) return;
         const key = group.getAttribute('data-gemini-profile-for');
@@ -3730,7 +4000,6 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     function scrollTutorStoppedActions() {
       document.querySelector('[data-tutor-stopped-actions]')?.scrollIntoView({ block: 'end' });
     }
-    ${options.tutorScrollToStoppedActions ? 'scrollTutorStoppedActions();' : ''}
     initializeTutorConversationPicture();
     ${options.tutorConversationPicturePending ? `patchTutorConversationPicture(${JSON.stringify({
       image: options.tutorConversationPicturePending.image,
@@ -3740,8 +4009,16 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       mode: options.tutor?.conversation.situationPicture
     })});` : ''}
     checkTutorDevelopingPicture(${JSON.stringify(options.tutorConversationPictureCommittedTurn ?? null)});
-    ${audio ? `void playPronunciation(${JSON.stringify(audio.url).replace(/</gu, '\u003c')}, false);` : ''}
+    ${audio ? `void playPronunciation(${JSON.stringify(audio.url).replace(/</gu, '\\u003c')}, false);` : ''}
+    requestAnimationFrame(sizeLanguageModelUsage);
+    const usageBox = document.querySelector('[data-language-model-usage]');
+    if (usageBox) new ResizeObserver(sizeLanguageModelUsage).observe(usageBox);
+    window.addEventListener('resize', sizeLanguageModelUsage);
+    document.fonts.ready.then(sizeLanguageModelUsage);
     applyConditionalSettings();
+    // The layout is final here. The stopped actions still win, as they did when they came later.
+    if (scrollRestorePending) restoreScroll();
+    ${options.tutorScrollToStoppedActions ? 'scrollTutorStoppedActions();' : ''}
     ${panelNoticeScript(options.panelNotices ?? [])}
     vscode.postMessage({ command: 'generatedAudioReady' });
   </script>
@@ -3805,7 +4082,9 @@ function renderPopulatedView(
     ? `<p class="result-meta rewrite-meta">Language: <strong>${escapeHtml(languageName(result.sourceLanguage))}</strong> | ${isEnglishLanguageCode(result.sourceLanguage) ? `English: <strong>${escapeHtml(rewriteEnglishVarietyLabel(result.englishVariety))}</strong> | ` : ''}Modality: <strong>${escapeHtml(rewriteAxisLabel(REWRITE_MODALITIES, result.modality))}</strong> | Function: <strong>${escapeHtml(rewriteAxisLabel(REWRITE_FUNCTIONS, result.function))}</strong> | Domain: <strong>${escapeHtml(rewriteDomainLabel(result.domain))}</strong> | Formality: <strong>${escapeHtml(rewriteAxisLabel(REWRITE_FORMALITIES, result.formality))}</strong> | Voice: <strong>${escapeHtml(rewriteAxisLabel(REWRITE_VOICES, result.voice))}</strong> | Stance: <strong>${escapeHtml(rewriteAxisLabel(REWRITE_STANCES, result.stance))}</strong> | Length: <strong>${escapeHtml(rewriteAxisLabel(REWRITE_LENGTHS, result.length))}</strong> | Perspective: <strong>${escapeHtml(rewriteAxisLabel(REWRITE_PERSPECTIVES, result.perspective))}</strong> | Intent: <strong>${escapeHtml(rewriteRhetoricalModeLabel(result.rhetoricalMode))}</strong></p>`
     : '';
   const attribution = renderProviderAttribution(result.providerId, googleAttributionImageUri);
-  return `${renderHeader(`<div class="provider">${renderProviderLogo(result.providerId, logoUris)}${model}</div>`, true, brandImageUri)}
+  // 2026-10-20 (owner, canvas): the provider line sits on its own row under the header, above the cards.
+  return `${renderHeader('', true, brandImageUri)}
+  <div class="provider">${renderProviderLogo(result.providerId, logoUris)}${model}</div>
   <section class="card">
     <h2 class="card-title">Input</h2>
     <div class="card-body"><pre class="source">${escapeHtml(sourceText)}</pre></div>
@@ -3851,11 +4130,11 @@ export interface CapabilityAvailability {
 export function capabilityAvailability(settings: KrenPanelSettings): CapabilityAvailability[] {
   const keyed = (credential: KrenCredentialId, name: string) => ({
     available: Boolean(settings.credentialPresence?.[credential]),
-    reason: `Unavailable because no ${name} API key is configured.`
+    reason: missingCredentialMessage(missingCredentialDetails(credential === 'geminiDefault' || credential === 'geminiAlternate' ? 'gemini' : credential === 'cloudflareAccountId' || credential === 'cloudflareApiToken' ? 'cloudflare' : credential, credential === 'geminiAlternate' ? 'pro' : 'standard'), settings.credentialPresence)
   });
   const model = (provider: LanguageModelRoutingProvider, profile: GeminiRoutingProfile) => {
-    if (provider === 'groq') return { available: Boolean(settings.credentialPresence?.groq), reason: 'Unavailable because no Groq API key is configured. Open KREN menu, Credentials.' };
-    if (provider === 'cloudflare') return { available: Boolean(settings.credentialPresence?.cloudflareAccountId && settings.credentialPresence?.cloudflareApiToken), reason: 'Unavailable because Cloudflare credentials are not configured. Open KREN menu, Credentials.' };
+    if (provider === 'groq') return { available: Boolean(settings.credentialPresence?.groq), reason: missingCredentialMessage(missingCredentialDetails('groq')) };
+    if (provider === 'cloudflare') return { available: Boolean(settings.credentialPresence?.cloudflareAccountId && settings.credentialPresence?.cloudflareApiToken), reason: missingCredentialMessage(missingCredentialDetails('cloudflare', 'standard', [...(!settings.credentialPresence?.cloudflareAccountId ? ['account ID'] : []), ...(!settings.credentialPresence?.cloudflareApiToken ? ['API token'] : [])])) };
     const slot = languageModelCredentialSlot(provider, profile);
     return keyed(
       slot === 'gemini' ? 'geminiDefault' : slot === 'geminiPro' ? 'geminiAlternate' : slot,
@@ -3900,7 +4179,7 @@ function renderEmptyView(
 ): string {
   return `${renderHeader('', false, brandImageUri, true, hasHeldResult, updatesAvailable)}
   <section class="card welcome${statusLayout === 'firstRun' ? ' welcome-first-run' : ''}">
-    <p class="welcome-lead"><strong>KREN is a privacy-conscious language copilot for dictionaries, smart grammar checking, translation, nuance, rewriting, and read-aloud, with multilingual and auto-detect support, inside VS Code.</strong></p>
+    <p class="welcome-lead"><strong>KREN is a privacy-conscious language copilot for dictionaries, smart grammar checking, translation, nuance, rewriting, and read-aloud, with multilingual and auto-detect support, plus an LLM-based AI English Tutor, inside VS Code.</strong></p>
     <div class="welcome-layout">
       <div class="welcome-flow">
         <div class="welcome-step"><strong>1. Select or copy</strong><span>Select editor text, or copy text from chat, terminals, and other panels.</span></div>
@@ -3943,7 +4222,7 @@ function capabilityButton({ label, command, available, reason: unavailableReason
   const reason = available
     ? ''
     : `<span class="capability-reason">${escapeHtml(unavailableReason ?? 'Unavailable because no API key is configured.')}</span>`;
-  return `<button class="capability${available ? '' : ' unavailable has-reason'}" data-command="runCommand" data-action="${escapeHtml(command)}"${available ? '' : ' disabled'}><span class="capability-label">${escapeHtml(label)}</span>${reason}</button>`;
+  return `<div class="capability-item"><button class="capability${available ? '' : ' unavailable has-reason'}" data-command="runCommand" data-action="${escapeHtml(command)}"${available ? '' : ' disabled'}><span class="capability-label">${escapeHtml(label)}</span>${reason}</button>${!available && unavailableReason?.includes('KREN menu, Credentials') ? '<a href="#" data-command="showCredentials">Open Credentials</a>' : ''}</div>`;
 }
 
 /**
@@ -3973,8 +4252,9 @@ function renderHeader(
       ${canClear ? iconButton('clear', '', 'Clear KREN result', 'Clear KREN result', 'clear', false, false, 'icon-button') : ''}
       ${hasHeldResult ? iconButton('showResult', '', 'Back to result', 'Back to the KREN result', 'back', false, false, 'icon-button') : ''}
       ${iconButton('showStartPage', '', 'Start page', 'Go to the KREN Start page', 'home', false, false, 'icon-button')}
-      ${prominent ? `<button class="${updatesAvailable ? '' : 'hidden'}" data-system-updates data-command="checkForUpdates">Updates available</button>` : ''}
       ${iconButton('showSettings', '', 'Settings', 'Open KREN Settings', 'settings', false, false, 'icon-button')}
+      ${iconButton('showTutor', '', 'AI English Tutor', 'Open the AI English Tutor', 'tutor', false, false, 'icon-button')}
+      ${iconButton('showCredentials', '', 'Credentials', 'Open KREN Credentials', 'key', false, false, 'icon-button')}
       <button class="icon-button" data-command="toggleTheme" title="__KREN_THEME_ACTION__" aria-label="__KREN_THEME_ACTION__"><svg class="theme-icon-dark" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"></path></svg><svg class="theme-icon-light" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"></path></svg></button>
       <div class="menu-wrap">
         ${iconButton(undefined, 'data-menu-toggle', 'KREN menu', 'Open KREN menu', 'menu', false, false, 'icon-button menu-button', ' aria-haspopup="true" aria-expanded="false"')}
@@ -3989,13 +4269,15 @@ function renderHeader(
         </div>
       </div>
     </div>
-  </header>`;
+  </header>
+  <!-- Changed 2026-10-21 (owner, canvas): Updates available follows the header. -->
+  ${prominent ? `<div class="system-updates-row"><button class="${updatesAvailable ? '' : 'hidden'}" data-system-updates data-command="checkForUpdates">Updates available</button></div>` : ''}`;
 }
 
 export function renderEnvironmentChecks(items: readonly EnvironmentItem[], busy = false): string {
   return `<h2>Check for updates</h2><p class="settings-intro">System checks need no key. Providers with stored keys are asked only for model lists, Google for voices. No text is sent. Edge uses the configured Python.</p>
     <p role="status">${busy ? 'Checking system dependencies. Please wait.' : items.length ? 'Latest check results' : 'No check results yet.'}<button data-command="checkForUpdates"${busy ? ' disabled' : ''}>Check again</button></p>
-    ${(['System', 'Models', 'Voices'] as const).map(group => `<section data-update-group="${group}"><h3>${group}</h3>${items.filter(item => (item.group ?? 'System') === group).map(item => `<section class="card"><h4 class="card-title">${escapeHtml(item.name)}: ${escapeHtml(item.status)}</h4><div class="card-body"><p>Found: ${escapeHtml(item.found)}. Expected: ${escapeHtml(item.expected)}.</p><p>${escapeHtml(item.explanation)}</p>${item.fixTarget ? `<button type="button" class="secondary" data-update-fix-target="${escapeHtml(item.fixTarget)}"${busy ? ' disabled' : ''}>Open ${item.fixTarget === 'tutorVoice' ? 'TUTOR VOICE' : item.fixTarget === 'readAloud' ? 'Read Aloud voice settings' : 'LLM ROUTING'}</button>` : item.fix === 'updateEdgeTts' ? `<button class="secondary" data-command="updateEdgeTts"${busy ? ' disabled' : ''}>Update</button>` : item.fix === 'pythonSetting' ? '<button class="secondary" data-command="openUpdatesPythonSetting">Python setting</button>' : item.fix === 'vscodeUpdate' ? '<p>Use VS Code Help to check for an editor update.</p>' : ''}</div></section>`).join('')}</section>`).join('')}`;
+    ${(['System', 'Models', 'Voices'] as const).map(group => `<section data-update-group="${group}"><h3>${group}</h3>${items.filter(item => (item.group ?? 'System') === group).map(item => `<section class="card"><h4 class="card-title">${escapeHtml(item.name)}: ${escapeHtml(item.status)}</h4><div class="card-body"><p>Found: ${escapeHtml(item.found)}. Expected: ${escapeHtml(item.expected)}.</p><p>${escapeHtml(item.explanation)}</p>${item.fixTarget ? `<button type="button" class="secondary" data-update-fix-target="${escapeHtml(item.fixTarget)}"${busy ? ' disabled' : ''}>Open ${item.fixTarget === 'tutorVoice' ? 'TUTOR VOICE' : item.fixTarget === 'readAloud' ? 'READ ALOUD voice settings' : 'LLM ROUTING'}</button>` : item.fix === 'updateEdgeTts' ? `<button class="secondary" data-command="updateEdgeTts"${busy ? ' disabled' : ''}>Update</button>` : item.fix === 'pythonSetting' ? '<button class="secondary" data-command="openUpdatesPythonSetting">Python setting</button>' : item.fix === 'vscodeUpdate' ? '<p>Use VS Code Help to check for an editor update.</p>' : ''}</div></section>`).join('')}</section>`).join('')}`;
 }
 
 /** Shared by update fixes and the panel script; open every ancestor before scrolling. */
@@ -4026,8 +4308,8 @@ function renderManual(
   hasHeldResult = false
 ): string {
   return `${renderHeader('', false, brandImageUri, false, true)}
-    <h2>KREN User Manual</h2>
-    <p>Version ${escapeHtml(version)}. User Dictionary is ${userDictionaryEnabled ? 'enabled' : 'disabled'}.</p>
+    <h2>KREN ${escapeHtml(version)} User Manual</h2>
+    ${userDictionaryEnabled ? '' : '<p>User Dictionary is turned off in Settings, so its commands are hidden.</p>'}
     <h3>Set up</h3><p>Unlock the features you need.</p>
     <ol><li>Install on VS Code Desktop 1.106 or later; run KREN: Show KREN Secondary Sidebar.</li><li>Open KREN menu, <strong>Credentials</strong>; Set key. Each row's information icon explains where to get keys.</li><li>Choose feature languages and LLM ROUTING. Select editor text and right-click an action, or copy text, click KREN in the status bar, review the preview, and choose.</li></ol>
     <p>Harper, stored glossary management, and local reading need no key. Dictionaries/Cloud need their keys; Models support Gemini, OpenAI, Anthropic, Groq, and Cloudflare. Translation supports Gemini, Groq, and Cloudflare; Live needs Gemini. Dictation/pictures also support Cloudflare. Set account ID/token; choose Picture Provider in VOICE &amp; MODEL and Speech provider in VOICE &amp; MODEL. You can configure two of the three Merriam-Webster references: Collegiate Dictionary, Collegiate Thesaurus, Medical Dictionary. The public build refuses a third stored reference key.</p>
@@ -4046,7 +4328,7 @@ function renderManual(
     <h3>Rewrite</h3><p>Correct wording or apply style.</p>
     <ol><li>Set languages/style in Settings, Rewrite Text.</li><li>Select text; run KREN: Rewrite Text: Minimal Rewrite, KREN: Rewrite Text: Full Rewrite, or KREN: Rewrite Text: Both Variants.</li><li>Turn Copy result to clipboard off to show a single variant; read, copy, or replace.</li></ol><p>Both Variants always opens the panel; Minimal keeps the source language.</p>
     <h3>Read Aloud</h3><p>Hear a cleaned copy. Edge defaults to en-US-ChristopherNeural with Auto-detect.</p>
-    <ol><li>On local Windows, choose Speech source, voice, speed, and Volume in Settings, Read Aloud (Windows). Edge needs Python and <code>python -m pip install edge-tts</code>. Google Cloud Chirp 3 HD needs the Google Cloud Text-to-Speech key in KREN menu, Credentials, or uses the Cloud Translation key when that slot is empty. Choose Language/Region and Chirp voice, then Reading speed, where zero percent is the natural rate, 1.0.</li><li>Select text, run KREN: Read Aloud, accept Edge consent if prompted; KREN: Stop Read Aloud stops it. A missing key, unavailable voice or locale, or Chirp failure uses Edge Online, then Local Windows. Synthesis retries once; playback falls back immediately without requesting Google again. Selected Edge failure also uses Windows. One notice per VS Code session names the cause and voice.</li></ol><p>The document stays unchanged. Chirp sends only the cleaned speech copy to Google. A hidden native Windows player works with the panel open or closed, reuses its process for sentences, and exits after two minutes idle. Each temporary MP3 is deleted after playback or Stop. Read Aloud settings are separate from the tutor's voice settings.</p>
+    <ol><li>On local Windows, choose Speech source, voice, speed, and Volume in Settings, Read Aloud. Edge needs Python and <code>python -m pip install edge-tts</code>. Google Cloud Chirp 3 HD needs the Google Cloud Text-to-Speech key in KREN menu, Credentials, or uses the Cloud Translation key when that slot is empty. Choose Language/Region and Chirp voice, then Reading speed, where zero percent is the natural rate, 1.0.</li><li>Select text, run KREN: Read Aloud, accept Edge consent if prompted; KREN: Stop Read Aloud stops it. A missing key, unavailable voice or locale, or Chirp failure uses Edge Online, then Local Windows. Synthesis retries once; playback falls back immediately without requesting Google again. Selected Edge failure also uses Windows. One notice per VS Code session names the cause and voice.</li></ol><p>The document stays unchanged. Chirp sends only the cleaned speech copy to Google. A hidden native Windows player works with the panel open or closed, reuses its process for sentences, and exits after two minutes idle. Each temporary MP3 is deleted after playback or Stop. Read Aloud settings are separate from the tutor's voice settings.</p>
     <h3>User Dictionary</h3><p>Keep a local glossary.</p>
     <h4>Add an entry</h4><p>Draft an expression.</p><ol><li>Enable User Dictionary; choose Default capture mode, LLM Only or Merriam-Webster + LLM, requiring the Collegiate key.</li><li>Select an expression; run KREN: Add to User Dictionary. Edit, then Save personal entry, Regenerate, or Cancel.</li></ol><p>Only saving stores it.</p>
     <h4>Use Smart Word Capture</h4><p>Identify the encountered meaning.</p><ol><li>Leave Smart Word Capture on in Settings, User Dictionary; add an editor expression.</li><li>Review In the captured text and All meanings, then save.</li></ol><p>All meanings remain available.</p>
@@ -4055,16 +4337,16 @@ function renderManual(
     <h4>Export and import</h4><p>Back up or restore.</p><ol><li>In Settings use Export JSON or Export Markdown; list checkboxes select subsets.</li><li>Import and review the preview; choose Merge, keep existing; Merge, replace duplicates; or Replace all.</li></ol><p>JSON is lossless; Markdown is lossy. Invalid/internal duplicates block import.</p>
     <h4>Purge entries</h4><p>Delete a reviewed set.</p><ol><li>In Settings, User Dictionary, choose Entries to purge, then Preview purge.</li><li>Review terms, use the trash icon, and confirm; Remove all entries requires typing.</li></ol><p>Only previewed entries are deleted.</p>
     <h3>AI English Tutor</h3><p>Learn and use a pattern.</p>
-    <h4>Build a lesson</h4><p>Choose targets or a question.</p><ol><li>Open AI English Tutor, LEARNING MAP; use Primary or Support beside Selected targets.</li><li>For a question, enable Use question without learning-map targets, type, and choose Ask or analyze text.</li><li>In LESSON choose Setting, adjust LESSON SETTING, then Draft below it.</li></ol><p>Rules/examples appear; missing input explains unavailable Draft.</p>
+    <h4>Build a lesson</h4><p>Choose targets or a question.</p><ol><li>In AI English Tutor, open LEARNING MAP; use Primary or Support beside Selected targets.</li><li>For a question, enable Use question without learning-map targets, type, and choose Ask or analyze text.</li><li>In LESSON choose Setting, adjust LESSON SETTING, then Draft below it.</li></ol><p>Rules/examples appear; missing input explains unavailable Draft.</p>
     <h4>Read the lesson</h4><p>View every example.</p><ol><li>Read with Next and Back; use Play, Dictionary, Translate, or Ask.</li><li>Choose Practice now below example controls and before COMMON ERRORS after viewing all examples.</li></ol><p>Conversation target words are underlined in the theme's link color; Live may miss abstract grammar or inflected forms.</p>
     <h4>Practice</h4><p>Answer and review.</p><ol><li>Type or dictate; press the microphone again to stop. Handy's pulsing Pause stops listening and restores the microphone, including in chat. Use Hint and Next; Back revisits.</li><li>On the last item, answer every item and choose Review all for one batched request. Invalid reviews retry alone once. Read corrections; Next after all reviews opens results.</li></ol><p>Review all stays disabled after review; editing an answer enables review of changed items. Cancel review keeps saved work; Ask explains reviewed items.</p>
-    <p>Answers and reviews remain between items. Review all completes practice; errors include unnatural phrasing.</p><h4>Hold a conversation</h4><p>Practice a situation or lesson.</p><ol><li>Open CONVERSATION, MODE. Set Source/Situation, including Let KREN choose. View every lesson example and review every practice item first.</li><li>Choose roles, Who starts, Register, Correction. In ADVANCED choose Replies (Standard/Live), Situation picture (None/Intro Only/Switching/Gradually Entering), and Picture style (Realistic/Illustrated). With Gemini chosen, situation pictures need a Gemini Paid API key with billing enabled; the default image model costs about US$0.03 per picture and a conversation makes at most 10.</li><li>Choose Cloudflare free models in Picture Provider and FLUX.1 schnell or FLUX.2 klein 4B in Image Model. Both send scene and recent turns to Cloudflare, never the previous picture. With Standard replies and the speaker on, the situation intro appears and is read to the end first. Then dots appear in the chat until the first KREN line starts playing, when its text appears. The in-chat microphone and Stop appear when that line finishes, so you can answer. After you send a turn, dots remain until the reply's voice starts, its text appears with its voice, and the controls return when speech ends. If you start first, the controls appear after the intro. With the speaker off, text and controls appear immediately. Failed or fallback speech reveals the affected line, and canceled or stalled speech releases the controls. Situation pictures appear when ready without advancing speech. Chirp requests speech by sentence, joining short sentences so a request has about 40 characters or more when the line permits it. It starts the first sentence and requests the next while that sentence plays, keeping their order. Each sentence retries synthesis once after about one second for no response, unreadable audio, or an HTTP error other than 400, 401, and 403, then uses Edge Online for the remaining text. Native playback failure uses Edge Online immediately and never re-synthesizes. If Edge Online is unavailable, Local Windows reads that same remaining text with the tutor voice settings. At most one speech notice appears per conversation; later failures go to the speech log. Missing credentials and HTTP 400, 401, and 403 go directly to the fallback. Stop cancels pending requests and playback. The speech log reports the time to the first Chirp audio once per line. Edge Online and Local Windows read the whole line. Conversation openings resolve named roles, including Roles swapped, and later requests keep those assignments. Live uses Talk to KREN; Press the microphone once to start a Live turn and again to finish it, from the next conversation. Hint guides a reply on demand. ADVANCED, Prepare hints in advance is off; on uses one extra request per turn. Each Source uses one in-chat microphone; stopping sends the turn. No text box or Send remains. Speaker, Hint, Skip, Replay and Stop stay below where offered.</li><li>Live defaults to When you stop: corrections arrive at Stop; As you go costs one request per turn. Stop sends corrections; Review now shows TAKE-HOME. Review now needs one sent or spoken answer. Back to chat resumes with microphone closed; Start new clears it. After five turns, More details opens the report; Apply prepares a lesson prompt.</li><li>Choose Source, Speak and rephrase. Say anything. KREN speaks two to four coaching sentences with bold blue quoted expressions. It coaches questions without answering or asking back. Replay speaks the whole paragraph; no learner feedback block appears. Register, Replies and VOICE &amp; MODEL remain available. Unused controls are disabled; Hint and Demo are unavailable.</li></ol><p>An unfinished source says “Finish the lesson and its practice first.” TAKE-HOME teaches with Say it naturally, Learning targets, Pattern to keep, Done well, and Try next time: better ways to say your sentence, learning-map areas to practice next, and no advice on capitalization or punctuation for spoken turns; diagnosis is separate. No committed learner answer, including Demo or only skipped or withheld turns, means no take-home request or card.</p>
-    <h4>Change voice and model</h4><p>Speech Source defaults to Google Cloud Chirp 3 HD.</p><ol><li>Open VOICE &amp; MODEL, TUTOR VOICE; choose Speech Source, voice, speed, Volume, and preview.</li><li>In LLM ROUTING choose Provider, Gemini Profile, Thorough model, fallback, Fast model, Live Model, and Image Model.</li></ol><p>Live needs the selected Gemini profile's key and a live-capable Live Model in VOICE &amp; MODEL; the tutor text Provider can stay as it is. Gemini Live and Chirp 3 HD Voice defaults are Callirrhoe for female and Enceladus for male. Voice/microphone changes apply from Start or Back to chat.</p>
+    <p>Answers and reviews remain between items. Review all completes practice; errors include unnatural phrasing.</p><h4>Hold a conversation</h4><p>Practice a situation or lesson.</p><ol><li>Open CONVERSATION. A situation is the default source; your saved source choice is kept. Start uses current MODE options; Demo reads both roles without recording you. Setting opens MODE without changing any option. Open MODE shows Start, Demo, Reset; closed shows Setting, Start, Demo. Set Source/Situation, including Let KREN choose. For The lesson, view every lesson example and review every practice item first.</li><li>In MODE choose roles, Who starts, Register, Correction, Replies (Standard/Live), Situation picture (None/Intro Only/Switching/Gradually Entering). In ADVANCED choose Picture style (Realistic/Illustrated). With Gemini chosen, situation pictures need a Gemini Paid API key with billing enabled; the default image model costs about US$0.03 per picture and a conversation makes at most 10.</li><li>Choose Cloudflare free models in Picture Provider and FLUX.1 schnell or FLUX.2 klein 4B in Image Model. Both send scene and recent turns to Cloudflare, never the previous picture. With Standard replies and the speaker on, the situation intro appears and is read to the end first. Then dots appear in the chat until the first KREN line starts playing, when its text appears. The in-chat microphone and Stop appear when that line finishes, so you can answer. After you send a turn, dots remain until the reply's voice starts, its text appears with its voice, and the controls return when speech ends. If you start first, the controls appear after the intro. When muted, text/controls appear once the opening is ready. Failed or fallback speech reveals the affected line, and canceled or stalled speech releases the controls. Situation pictures appear when ready without advancing speech. Chirp requests speech by sentence, joining short sentences so a request has about 40 characters or more when the line permits it. It starts the first sentence and requests the next while that sentence plays, keeping their order. Each sentence retries synthesis once after about one second for no response, unreadable audio, or an HTTP error other than 400, 401, and 403, then uses Edge Online for the remaining text. Native playback failure uses Edge Online immediately and never re-synthesizes. If Edge Online is unavailable, Local Windows reads that same remaining text with the tutor voice settings. At most one speech notice appears per conversation; later failures go to the speech log. Missing credentials and HTTP 400, 401, and 403 go directly to the fallback. Stop cancels pending requests and playback. The speech log reports the time to the first Chirp audio once per line. Edge Online and Local Windows read the whole line. Conversation openings resolve named roles, including Roles swapped, and later requests keep those assignments. Live uses Talk to KREN; Press the microphone once to start a Live turn and again to finish it, from the next conversation. Hint guides a reply on demand. ADVANCED, Prepare hints in advance is off; on uses one extra request per turn. Each Source uses one in-chat microphone; stopping sends the turn. No text box or Send remains. Speaker, Hint, Skip, Replay and Stop stay below where offered.</li><li>Live defaults to When you stop: corrections arrive at Stop; As you go costs one request per turn. Stop sends corrections; Review now shows TAKE-HOME. Review now needs one sent or spoken answer. Back to chat resumes with microphone closed; Start new clears it. After five turns, More details opens the report; Apply prepares a lesson prompt.</li><li>Choose Source, Speak and rephrase. Say anything. KREN speaks two to four coaching sentences with bold blue quoted expressions. It coaches questions without answering or asking back. Replay speaks the whole paragraph; no learner feedback block appears. Register, Replies and VOICE &amp; MODEL remain available. Unused controls are disabled; Hint and Demo are unavailable.</li></ol><p>For an unfinished lesson source, Start and Demo are disabled with the tooltip "Finish the lesson and its practice first." Setting stays available. Choosing an unfinished lesson shows the completion reminder and restores the previous Source. TAKE-HOME teaches with Say it naturally, Learning targets, Pattern to keep, Done well, and Try next time: better ways to say your sentence, learning-map areas to practice next, and no advice on capitalization or punctuation for spoken turns; diagnosis is separate. No committed learner answer, including Demo or only skipped or withheld turns, means no take-home request or card.</p>
+    <h4>Change voice and model</h4><p>Speech Source defaults to Google Cloud Chirp 3 HD.</p><ol><li>Open VOICE &amp; MODEL, TUTOR VOICE; choose Speech Source, voice, speed, Volume, Sentence pause, and preview.</li><li>In LLM ROUTING choose Provider, Gemini Profile, Thorough model, Fast model/thinking, Live Model, and Image Model. Fast covers eligible Thorough failures with the same Gemini key/profile; Auto uses lowest thinking. Fast cannot fall back to itself.</li></ol><p>Live needs the Live Gemini Profile's key and a live-capable Live Model in VOICE &amp; MODEL; the tutor text Provider can stay as it is. Gemini Live and Chirp 3 HD Voice defaults are Callirrhoe for female and Enceladus for male. Gemini Live sets its own sentence pauses. Voice/microphone changes apply from Start or Back to chat.</p>
     <p>For stronger replies, leave Fast model empty in LLM ROUTING; every fast step then uses the Thorough model.</p><h3>Light and dark view</h3><p>Choose a palette.</p><ol><li>Press the theme switch beside Settings and KREN menu.</li><li>Or set Panel theme in Settings, Display: Follow VS Code, Light, Dark.</li></ol><p>The choice is remembered.</p>
-    <h3>Reset</h3><p>Clear the intended scope.</p><ol><li>In Settings, Usage choose Default Setting, then Continue/Restore Defaults; keys remain. Reset KREN also clears keys/consent/usage/grammar vocabulary; glossary entries remain.</li><li>Use tutor title-row Reset: Reset panel keeps model/microphone/voice; Reset everything restores all tutor settings. LESSON Reset clears lesson/practice; MODE Reset restores conversation preferences. Confirm, read the information dialog, and choose OK.</li></ol><p>Questions with choices and modal confirmations appear in VS Code's own dialog. Escape cancels a confirmation. Status popups, including busy spinners, failures, and provider-switch notices, stay in the KREN panel. Master Reset clears session work; Cancel keeps it. First open and Reset everything leave LEARNING MAP unfolded and every other tutor section folded.</p>
+    <h3>Reset</h3><p>Clear the intended scope.</p><ol><li>In Settings, Usage choose Default Setting, then Continue/Restore Defaults; keys remain. Reset KREN also clears keys/consent/usage/grammar vocabulary; glossary entries remain.</li><li>Use tutor title-row Reset: Reset panel keeps model/microphone/voice; Reset everything restores all tutor settings. LESSON Reset clears lesson/practice; MODE Reset restores conversation preferences. Confirm; the panel announces the reset.</li></ol><p>Questions with choices and modal confirmations appear in VS Code's own dialog. Escape cancels a confirmation. Speech has no busy popup. Busy popups, failures, and provider-switch notices stay in the KREN panel. Master Reset clears session work; Cancel keeps it. First open and Reset everything leave LEARNING MAP unfolded and every other tutor section folded.</p>
     <h3>Troubleshooting</h3><p>Follow the symptom.</p>
     <h4>No key</h4><p>Restore access.</p><ol><li>Read the reason; use KREN menu, Credentials, Set key.</li><li>Check route/Profile.</li></ol><p>Offline grammar stays available.</p>
-    <h4>Quota used up</h4><p>Gemini model fallback supports Free Tier and Paid in every feature. Fast steps cover hints, replies and Ask; Thorough covers lessons, reviews and diagnosis. Fast escalates once after validation failure, over 40 learner words, over 10 turns, or retry. Settings, Usage can send the same text to the next credentialed provider after daily/monthly exhaustion until midnight. Live and pictures stay on their provider.</p><ol><li>Use Cloud's Usage Check.</li><li>Check provider quota/billing before retrying.</li></ol><p>Local resets do not change billing.</p>
+    <h4>Quota used up</h4><p>Gemini model fallback supports Free Tier and Paid in every feature. Fast steps cover hints, replies and Ask; Thorough covers lessons, reviews and diagnosis. Fast escalates once after validation failure, over 40 learner words, over 10 turns, or retry. Settings, Usage can send the same text to the next credentialed provider after daily/monthly exhaustion until midnight. Live and pictures stay on their provider.</p><ol><li>Use Cloud's Usage button.</li><li>Check provider quota/billing before retrying.</li></ol><p>Local resets do not change billing.</p>
     <h4>Pictures paused</h4><p>Continue chatting.</p><ol><li>Read the reason; check Picture provider and Gemini/Image Model or both Cloudflare credentials and daily allowance; or select None.</li><li>Start new after resolving access.</li></ol><p>Two failures pause pictures. With Gemini chosen, situation pictures need a Gemini Paid API key with billing enabled; the default image model costs about US$0.03 per picture and a conversation makes at most 10.</p>
     <h4>Microphone unavailable</h4><p>Restore capture or type.</p><ol><li>Check tooltip, permissions, device, Gemini key/Live Model or both Cloudflare credentials and daily allowance.</li><li>Choose Standard to type; leave/return before restarting capture.</li></ol><p>Leaving retains drafts.</p>
     <h3>Reference</h3><h4>What leaves the machine</h4>
@@ -4073,7 +4355,7 @@ function renderManual(
     <p>Cloudflare pictures and Whisper share 10,000 free neurons a day. A FLUX.1 schnell picture used about 173 neurons in a test on 2026-10-10, roughly 57 pictures a day before other use; Cloudflare does not report FLUX.2 klein 4B's usage. Continuation pictures from FLUX may not keep the same people. Both Cloudflare credentials stay in SecretStorage, never panel HTML, logs, settings, or files.</p>
     <p>Google Cloud Chirp 3 HD under VOICE &amp; MODEL, TUTOR VOICE sends spoken text to Google Cloud Text-to-Speech. It uses Gemini female/male defaults plus Reading Speed and Volume. Set its key in Credentials, or use the stored Cloud Translation key. Test checks playback. Enable Cloud Text-to-Speech API; usage is billed to your project after any free allowance. Temporary MP3 files play natively and are deleted after playback or Stop. Synthesis retries once except HTTP 400, 401, and 403; playback never re-synthesizes. Edge failure uses the tutor Windows voice for the remaining text. One notice per conversation names the cause and voice. Live replies use a stored Gemini key with any text provider; Chirp reads take-home, learner Replay, Demo and previews without extra Live sessions. Without Live, the chosen Speech Source speaks Standard replies.</p>
     <h4>Limits and requirements</h4><p>Offline grammar needs no API key, account, Python, Node.js, GPU, or network. Windows-native speech is unavailable in WSL, SSH, Dev Containers, Codespaces. Merriam-Webster: non-commercial, two references, 1000 daily queries each. Cloud: 500,000 characters per Pacific-Time billing month; default text limit 5,000, timeout 30 seconds. Tutor: three Primary/three Support, 1 to 20 examples/items, five turns for diagnosis, ten pictures, twenty Demo exchanges. Provider terms govern costs/retention; Gemini API users must be at least 18, use it for professional or business purposes, and meet regional eligibility. KREN makes no service-tier claim.</p>
-    <p>When provider switching is on, a used-up daily or monthly free limit can send the same submitted text to the next provider with stored credentials, until local midnight. A Gemini overload after automatic retries can also switch providers for that request; it does not exhaust the Gemini pool until midnight. Live, pictures and dictation keep their selected provider.</p><p>Request timeout: How long KREN waits for a provider. Cloudflare pictures wait at least 60 seconds; Google Cloud speech ignores this.</p><p>Usage includes provider-order Move up and Move down and the Requests today tally.</p><h4>Settings list</h4><p>Settings: Startup and Panel, Translation, Grammar Check, Explain Meaning or Nuance, Rewrite Text, Read Aloud (Windows), Dictionary, User Dictionary, Display, Usage. KREN menu, Credentials: keys. Tutor: LESSON SETTING, MODE, ADVANCED, VOICE &amp; MODEL. Preferences: Open Settings filtered for kren lists all settings.</p>
+    <p>When provider switching is on, a used-up daily or monthly free limit can send the same submitted text to the next provider with stored credentials, until local midnight. A Gemini overload after automatic retries can also switch providers for that request; it does not exhaust the Gemini pool until midnight. Live, pictures and dictation keep their selected provider.</p><p>Request timeout: How long KREN waits for a provider. Cloudflare pictures wait at least 60 seconds; Google Cloud speech ignores this.</p><p>Usage has provider-order Move up and Move down; Credentials has Requests today.</p><h4>Settings list</h4><p>Settings: Startup and Panel, Translation, Grammar Check, Explain Meaning or Nuance, Rewrite Text, Read Aloud, Dictionary, User Dictionary, Display, Usage. KREN menu, Credentials: keys. Tutor: LESSON SETTING, MODE, ADVANCED, VOICE &amp; MODEL. Preferences: Open Settings filtered for kren lists all settings.</p>
     <p class="credits">${krenCreditLine(version)}</p>`;
 }
 /**
@@ -4373,7 +4655,7 @@ function renderSettings(
       <summary><h3>Translation</h3></summary>
       ${selectSetting('Translation provider', 'Dictionary providers are configured separately.', 'translationProvider', settings.translationProvider, [
         ['googleCloudTranslation', 'Google Cloud Translation'], ['gemini', 'LLM']
-      ])}
+      ])}${credentialSettingNote(settings, 'translationProvider', settings.translationProvider === 'googleCloudTranslation' ? 'googleCloudTranslation' : '')}
       ${translationLanguageSettings(settings.translationSourceLanguage, settings.translationTargetLanguage)}
       ${numberSetting('Maximum characters', 'Longest selection per request. Longer selections are refused with their length, not truncated.', 'translation.maxCharacters', settings.translationMaxCharacters, 1, 20000)}
       ${inactiveWhen(
@@ -4609,10 +4891,10 @@ function renderSettings(
       ${toggleSetting('Copy result to clipboard', 'Minimal or Full Rewrite only: copies the result to the clipboard and leaves this panel as is.', 'rewrite.copyToClipboard', settings.rewriteCopyToClipboard)}
     </details>
     <details class="settings-group" data-settings-section="readAloud" data-persist-id="settings-readAloud" open>
-      <summary><h3>Read Aloud (Windows)</h3></summary>
+      <summary><h3>Read Aloud</h3></summary>
       ${selectSetting('Speech source', 'Local is private and offline. Edge Online and Chirp 3 HD sound natural but send the cleaned text to Microsoft or Google.', 'readAloud.provider', settings.readAloudProvider, [
         ['edgeOnline', 'Microsoft Edge Online'], ['googleChirp', 'Google Cloud Chirp 3 HD'], ['windowsLocal', 'Local Windows (offline)']
-      ])}
+      ])}${credentialSettingNote(settings, 'readAloud.provider', settings.readAloudProvider)}
       <div class="conditional-group" data-provider-for="readAloud.provider" data-provider-value="windowsLocal">
         ${nativeVoiceSetting(settings.readAloudVoice, settings.readAloudVoices)}
         ${selectSetting('Reading rate', 'Windows speech rate. Zero is the normal voice rate.', 'readAloud.rate', String(settings.readAloudRate), [
@@ -4712,7 +4994,13 @@ function renderSettings(
         ['details', 'Open this panel']
       ])}
       ${secondsSetting('Request timeout', 'How long KREN waits for a provider. Cloudflare pictures wait at least 60 seconds; Google Cloud speech ignores this.', 'request.timeoutMs', settings.requestTimeoutMs, 1000, 120000)}
+      <section aria-labelledby="global-routing-heading" data-global-routing data-llm-routing="global">
+        <h4 id="global-routing-heading">Global LLM setting</h4>
+        <p class="model-note">Saved separately. Apply to All previews changes and skipped features before you confirm. Missing keys can be added in Credentials.</p>
+        ${providerSettings('global', settings.globalRouting ?? GLOBAL_ROUTING_DEFAULTS, settings, proModels, openAIModels, anthropicModels)}
+      </section>
       <div class="settings-buttons credentials-actions">
+        <button class="secondary" data-command="runCommand" data-action="kren.applyGlobalRouting">Apply to All</button>
         <button class="secondary" data-command="runCommand" data-action="kren.restoreDefaultSettings">Default Setting</button>
         <button class="secondary" data-command="runCommand" data-action="kren.resetKren">Reset KREN</button>
       </div>
@@ -4727,8 +5015,8 @@ export function renderProviderSwitchSettings(settings: KrenPanelSettings): strin
 }
 
 export function renderLanguageModelUsage(rows: readonly LanguageModelUsage[]): string {
-  return `<h3>Requests today</h3>${rows.length
-    ? `<ul>${rows.map(row => `<li><strong>${escapeHtml(row.provider)} ${escapeHtml(row.model)}</strong>${isLanguageModelRoutingProvider(row.provider) && (row.provider !== 'gemini' || row.geminiProfile !== undefined) && isQuotaPoolExhaustedToday({ provider: row.provider, model: row.model, geminiProfile: row.geminiProfile ?? 'standard' }) ? ' <span>limit reached</span>' : ''}<p>Requests: ${row.requests}; ${row.provider === 'google-tts' ? `characters: ${row.characters ?? 0}.` : `input tokens: ${row.input}; output tokens: ${row.output}; thinking tokens: ${row.thinking}.`}</p></li>`).join('')}</ul>`
+  return `<h3 id="language-model-usage-heading">Requests today</h3>${rows.length
+    ? `<ul>${rows.map(row => `<li><strong>${row.provider === 'gemini' ? `Gemini ${row.geminiProfile === 'pro' ? 'Paid' : 'Free Tier'}` : escapeHtml(row.provider)} ${escapeHtml(row.model)}</strong>${isLanguageModelRoutingProvider(row.provider) && (row.provider !== 'gemini' || row.geminiProfile !== undefined) && isQuotaPoolExhaustedToday({ provider: row.provider, model: row.model, geminiProfile: row.geminiProfile ?? 'standard' }) ? ' <span>limit reached</span>' : ''}<p>Requests: ${row.requests}; ${row.provider === 'google-tts' ? `characters: ${row.characters ?? 0}.` : `input tokens: ${row.input}; output tokens: ${row.output}; thinking tokens: ${row.thinking}.`}</p></li>`).join('')}</ul>`
     : '<p>No language-model requests today.</p>'}<p class="model-note">Limits are shown in each provider's console.</p>`;
 }
 
@@ -4749,26 +5037,26 @@ function renderCredentials(settings: KrenPanelSettings, brandImageUri: string | 
     : undefined;
   return `${renderHeader('', false, brandImageUri, false, hasHeldResult)}
     <h2>KREN Credentials</h2>
-      <section data-language-model-usage>${renderLanguageModelUsage(settings.languageModelUsageToday ?? [])}</section>
       <p class="settings-intro">Secret Storage encrypts keys for this profile. Remove them here before uninstalling or retiring a test profile.</p>
       <p class="model-note">Google AI Studio keys aren\'t offered everywhere. Access, pricing, and data use vary by project and region for all providers. Gemini serves Translation, Grammar Check, Explain, Rewrite, and User Dictionary.</p>
-      ${credentialRow('cloudflareAccountId', openHelp, 'kren.setCloudflareAccountId', 'kren.deleteCloudflareAccountId', Boolean(settings.credentialPresence?.cloudflareAccountId))}
-      ${credentialRow('cloudflareApiToken', openHelp, 'kren.setCloudflareApiToken', 'kren.deleteCloudflareApiToken', Boolean(settings.credentialPresence?.cloudflareApiToken))}
-      ${credentialRow('geminiDefault', openHelp, 'kren.setGeminiApiKey', 'kren.deleteGeminiApiKey', Boolean(settings.credentialPresence?.geminiDefault))}
-      ${credentialRow('geminiAlternate', openHelp, 'kren.setGeminiProApiKey', 'kren.deleteGeminiProApiKey', Boolean(settings.credentialPresence?.geminiAlternate))}
+      ${credentialRow('cloudflareAccountId', openHelp, 'kren.setCloudflareAccountId', 'kren.deleteCloudflareAccountId', Boolean(settings.credentialPresence?.cloudflareAccountId), 'kren.testCloudflareConnection', 'Test', true)}
+      ${credentialRow('cloudflareApiToken', openHelp, 'kren.setCloudflareApiToken', 'kren.deleteCloudflareApiToken', Boolean(settings.credentialPresence?.cloudflareApiToken), 'kren.testCloudflareConnection', 'Test', true)}
+      ${credentialRow('geminiDefault', openHelp, 'kren.setGeminiApiKey', 'kren.deleteGeminiApiKey', Boolean(settings.credentialPresence?.geminiDefault), 'kren.testGeminiConnection', 'Test', true)}
+      ${credentialRow('geminiAlternate', openHelp, 'kren.setGeminiProApiKey', 'kren.deleteGeminiProApiKey', Boolean(settings.credentialPresence?.geminiAlternate), 'kren.testGeminiProConnection', 'Test', true)}
       ${credentialRow('googleCloudTextToSpeech', openHelp, 'kren.setGoogleCloudTextToSpeechApiKey', 'kren.deleteGoogleCloudTextToSpeechApiKey', Boolean(settings.credentialPresence?.googleCloudTextToSpeech), 'kren.testGoogleCloudTextToSpeech', 'Test', !settings.credentialPresence?.googleCloudTranslation)}
       ${!settings.credentialPresence?.googleCloudTextToSpeech && settings.credentialPresence?.googleCloudTranslation ? '<p class="model-note">Using the Cloud Translation key.</p>' : ''}
-      ${credentialRow('googleCloudTranslation', openHelp, 'kren.setGoogleCloudTranslationApiKey', 'kren.deleteGoogleCloudTranslationApiKey', Boolean(settings.credentialPresence?.googleCloudTranslation), 'kren.showGoogleCloudTranslationUsage', 'Usage Check', false)}
-      ${credentialRow('openai', openHelp, 'kren.setOpenAIApiKey', 'kren.deleteOpenAIApiKey', Boolean(settings.credentialPresence?.openai), 'kren.testOpenAIConnection', 'Test')}
-      ${credentialRow('groq', openHelp, 'kren.setGroqApiKey', 'kren.deleteGroqApiKey', Boolean(settings.credentialPresence?.groq), 'kren.testGroqConnection', 'Test')}
-      ${credentialRow('anthropic', openHelp, 'kren.setAnthropicApiKey', 'kren.deleteAnthropicApiKey', Boolean(settings.credentialPresence?.anthropic), 'kren.testAnthropicConnection', 'Test')}
-      ${credentialRow('merriamWebsterCollegiate', openHelp, 'kren.setMerriamWebsterCollegiateApiKey', 'kren.deleteMerriamWebsterCollegiateApiKey', Boolean(settings.credentialPresence?.merriamWebsterCollegiate), undefined, undefined, true, merriamWebsterLimitReason)}
-      ${credentialRow('merriamWebsterThesaurus', openHelp, 'kren.setMerriamWebsterThesaurusApiKey', 'kren.deleteMerriamWebsterThesaurusApiKey', Boolean(settings.credentialPresence?.merriamWebsterThesaurus), undefined, undefined, true, merriamWebsterLimitReason)}
-      ${credentialRow('merriamWebsterMedical', openHelp, 'kren.setMerriamWebsterMedicalApiKey', 'kren.deleteMerriamWebsterMedicalApiKey', Boolean(settings.credentialPresence?.merriamWebsterMedical), undefined, undefined, true, merriamWebsterLimitReason)}
-      ${credentialRow('koreanDictionary', openHelp, 'kren.setKoreanDictionaryApiKey', 'kren.deleteKoreanDictionaryApiKey', Boolean(settings.credentialPresence?.koreanDictionary), 'kren.testKoreanDictionary', 'Test')}
+      ${credentialRow('googleCloudTranslation', openHelp, 'kren.setGoogleCloudTranslationApiKey', 'kren.deleteGoogleCloudTranslationApiKey', Boolean(settings.credentialPresence?.googleCloudTranslation), 'kren.testGoogleCloudTranslation', 'Test', true)}
+      ${credentialRow('openai', openHelp, 'kren.setOpenAIApiKey', 'kren.deleteOpenAIApiKey', Boolean(settings.credentialPresence?.openai), 'kren.testOpenAIConnection', 'Test', true)}
+      ${credentialRow('groq', openHelp, 'kren.setGroqApiKey', 'kren.deleteGroqApiKey', Boolean(settings.credentialPresence?.groq), 'kren.testGroqConnection', 'Test', true)}
+      ${credentialRow('anthropic', openHelp, 'kren.setAnthropicApiKey', 'kren.deleteAnthropicApiKey', Boolean(settings.credentialPresence?.anthropic), 'kren.testAnthropicConnection', 'Test', true)}
+      ${credentialRow('merriamWebsterCollegiate', openHelp, 'kren.setMerriamWebsterCollegiateApiKey', 'kren.deleteMerriamWebsterCollegiateApiKey', Boolean(settings.credentialPresence?.merriamWebsterCollegiate), 'kren.testMerriamWebsterCollegiate', 'Test', true, merriamWebsterLimitReason)}
+      ${credentialRow('merriamWebsterThesaurus', openHelp, 'kren.setMerriamWebsterThesaurusApiKey', 'kren.deleteMerriamWebsterThesaurusApiKey', Boolean(settings.credentialPresence?.merriamWebsterThesaurus), 'kren.testMerriamWebsterThesaurus', 'Test', true, merriamWebsterLimitReason)}
+      ${credentialRow('merriamWebsterMedical', openHelp, 'kren.setMerriamWebsterMedicalApiKey', 'kren.deleteMerriamWebsterMedicalApiKey', Boolean(settings.credentialPresence?.merriamWebsterMedical), 'kren.testMerriamWebsterMedical', 'Test', true, merriamWebsterLimitReason)}
+      ${credentialRow('koreanDictionary', openHelp, 'kren.setKoreanDictionaryApiKey', 'kren.deleteKoreanDictionaryApiKey', Boolean(settings.credentialPresence?.koreanDictionary), 'kren.testKoreanDictionary', 'Test', true)}
       <div class="settings-buttons credentials-actions">
         <button class="secondary" data-command="runCommand" data-action="kren.deleteAllApiKeys"${!Object.values(settings.credentialPresence ?? {}).some(Boolean) ? ' disabled' : ''}>Delete all API keys</button>
-      </div>`;
+      </div>
+      <section data-language-model-usage aria-labelledby="language-model-usage-heading" tabindex="0">${renderLanguageModelUsage(settings.languageModelUsageToday ?? [])}</section>`;
 }
 
 function renderTutor(
@@ -4812,8 +5100,8 @@ function renderTutor(
     thinkingOrEffort: settings.tutorThinkingOrEffort,
     geminiProfile: settings.tutorProfile,
     fallbackEnabled: settings.tutorFallbackEnabled,
-    fallbackModel: settings.tutorFallbackModel,
-    fallbackThinkingOrEffort: settings.tutorFallbackThinkingOrEffort
+    fallbackModel: settings.tutorHintModel ?? TUTOR_DEFAULTS.configuration['tutor.hintModel'],
+    fallbackThinkingOrEffort: settings.tutorHintThinkingOrEffort ?? 'auto'
   };
   const tutorLiveModel = settings.tutorLiveModel ?? TUTOR_LIVE_MODEL_DEFAULT;
   const storedHintModel = settings.tutorHintModel ?? '';
@@ -4837,23 +5125,31 @@ function renderTutor(
     ...(routing.fallbackEnabled ? [routing.fallbackModel] : []),
     tutorLiveModel,
     settings.tutorPictureProvider === 'cloudflare'
-      ? `Cloudflare ${CLOUDFLARE_IMAGE_MODELS.find(([id]) => id === settings.tutorCloudflareImageModel)?.[1] ?? 'FLUX.1 schnell'}`
+      ? `Cloudflare ${CLOUDFLARE_IMAGE_MODELS.find(([id]) => id === settings.tutorCloudflareImageModel)?.[1] ?? 'FLUX.2 klein 4B'}`
       : settings.tutorImageModel ?? TUTOR_DEFAULTS.configuration['tutor.imageModel'],
     tutorReadAloudSettingsSummary(settings),
     tutorGeminiVoiceSummary(settings, state.conversation.liveVoice)
   ].join(' | ');
   const tutorVoiceSummary = tutorReadAloudSummary(settings, state.conversation.liveVoice);
   const lessonFields = `${renderTutorLessonSettings(state)}${renderTutorAxisGroups(state)}`;
-  const settingFields = `${selectSetting('Speech provider', 'Speech-to-text provider for practice answers and Standard conversation.', 'tutor.speechProvider', speechProvider, [['auto', 'Auto'], ['handy', 'Handy'], ['cloudflare', 'Cloudflare'], ['groq', 'Groq'], ['gemini', 'Gemini'], ['off', 'Off']])}${tutorFoldable(
+  const settingFields = `${selectSetting('Speech provider', 'Speech-to-text provider for practice answers and Standard conversation.', 'tutor.speechProvider', speechProvider, [['auto', 'Auto'], ['handy', 'Handy'], ['cloudflare', 'Cloudflare'], ['groq', 'Groq'], ['gemini', 'Gemini'], ['off', 'Off']])}${credentialSettingNote(settings, 'tutor.speechProvider', speechProvider)}${tutorFoldable(
     'voice',
     'TUTOR VOICE',
     tutorVoiceSummary,
-    tutorReadAloudSettings(settings, state.conversation.liveVoice),
+    tutorReadAloudSettings(settings, state.conversation.liveVoice, state.conversation.replies === 'liveGemini'),
     false,
     'child'
   )}${llmRoutingGroup(
     'tutor',
-    `${routingSettingsSummary(routing, TUTOR_LLM_ROUTING_CONTROL_TITLES)} | Fast model: ${tutorHintModel} | Live Model: ${tutorLiveModel}`,
+    `${settingsSummary([
+      ['Provider', languageModelRoutingProviderLabel(routing.provider), false],
+      ...(routing.provider === 'gemini' ? [
+        ['Gemini Profile', routing.geminiProfile === 'pro' ? 'Paid' : 'Free Tier', false] as [string, string, boolean]
+      ] : []),
+      ['Thorough model', routing.provider === 'gemini' && routing.geminiProfile === 'pro' ? routing.alternateModel : routing.model, false],
+      ['Thinking Level', languageModelRoutingEffortLabel(routing.thinkingOrEffort), false],
+      [TUTOR_LLM_ROUTING_CONTROL_TITLES.fallbackEnabled, routing.fallbackEnabled ? 'On' : 'Off', !routing.fallbackEnabled]
+    ])} | Fast model: ${tutorHintModel || 'Thorough model'} | Fast thinking: ${languageModelRoutingEffortLabel(settings.tutorHintThinkingOrEffort ?? 'auto')} | Live Model: ${tutorLiveModel}`,
     `${providerSettings(
       'tutor', routing, settings, proModels, openAIModels, anthropicModels, false, liveModels
     )}${modelSetting(
@@ -4866,7 +5162,13 @@ function renderTutor(
       routing.provider,
       undefined,
       liveModels
-    )}${modelSetting(
+    )}${selectSetting(
+      'Fast thinking level', 'Auto uses the model\'s lowest supported level for Fast steps and fallback.',
+      'tutor.hintThinkingOrEffort', settings.tutorHintThinkingOrEffort ?? 'auto', languageModelRoutingEffortOptions()
+    )}${selectSetting(
+      'Live Gemini Profile', 'Free Tier and Paid use their separately stored Gemini credentials.',
+      'tutor.liveGeminiProfile', settings.tutorLiveProfile ?? 'standard', [['standard', 'Free Tier'], ['pro', 'Paid']]
+    )}${credentialSettingNote(settings, 'tutor.liveGeminiProfile', 'gemini', settings.tutorLiveProfile ?? 'standard', 'tutor.liveGeminiProfile')}${modelSetting(
       'Live Model',
       'The Gemini Live API needs a live model for streaming conversation replies.',
       'tutor.liveModel',
@@ -4878,7 +5180,7 @@ function renderTutor(
     )}${selectSetting('Picture Provider', 'Provider used for situation pictures.', 'tutor.pictureProvider', settings.tutorPictureProvider ?? 'gemini', [
       ['gemini', 'Gemini Paid profile'],
       ['cloudflare', 'Cloudflare free models']
-    ])}${settings.tutorPictureProvider === 'cloudflare' ? selectSetting(
+    ])}${settings.tutorPictureProviderAutomatic ? `<p class="model-note" data-picture-provider-automatic>${settings.tutorPictureProvider === 'cloudflare' ? 'Chosen automatically: Cloudflare (both Cloudflare keys are stored).' : 'Chosen automatically: Gemini Paid.'}</p>` : ''}${credentialSettingNote(settings, 'tutor.pictureProvider', settings.tutorPictureProvider ?? 'gemini', 'pro')}${settings.tutorPictureProvider === 'cloudflare' ? selectSetting(
       'Image Model', "Cloudflare model used for situation pictures. Both draw on the account's free daily allowance. FLUX.2 klein 4B takes about 25 seconds a picture.",
       'tutor.cloudflareImageModel', settings.tutorCloudflareImageModel ?? CLOUDFLARE_IMAGE_MODEL_DEFAULT, CLOUDFLARE_IMAGE_MODELS
     ) : modelSetting(
@@ -4934,7 +5236,7 @@ function renderTutor(
       settings.tutorConversationMicrophoneCloseWait ?? TUTOR_DEFAULTS.configuration['tutor.conversation.microphoneCloseWait'],
       tutorConversationScene,
       tutorConversationPicture,
-      tutorDemoAvailable(state.conversation.replies, settings),
+      state.conversation.replies === 'liveGemini' || tutorDemoAvailable(state.conversation.replies, settings),
       tutorConversationStopDisabled,
       tutorConversationStopTitle,
       tutorConversationPictureTurns,
@@ -4947,7 +5249,7 @@ function renderTutor(
       Boolean(settings.credentialPresence?.groq),
       settings.tutorConversationHintPrefetch ?? TUTOR_DEFAULTS.configuration['tutor.conversation.hintPrefetch'],
       tutorLiveFailed,
-      settings.tutorReadAloudProvider === 'googleChirp' ? 'Set the Google Cloud Text-to-Speech key or Cloud Translation key to run Demo.' : settings.tutorProfile === 'pro' ? 'Set the Gemini Paid key to run Demo.' : 'Set the Gemini Free Tier key to run Demo.'
+      settings.tutorReadAloudProvider === 'googleChirp' ? 'Set the Google Cloud Text-to-Speech key or Cloud Translation key to run Demo.' : settings.tutorLiveProfile === 'pro' ? 'Set the Gemini Paid key to run Demo.' : 'Set the Gemini Free Tier key to run Demo.'
     )}
     <div class="tutor-configuration" data-tutor-configuration>
     ${tutorFoldable('setting', 'VOICE & MODEL', settingSummary, settingFields)}
@@ -5058,7 +5360,7 @@ function tutorReadAloudSummary(settings: KrenPanelSettings, liveVoice: string): 
   return `Edge Online | ${locale.id} ${voiceLabel} | ${settings.tutorEdgeReadAloudRatePercent}% | ${settings.tutorReadAloudVolume} | ${gemini}`;
 }
 
-function tutorReadAloudSettings(settings: KrenPanelSettings, liveVoice: string): string {
+function tutorReadAloudSettings(settings: KrenPanelSettings, liveVoice: string, live: boolean): string {
   const edgeVoices = TUTOR_EDGE_SPEECH_LOCALES.flatMap((locale) => locale.voices.map(
     (voice): [string, string] => [voice.id, `${locale.id}: ${voice.label}`]
   ));
@@ -5080,7 +5382,10 @@ function tutorReadAloudSettings(settings: KrenPanelSettings, liveVoice: string):
   const selectedLiveVoice = normalizedTutorLiveVoice(liveVoice);
   return `${selectSetting('Speech Source', 'Local is private and offline. Edge sends playback text to Microsoft; Chirp sends it to Google Cloud Text-to-Speech.', 'tutor.readAloud.provider', settings.tutorReadAloudProvider, [
     ['edgeOnline', 'Microsoft Edge Online'], ['windowsLocal', 'Local Windows (offline)'], ['googleChirp', 'Google Cloud Chirp 3 HD']
-  ])}
+  ])}${credentialSettingNote(settings, 'tutor.readAloud.provider', settings.tutorReadAloudProvider)}
+    ${selectSetting('Sentence pause', live ? 'Gemini Live sets its own pauses.' : 'Pause between sentences in tutor speech.', 'tutor.readAloud.sentencePauseMilliseconds', String(settings.tutorSentencePauseMilliseconds ?? 0), [
+      ['0', 'Engine default'], ['250', '0.25 s'], ['500', '0.5 s'], ['750', '0.75 s'], ['1000', '1.0 s']
+    ])}
     <section class="tutor-voice-group" data-tutor-voice-group="edge"><h4>Microsoft Edge Online</h4>
     <div class="conditional-group" data-provider-for="tutor.readAloud.provider" data-provider-value="edgeOnline">
       ${edgeVoiceSetting(
@@ -5104,7 +5409,7 @@ function tutorReadAloudSettings(settings: KrenPanelSettings, liveVoice: string):
       <p class="model-note">Edge TTS uses Python on this machine. Only tutor playback text is sent to Microsoft's Edge speech service.</p>
     </div></section>
     <section class="tutor-voice-group" data-tutor-voice-group="gemini"><h4>Gemini Live and Chirp 3 HD Voice</h4>
-      <label class="setting"><span><span class="setting-title">Live Voice</span><span class="setting-description">The same voices serve Gemini Live and Chirp 3 HD. A change applies from the next Start or Back to chat.</span></span><span class="setting-control"><select data-tutor-conversation-live-voice>${TUTOR_LIVE_VOICES.map(([name]) => `<option value="${escapeHtml(name)}"${name === selectedLiveVoice ? ' selected' : ''}>${escapeHtml(tutorLiveVoiceLabel(name))}</option>`).join('')}</select><button type="button" class="secondary" data-command="previewTutorGeminiVoice"${settings.tutorReadAloudProvider === 'googleChirp' || Boolean(settings.tutorProfile === 'pro' ? settings.credentialPresence?.geminiAlternate : settings.credentialPresence?.geminiDefault) ? '' : ' disabled'}>Preview</button></span></label>
+      <label class="setting"><span><span class="setting-title">Live Voice</span><span class="setting-description">The same voices serve Gemini Live and Chirp 3 HD. A change applies from the next Start or Back to chat.</span></span><span class="setting-control"><select data-tutor-conversation-live-voice>${TUTOR_LIVE_VOICES.map(([name]) => `<option value="${escapeHtml(name)}"${name === selectedLiveVoice ? ' selected' : ''}>${escapeHtml(tutorLiveVoiceLabel(name))}</option>`).join('')}</select><button type="button" class="secondary" data-command="previewTutorGeminiVoice"${settings.tutorReadAloudProvider === 'googleChirp' || Boolean(settings.tutorLiveProfile === 'pro' ? settings.credentialPresence?.geminiAlternate : settings.credentialPresence?.geminiDefault) ? '' : ' disabled'}>Preview</button></span></label>
       ${tutorVoiceDefaultSetting('Female Default', 'Female Gemini voice kept for gender-based voice choices.', 'tutor.liveFemaleVoice', 'updateTutorGeminiFemaleVoice', settings.tutorLiveFemaleVoice ?? TUTOR_DEFAULTS.configuration['tutor.liveFemaleVoice'], liveDefault('female', settings.tutorLiveFemaleVoice ?? TUTOR_DEFAULTS.configuration['tutor.liveFemaleVoice']))}
       ${tutorVoiceDefaultSetting('Male Default', 'Male Gemini voice kept for gender-based voice choices.', 'tutor.liveMaleVoice', 'updateTutorGeminiMaleVoice', settings.tutorLiveMaleVoice ?? TUTOR_DEFAULTS.configuration['tutor.liveMaleVoice'], liveDefault('male', settings.tutorLiveMaleVoice ?? TUTOR_DEFAULTS.configuration['tutor.liveMaleVoice']))}
       <p class="model-note">Live replies use Gemini with a stored Gemini key, whatever the text provider. Chirp uses these female and male defaults for Standard speech and read-only Live playback.</p>
@@ -6046,14 +6351,16 @@ export function renderTutorConversation(
     ['Who starts', coach || conversation.starts !== 'learner' ? 'KREN starts' : 'I start', false],
     ['Register', tutorValueLabel(conversation.register), false],
     ['Correction', coach ? 'Every turn' : coachingLabels[conversation.coaching] ?? coachingLabels.inline!, false]
-  ]) + ' | Sends when you stop';
+  ]) + ' | Sends when you stop' + settingsSummary([
+    ['Reply', repliesLabels[conversation.replies] ?? repliesLabels.standard!, false],
+    ['Picture', ({ none: 'None', intro: 'Intro Only', switching: 'Switching', graduallyEntering: 'Gradually Entering' })[conversation.situationPicture], false]
+  ]).replace(/^/u, ' | ');
   const microphoneSensitivityLabels: Record<TutorMicrophoneSensitivity, string> = {
     quietRoom: 'Quiet room', balanced: 'Balanced', noisyRoom: 'Noisy room'
   };
   const advancedSummary = tutorConversationAdvancedSummary({
     send: 'When I stop speaking',
     replies: repliesLabels[conversation.replies] ?? repliesLabels.standard!,
-    situationPicture: ({ none: 'None', intro: 'Intro Only', switching: 'Switching', graduallyEntering: 'Gradually Entering' })[conversation.situationPicture],
     pictureTransparency: `${conversation.pictureTransparency}%`,
     balloonTransparency: `${conversation.balloonTransparency}%`,
     microphoneSensitivity: microphoneSensitivityLabels[tutorConversationMicrophoneSensitivity],
@@ -6069,13 +6376,13 @@ export function renderTutorConversation(
     ? `<label class="tutor-conversation-custom"><span class="setting-title">My own situation</span><textarea data-tutor-conversation-custom${disabled(active || conversation.from === 'anything')}>${escapeHtml(conversation.customSituation)}</textarea></label>`
     : '';
   const nextConversationReason = 'A change applies from the next Start or Back to chat.';
-  const advancedFields = `${settingRow('Replies', `Whether Gemini speaks with you live, from the next conversation.`, `<select data-tutor-conversation-replies${disabled(active && !coach)}>${option('standard', repliesLabels.standard!, conversation.replies)}${option('liveGemini', repliesLabels.liveGemini!, conversation.replies)}</select>`)}${selectSetting(
+  const advancedFields = `${selectSetting(
       'Live transcription language',
       'Which language Live expects to hear. Automatic restores provider language detection.',
       'tutor.conversation.liveTranscriptionLanguage',
       tutorConversationLiveTranscriptionLanguage,
       [['english', 'English'], ['automatic', 'Automatic']]
-    )}${settingRow('Reply length', 'How many sentences KREN uses. In Live, a change applies from the next conversation.', `<select data-tutor-conversation-reply-length>${option('brief', replyLengthLabels.brief, conversation.replyLength)}${option('short', replyLengthLabels.short, conversation.replyLength)}${option('medium', replyLengthLabels.medium, conversation.replyLength)}${option('long', replyLengthLabels.long, conversation.replyLength)}</select>`)}${settingRow('Situation picture', 'A picture of the scene behind the conversation, made by the chosen picture provider.', `<select data-tutor-conversation-situation-picture>${option('none', 'None', conversation.situationPicture)}${option('intro', 'Intro Only', conversation.situationPicture)}${option('switching', 'Switching', conversation.situationPicture)}${option('graduallyEntering', 'Gradually Entering', conversation.situationPicture)}</select>`)}${settingRow('Picture style', 'How situation pictures look.', `<select data-setting="tutor.conversation.pictureStyle"${conversation.situationPicture === 'none' ? ' disabled title="Choose a Situation picture mode to enable Picture style"' : ''}>${option('realistic', 'Realistic', tutorConversationPictureStyle)}${option('illustrated', 'Illustrated', tutorConversationPictureStyle)}</select>`)}${settingRow('Picture transparency', 'How much the conversation shows through the picture.', `<select data-tutor-conversation-picture-transparency${disabled(conversation.situationPicture === 'none')}>${['0', '20', '40', '60', '80'].map((value) => option(value, `${value}%`, conversation.pictureTransparency)).join('')}</select>`)}${settingRow('Balloon transparency', 'How much of the picture shows through the chat balloons.', `<select data-tutor-conversation-balloon-transparency${disabled(conversation.situationPicture === 'none')}>${['0', '10', '20', '30', '40', '50'].map((value) => option(value, `${value}%`, conversation.balloonTransparency)).join('')}</select>`)}${selectSetting(
+    )}${settingRow('Reply length', 'How many sentences KREN uses. In Live, a change applies from the next conversation.', `<select data-tutor-conversation-reply-length>${option('brief', replyLengthLabels.brief, conversation.replyLength)}${option('short', replyLengthLabels.short, conversation.replyLength)}${option('medium', replyLengthLabels.medium, conversation.replyLength)}${option('long', replyLengthLabels.long, conversation.replyLength)}</select>`)}${settingRow('Picture style', 'How situation pictures look.', `<select data-setting="tutor.conversation.pictureStyle"${conversation.situationPicture === 'none' ? ' disabled title="Choose a Situation picture mode to enable Picture style"' : ''}>${option('realistic', 'Realistic', tutorConversationPictureStyle)}${option('illustrated', 'Illustrated', tutorConversationPictureStyle)}</select>`)}${settingRow('Picture transparency', 'How much the conversation shows through the picture.', `<select data-tutor-conversation-picture-transparency${disabled(conversation.situationPicture === 'none')}>${['0', '20', '40', '60', '80'].map((value) => option(value, `${value}%`, conversation.pictureTransparency)).join('')}</select>`)}${settingRow('Balloon transparency', 'How much of the picture shows through the chat balloons.', `<select data-tutor-conversation-balloon-transparency${disabled(conversation.situationPicture === 'none')}>${['0', '10', '20', '30', '40', '50'].map((value) => option(value, `${value}%`, conversation.balloonTransparency)).join('')}</select>`)}${selectSetting(
     'Microphone sensitivity',
     `How readily the microphone treats sound as speech, from the next conversation.`,
     'tutor.conversation.microphoneSensitivity',
@@ -6121,12 +6428,12 @@ export function renderTutorConversation(
     'Who supplies the first in-character turn after KREN reads the scene.',
     `<select data-tutor-conversation-starts${disabled(active)}>${option('kren', 'KREN starts', conversation.starts)}${option('learner', 'I start', conversation.starts)}</select>`
   );
-  const modeFields = `<div class="tutor-conversation-settings">${settingRow('Source', readiness.ready ? 'Where the conversation takes its subject.' : TUTOR_LESSON_UNAVAILABLE, `<select data-tutor-conversation-from${disabled(active)}>${option('situation', 'A situation', conversation.from)}<option value="lesson"${conversation.from === 'lesson' ? ' selected' : ''}>The lesson</option>${option('anything', 'Anything', conversation.from)}${option('speakAndRephrase', 'Speak and rephrase', conversation.from)}</select>`)}${settingRow('Situation', 'The place or occasion you are practicing for.', `<select data-tutor-conversation-situation${disabled(active || conversation.from === 'anything')}>${option('auto', 'Let KREN choose', conversation.situationId)}${groups}${customSituationGroup}</select>`)}${roleToggle}${startsSelect}${customSituationField}${settingRow('Register', `How formal the exchange should be, from the next conversation.`, `<select data-tutor-conversation-register${disabled(active && !coach)}>${option('casual', 'Casual', conversation.register)}${option('neutral', 'Neutral', conversation.register)}${option('professional', 'Professional', conversation.register)}${option('formal', 'Formal', conversation.register)}</select>`)}${settingRow('Correction', `Corrections arrive at Stop by default. As you go costs one request per Live turn; changes apply from the next conversation.`, `<select data-tutor-conversation-coaching${disabled(active)}>${option('inline', coachingLabels.inline!, conversation.coaching)}${option('afterwards', coachingLabels.afterwards!, conversation.coaching)}${option('teaching', coachingLabels.teaching!, conversation.coaching)}</select>`)}${advanced}</div>`;
+  const modeFields = `<div class="tutor-conversation-settings">${settingRow('Source', conversation.from === 'lesson' && !readiness.ready ? TUTOR_LESSON_UNAVAILABLE : 'Where the conversation takes its subject.', `<select data-tutor-conversation-from data-tutor-lesson-ready="${readiness.ready}"${disabled(active)}>${option('situation', 'A situation', conversation.from)}<option value="lesson"${conversation.from === 'lesson' ? ' selected' : ''}>The lesson</option>${option('anything', 'Anything', conversation.from)}${option('speakAndRephrase', 'Speak and rephrase', conversation.from)}</select>`)}${settingRow('Situation', 'The place or occasion you are practicing for.', `<select data-tutor-conversation-situation${disabled(active || conversation.from === 'anything')}>${option('auto', 'Let KREN choose', conversation.situationId)}${groups}${customSituationGroup}</select>`)}${roleToggle}${startsSelect}${customSituationField}${settingRow('Register', `How formal the exchange should be, from the next conversation.`, `<select data-tutor-conversation-register${disabled(active && !coach)}>${option('casual', 'Casual', conversation.register)}${option('neutral', 'Neutral', conversation.register)}${option('professional', 'Professional', conversation.register)}${option('formal', 'Formal', conversation.register)}</select>`)}${settingRow('Correction', `Corrections arrive at Stop by default. As you go costs one request per Live turn; changes apply from the next conversation.`, `<select data-tutor-conversation-coaching${disabled(active)}>${option('inline', coachingLabels.inline!, conversation.coaching)}${option('afterwards', coachingLabels.afterwards!, conversation.coaching)}${option('teaching', coachingLabels.teaching!, conversation.coaching)}</select>`)}${settingRow('Replies', `Whether Gemini speaks with you live, from the next conversation.`, `<select data-tutor-conversation-replies${disabled(active && !coach)}>${option('standard', repliesLabels.standard!, conversation.replies)}${option('liveGemini', repliesLabels.liveGemini!, conversation.replies)}</select>`)}${settingRow('Situation picture', 'A picture of the scene behind the conversation, made by the chosen picture provider.', `<select data-tutor-conversation-situation-picture>${option('none', 'None', conversation.situationPicture)}${option('intro', 'Intro Only', conversation.situationPicture)}${option('switching', 'Switching', conversation.situationPicture)}${option('graduallyEntering', 'Gradually Entering', conversation.situationPicture)}</select>`)}${advanced}</div>`;
   const setup = `<div class="tutor-conversation-setup" data-tutor-conversation-setup${conversation.openModeAfterRender === true ? ' data-focus-after-render="true"' : ''}>${settingsFoldable({
     label: 'MODE',
     summary: modeSummary,
     fields: modeFields,
-    detailsAttributes: `data-persist-id="tutor-conversation-mode"${conversation.openModeAfterRender === true ? ' data-force-open="true"' : lessonStartBlocked || conversation.openModeAfterRender === false ? ' data-force-closed="true"' : ''}`,
+    detailsAttributes: `data-persist-id="tutor-conversation-mode"${conversation.openModeAfterRender === true ? ' data-force-open="true"' : conversation.openModeAfterRender === false ? ' data-force-closed="true"' : ''}`,
     open: conversation.openModeAfterRender === true
   })}</div>`;
   const speakerAction = conversation.speakerOn ? 'Turn speaker off' : 'Turn speaker on';
@@ -6333,7 +6640,9 @@ export function renderTutorConversation(
   const demoStatus = demo && active
     ? '<p data-tutor-demo-status role="status">Demo is running. KREN is speaking for both characters. Press Stop to end it.</p>'
     : '';
-  const composer = active ? `${demoStatus}<div class="tutor-conversation-composer" data-tutor-composer><div class="tutor-composer-controls" data-tutor-composer-controls><div class="tutor-composer-actions" data-tutor-composer-actions>${activeActions}</div></div></div>` : conversation.status === 'stopped' ? `<div class="tutor-conversation-start"><p>${stoppedMessage}</p><div class="tutor-conversation-actions" data-tutor-conversation-actions data-tutor-stopped-actions>${stoppedActions}</div></div>` : `<div class="tutor-conversation-start">${startReason ? `<p>${startReason}</p>${lessonStartBlocked ? '<button type="button" data-command="useTutorSituationSource">Source setting</button>' : ''}` : `<p class="tutor-conversation-invitation">Start, then speak with the microphone</p><div class="tutor-conversation-actions"><button type="button" data-command="startTutorConversation">Start</button>${coach ? '' : `<button type="button" class="secondary" data-command="startTutorConversationDemo" title="${!conversation.speakerOn ? 'Turn the speaker on to run Demo' : !tutorDemoAvailable ? escapeHtml(tutorDemoMissingKey) : 'Hear an example conversation'}"${tutorDemoAvailable && conversation.speakerOn ? '' : ' disabled'}>Demo</button>`}<button type="button" class="secondary" data-command="resetTutorConversationDefaults" title="Reset the mode settings to defaults">Reset</button></div>`}</div>`;
+  const modeOpen = conversation.openModeAfterRender === true;
+  const entryActions = `<div class="tutor-conversation-actions${modeOpen ? '' : ' tutor-conversation-front-actions'}" data-tutor-conversation-entry-actions><button type="button" data-tutor-open-conversation-settings title="Open the conversation mode settings above"${modeOpen ? ' hidden' : ''}>Setting</button><button type="button" data-command="startTutorConversation"${startReason ? ` disabled title="${escapeHtml(startReason)}"` : ''}>Start</button>${coach ? '' : `<button type="button" class="secondary" data-command="startTutorConversationDemo" title="${startReason ? escapeHtml(startReason) : !conversation.speakerOn ? 'Turn the speaker on to run Demo' : !tutorDemoAvailable ? escapeHtml(tutorDemoMissingKey) : 'Hear an example conversation'}"${!startReason && tutorDemoAvailable && conversation.speakerOn ? '' : ' disabled'}>Demo</button>`}<button type="button" class="secondary" data-command="resetTutorConversationDefaults" title="Reset the mode settings to defaults"${modeOpen ? '' : ' hidden'}>Reset</button></div>`;
+  const composer = active ? `${demoStatus}<div class="tutor-conversation-composer" data-tutor-composer><div class="tutor-composer-controls" data-tutor-composer-controls><div class="tutor-composer-actions" data-tutor-composer-actions>${activeActions}</div></div></div>` : conversation.status === 'stopped' ? `<div class="tutor-conversation-start"><p>${stoppedMessage}</p><div class="tutor-conversation-actions" data-tutor-conversation-actions data-tutor-stopped-actions>${stoppedActions}</div></div>` : `<div class="tutor-conversation-start"><p class="tutor-conversation-invitation">Start, then speak with the microphone</p>${startReason && !lessonStartBlocked ? `<p>${escapeHtml(startReason)}</p>` : ''}${entryActions}</div>`;
   const standaloneControls = active || conversation.status !== 'stopped' ? ''
     : `<div class="tutor-composer-controls tutor-standalone-controls" data-tutor-composer-controls><div class="tutor-composer-actions" data-tutor-composer-actions>${speaker}${replay}</div><div class="tutor-composer-audio" data-tutor-composer-audio></div></div>`;
   const failure = openingFailure
@@ -6887,16 +7196,14 @@ function tutorLiveVoiceLabel(name: string): string {
 
 function tutorConversationAdvancedSummary(values: {
   send: string; replies: string;
-  situationPicture: string; pictureTransparency: string; balloonTransparency: string;
+  pictureTransparency: string; balloonTransparency: string;
   microphoneSensitivity: string; pauseBeforeReply: string; speechDetection: string; microphoneCloseWait: string;
   pressToTalk: string; liveTranscriptionLanguage: string; takeHome: string; pictureStyle?: string;
 }): string {
   const seconds = (value: string) => value.replace(/ seconds?$/u, 'sec');
   return [
-    `Reply: ${values.replies}`,
     ...(values.replies === 'Live (Gemini)' ? [] : [`Send: ${values.send}`]),
-    `Picture: ${values.situationPicture === 'None' ? 'None' :
-      [values.situationPicture, values.pictureStyle ?? 'Realistic', values.pictureTransparency, values.balloonTransparency].join(', ')}`,
+    `Picture: ${[values.pictureStyle ?? 'Realistic', values.pictureTransparency, values.balloonTransparency].join(', ')}`,
     `Microphone: ${[values.microphoneSensitivity, seconds(values.pauseBeforeReply), values.speechDetection, seconds(values.microphoneCloseWait)].join(', ')}`,
     `Press to talk: ${values.pressToTalk}`,
     `Live transcription language: ${values.liveTranscriptionLanguage}`,
@@ -6989,10 +7296,14 @@ function deleteIconButton(
 }
 
 // 2026-10-04: owner canvas glyphs, confined to panel markup.
-function panelIconSvgMarkup(icon: IconName | 'add' | 'pause'): string {
+function panelIconSvgMarkup(icon: IconName | 'add' | 'pause' | 'key' | 'tutor'): string {
   const svg = (content: string) => `<svg aria-hidden="true" viewBox="0 0 24 24">${content}</svg>`;
   if (icon === 'pause') return svg('<rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/>');
   if (icon === 'add') return svg('<path d="M12 5v14M5 12h14"/>');
+  // 2026-10-20 (owner, canvas): header shortcuts. The tutor is a chat bubble with a sparkle (option B);
+  // the plain sparkles stay the tutor's Ask mark.
+  if (icon === 'tutor') return svg('<path d="M4 5.5h16v10.5H10l-4.5 3.5V16H4z"/><path d="M12 7.6l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8z" fill="currentColor" stroke-width="1.2"/>');
+  if (icon === 'key') return svg('<circle cx="7.5" cy="12" r="3.5"/><path d="M11 12h9.5M17 12v3M20 12v4"/>');
   if (icon === 'reset') return svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"/><path d="M4.5 4.5V9H9"/>');
   if (icon === 'information') return svg('<circle cx="14.2" cy="5.2" r="1.8" fill="currentColor" stroke="none"/><path d="M9.6 10.4l3.6-.6-2.3 8.6c-.35 1.3.75 1.8 1.65 1l1.25-1.1" stroke-width="2.4"/>');
   if (icon === 'support') return svg('<g stroke-width="3.4"><path d="M15.5 7.4A4 4 0 0 0 12 5.5h-.6A3.4 3.4 0 0 0 8 8.9c0 1.7 1.2 2.6 2.8 3l2.4.6c1.7.4 2.9 1.4 2.9 3.1a3.4 3.4 0 0 1-3.5 2.9h-.8a4 4 0 0 1-3.6-2"/></g>');
@@ -7005,7 +7316,7 @@ function iconButton(
   dataAttribute: string,
   title: string,
   ariaLabel: string,
-  icon: IconName | 'add' | 'pause',
+  icon: IconName | 'add' | 'pause' | 'key' | 'tutor',
   disabled = false,
   accessibleAttributesFirst = false,
   className = 'secondary icon-button',
@@ -7045,6 +7356,9 @@ function credentialRow(
   );
   const note = `<aside id="${informationId}" class="tutor-target-info" aria-label="Where to get the ${escapeHtml(label)}"${expanded ? '' : ' hidden'}><p>${escapeHtml(sentence)} <a href="#" data-credential-help="${id}">${escapeHtml(linkText)}</a></p></aside>`;
   const blockedReason = stored ? undefined : unavailableReason;
+  const usageAction = id === 'geminiDefault' || id === 'geminiAlternate' ? 'kren.openGeminiUsage'
+    : id === 'googleCloudTranslation' ? 'kren.showGoogleCloudTranslationUsage' : undefined;
+  const usage = usageAction ? `<button class="secondary" data-command="runCommand" data-action="${usageAction}">Usage</button>` : '';
   const extra = extraAction && extraLabel
     ? `<button class="secondary" data-command="runCommand" data-action="${escapeHtml(extraAction)}"${extraRequiresKey && !stored ? ' disabled' : ''}>${escapeHtml(extraLabel)}</button>`
     : '';
@@ -7066,7 +7380,7 @@ function credentialRow(
     `Remove the ${label} API key`,
     !stored
   );
-  return `<div class="credential-row${blockedReason ? ' unavailable' : ''}"><span class="credential-label"><span class="information-heading">${information}<span class="credential-name">${escapeHtml(label)}</span></span> ${blockedReason ? `<span class="credential-reason">${escapeHtml(blockedReason)}</span>` : ''}</span><span class="settings-buttons">${set}${remove}${extra}</span>${note}</div>`;
+  return `<div class="credential-row${blockedReason ? ' unavailable' : ''}"><span class="credential-label"><span class="information-heading">${information}<span class="credential-name">${escapeHtml(label)}</span></span> ${blockedReason ? `<span class="credential-reason">${escapeHtml(blockedReason)}</span>` : ''}</span><span class="settings-buttons">${set}${remove}${extra}${usage}</span>${note}</div>`;
 }
 
 function rewriteVariantOptions(): Array<[string, string]> {
@@ -7074,11 +7388,89 @@ function rewriteVariantOptions(): Array<[string, string]> {
 }
 
 type LanguageModelRoutingSettingPrefix =
+  | 'global'
   | 'translation'
   | 'explanation'
   | 'rewrite'
   | 'userDictionary'
   | 'tutor';
+
+function credentialMissing(presence: NonNullable<KrenPanelSettings['credentialPresence']>, provider: string, profile: string): boolean {
+  if (provider === 'cloudflare') return !presence.cloudflareAccountId || !presence.cloudflareApiToken;
+  if (provider === 'googleCloudTextToSpeech') return !presence.googleCloudTextToSpeech && !presence.googleCloudTranslation;
+  const slot = provider === 'gemini' ? profile === 'pro' ? 'geminiAlternate' : 'geminiDefault' : provider;
+  return !presence[slot as KrenCredentialId];
+}
+
+/** Presence changes presentation only. These rules never write a choice or disable a control. */
+function credentialControlState(key: string, presence: NonNullable<KrenPanelSettings['credentialPresence']>,
+  value: (key: string) => unknown, isMissing: typeof credentialMissing): { missing: boolean; options?: Record<string, boolean> } | undefined {
+  const missing = (provider: string, profile = 'standard') => isMissing(presence, provider, profile);
+  const providers = (profile: string) => Object.fromEntries(['gemini', 'openai', 'anthropic', 'groq', 'cloudflare']
+    .map(provider => [provider, missing(provider, profile)]));
+  if (key === 'tutor.speechProvider' || key === 'tutor.pictureProvider') {
+    const profile = key === 'tutor.pictureProvider' ? 'pro' : 'standard';
+    const options: Record<string, boolean> = key === 'tutor.pictureProvider'
+      ? { gemini: missing('gemini', profile), cloudflare: missing('cloudflare') }
+      : { gemini: missing('gemini'), cloudflare: missing('cloudflare'), groq: missing('groq') };
+    return { missing: Boolean(options[String(value(key))]), options };
+  }
+  if (key === 'tutor.imageModel' || key === 'tutor.cloudflareImageModel') {
+    return { missing: missing(String(value('tutor.pictureProvider')), 'pro') };
+  }
+  if (key === 'tutor.liveGeminiProfile') return { missing: missing('gemini', String(value(key))),
+    options: { standard: missing('gemini', 'standard'), pro: missing('gemini', 'pro') } };
+  if (key === 'tutor.liveModel') return { missing: missing('gemini', String(value('tutor.liveGeminiProfile'))) };
+  const match = /^(global|translation|explanation|rewrite|userDictionary|tutor)\.(provider|geminiProfile|model|alternateModel|thinkingOrEffort|fallbackEnabled|fallbackModel|fallbackThinkingOrEffort|hintModel|hintThinkingOrEffort)$/.exec(key);
+  if (!match) return undefined;
+  const prefix = match[1]!, field = match[2]!;
+  const provider = String(value(prefix + '.provider'));
+  const profile = String(value(prefix + '.geminiProfile'));
+  if (field === 'provider') return { missing: missing(provider, profile), options: providers(profile) };
+  if (field === 'geminiProfile') return { missing: missing('gemini', profile),
+    options: { standard: missing('gemini', 'standard'), pro: missing('gemini', 'pro') } };
+  // Both stored model slots are rendered, even when only one profile is visible.
+  return { missing: field === 'alternateModel' ? missing('gemini', 'pro')
+    : field === 'model' && provider === 'gemini' ? missing('gemini', 'standard') : missing(provider, profile) };
+}
+
+/** Annotate only generated routing controls, using the same state rule as mounted updates. */
+function grayCredentialRoutingMarkup(markup: string, presence: NonNullable<KrenPanelSettings['credentialPresence']>): string {
+  const selected = new Map<string, string>();
+  const selects = /<select\b([^>]*)>([\s\S]*?)<\/select>/g;
+  for (const match of markup.matchAll(selects)) {
+    const key = /data-setting="([^"]+)"/.exec(match[1]!)?.[1];
+    if (key) selected.set(key, /<option\b[^>]*value="([^"]*)"[^>]* selected\b/.exec(match[2]!)?.[1] ?? '');
+  }
+  const value = (key: string) => selected.get(key);
+  const annotate = (tag: string, missing: boolean) => !missing ? tag : tag.replace(/>$/, ' class="credential-missing" aria-description="No key stored">');
+  const stateFor = (attributes: string) => {
+    const key = /data-(?:setting|model-preset)="([^"]+)"/.exec(attributes)?.[1];
+    return key ? credentialControlState(key, presence, value, credentialMissing) : undefined;
+  };
+  return markup.replace(selects, (whole, attributes: string, options: string) => {
+    const state = stateFor(attributes);
+    if (!state) return whole;
+    return annotate(`<select${attributes}>`, state.missing) + options.replace(/<option\b[^>]*>/g, tag => {
+      const id = /value="([^"]*)"/.exec(tag)?.[1] ?? '';
+      return annotate(tag, state.options ? Boolean(state.options[id]) : state.missing);
+    }) + '</select>';
+  }).replace(/<input\b[^>]*>/g, tag => annotate(tag, stateFor(tag)?.missing ?? false));
+}
+
+/** Every variant is rendered as presence information so selection can patch without a request. */
+function credentialSettingNote(settings: KrenPanelSettings, key: string, selected: string,
+  profile: GeminiRoutingProfile = 'standard', profileKey = ''): string {
+  const providers: CredentialProvider[] = ['gemini', 'openai', 'anthropic', 'groq', 'cloudflare', 'googleCloudTranslation', 'googleCloudTextToSpeech'];
+  const notes: Record<string, string> = {};
+  for (const provider of providers) for (const variant of ['standard', 'pro'] as const) {
+    notes[provider + ':' + variant] = missingCredentialSelectionMessage(missingCredentialDetails(provider, variant));
+  }
+  const provider = selected === 'googleChirp' ? 'googleCloudTextToSpeech' : key === 'translationProvider' && selected === 'gemini' ? '' : selected;
+  const base = credentialMissing(settings.credentialPresence ?? {}, provider, profile) ? notes[provider + ':' + profile] ?? '' : '';
+  const message = base + (base && profileKey ? otherGeminiProfileMessage(provider, profile, settings.credentialPresence) : '');
+  return `<p class="model-note" data-credential-setting="${escapeHtml(key)}" data-credential-profile="${profile}" data-credential-profile-setting="${escapeHtml(profileKey)}" data-credential-notes="${escapeHtml(JSON.stringify(notes))}"${message ? '' : ' hidden'}><span>${escapeHtml(message)}</span> <a href="#" data-command="showCredentials">Open Credentials</a></p>`;
+}
 
 /** The complete routing control set. Every one of the six groups calls this helper. */
 function providerSettings(
@@ -7112,7 +7504,7 @@ function providerSettings(
       : values.provider === 'groq' ? [settings.groqModels ?? GROQ_MODELS.map(id => ({ id, displayName: id })), 'refreshGroqModels' as const]
         : values.provider === 'cloudflare' ? [CLOUDFLARE_TEXT_MODELS.map(id => ({ id, displayName: id })), undefined]
           : [proModels, 'refreshGeminiModels' as const];
-  const retryControls = prefix === 'tutor'
+  const retryControls = prefix === 'tutor' || prefix === 'global'
     ? ''
     : values.provider === 'gemini'
       ? `${toggleSetting('Automatic retry', 'Retry temporary failures with the current provider. Provider switching is set separately under Usage.', 'gemini.retry.enabled', settings.geminiRetryEnabled)}
@@ -7120,7 +7512,11 @@ function providerSettings(
         ['1', '1'], ['2', '2'], ['3', '3'], ['4', '4 (recommended)'], ['5', '5']
       ])}`
       : languageModelRetryControls(settings);
-  const fallbackControls = `${toggleSetting(
+  const fallbackControls = prefix === 'tutor' ? toggleSetting(
+    TUTOR_LLM_ROUTING_CONTROL_TITLES.fallbackEnabled,
+    'After eligible Gemini failures, retry Thorough with Fast using the same profile; Fast cannot fall back to itself.',
+    fallbackEnabledKey, values.fallbackEnabled
+  ) : `${toggleSetting(
       titles.fallbackEnabled,
       'Use the same-provider Gemini fallback on Free Tier or Paid when the model, retries, or structured output fail.',
       fallbackEnabledKey,
@@ -7131,13 +7527,10 @@ function providerSettings(
       'The result identifies both models whenever the result format supports a fallback notice.',
       fallbackModelKey,
       values.fallbackModel,
-      prefix === 'tutor' ? models : proModels,
-      prefix === 'tutor' && values.provider === 'openai' ? settings.customOpenAIModels ?? []
-        : prefix === 'tutor' && values.provider === 'anthropic' ? settings.customAnthropicModels ?? []
-          : prefix === 'tutor' && values.provider === 'groq' ? settings.customGroqModels ?? []
-            : prefix === 'tutor' && values.provider === 'cloudflare' ? settings.customCloudflareModels ?? [] : settings.customGeminiModels ?? [],
-      prefix === 'tutor' ? values.provider : 'gemini',
-      prefix === 'tutor' ? undefined : 'refreshProModels',
+      proModels,
+      settings.customGeminiModels ?? [],
+      'gemini',
+      'refreshProModels',
       knownLiveModels
     )}
     ${selectSetting(
@@ -7160,7 +7553,7 @@ function providerSettings(
       values.provider,
       providerOptions
     )}
-    <div class="conditional-group" data-provider-for="${providerKey}" data-provider-value="gemini"${prefix === 'tutor' ? ' data-tutor-live-profile' : ''}>
+    <div class="conditional-group" data-provider-for="${providerKey}" data-provider-value="gemini">
       ${selectSetting(
         titles.geminiProfile,
         'Free Tier and Paid use their separately stored Gemini credentials.',
@@ -7169,6 +7562,7 @@ function providerSettings(
         [['standard', 'Free Tier'], ['pro', 'Paid']]
       )}
     </div>
+    ${credentialSettingNote(settings, providerKey, values.provider, values.geminiProfile, profileKey)}
     ${modelSlots(
       modelKey,
       `${prefix}.alternateModel`,
@@ -7440,7 +7834,7 @@ function modelSetting(
     isKnownGeminiLiveOnlyModel(value, knownLiveModels)
     ? ' This is a Live-only model and cannot answer ordinary requests. Choose another identifier here, and keep this one in Live model.'
     : '';
-  return `<label class="setting"><span><span class="setting-title">${escapeHtml(title)}</span><span class="setting-description">${escapeHtml(description)}${escapeHtml(ordinaryLiveWarning)}</span></span><span class="setting-control"><select data-model-preset="${escapeHtml(key)}">${options}${custom}</select>${refresh}</span></label>
+  return `<label class="setting"><span><span class="setting-title">${escapeHtml(title)}</span><span class="setting-description">${escapeHtml(description)}${escapeHtml(ordinaryLiveWarning)}</span></span><span class="setting-control"><select data-model-preset="${escapeHtml(key)}" data-model-catalog="${provider}" data-model-customs="${escapeHtml(JSON.stringify(customModels))}">${options}${custom}</select>${refresh}</span></label>
     <label class="setting" data-model-identifier="${escapeHtml(key)}"${listed ? ' hidden' : ''}><span><span class="setting-title">${escapeHtml(title)} ${key.startsWith('tutor.') ? 'Identifier' : 'identifier'}</span><span class="setting-description">Enter a provider-compatible model identifier, then choose Add.</span></span><span class="setting-control"><input type="text" data-setting="${escapeHtml(key)}" value="${escapeHtml(listed ? '' : value)}">${modelIconButton('addCustomModel', `data-model-provider="${provider}" data-model-key="${escapeHtml(key)}"`, 'Add model', 'add')}</span></label>${owned}`;
 }
 

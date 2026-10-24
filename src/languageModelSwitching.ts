@@ -1,22 +1,16 @@
 import { ProviderError, attributeProviderError } from './errors.js';
-import { classifyGeminiRateLimit } from './providers/gemini.js';
 import { isLanguageModelRoutingProvider, languageModelCredentialSlot } from './languageModelRouting.js';
 import type { LanguageModelRoutingProvider } from './languageModelRouting.js';
 import type { KrenRuntime, TutorLanguageModelRoute } from './operations.js';
 import { KREN_SECRET_KEYS } from './operations.js';
-import { TUTOR_MODELS, modeEffort, type ThinkingMode } from './tutor/thinkingMode.js';
+import type { ThinkingMode } from './tutor/thinkingMode.js';
+import { DEFAULT_PROVIDER_ORDER, quotaPool, validPool, advanceExhaustionDay, providerCandidates, switchedProviderRoute, providerSwitchCause, isProviderQuotaExhausted, validProviderOrder, quotaPoolIsExhausted, markExhaustion, clearExhaustion, keepExhaustionPool, exhaustedProviders } from '@kren/core/request-decisions';
+export { DEFAULT_PROVIDER_ORDER, isProviderQuotaExhausted, validProviderOrder };
 
-export const DEFAULT_PROVIDER_ORDER = ['gemini', 'groq', 'cloudflare'] as const;
 export const PROVIDER_EXHAUSTION_KEY = 'kren.languageModelExhaustion.v2';
 interface SwitchStorage { get<T>(key: string, fallback: T): T; update(key: string, value: unknown): PromiseLike<void> }
-const dayOf = (date: Date): string => `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 type QuotaRoute = Pick<TutorLanguageModelRoute, 'provider' | 'geminiProfile' | 'model'>;
 interface Exhaustion { day: string; exhausted: string[] }
-const quotaPool = (route: QuotaRoute): string => `${route.provider}:${route.provider === 'gemini' ? route.geminiProfile : 'standard'}:${
-  route.provider === 'gemini' || route.provider === 'groq' ? route.model.replace(/^models\//u, '') : '*'}`;
-const validPool = (pool: unknown): pool is string => typeof pool === 'string' &&
-  isLanguageModelRoutingProvider(pool.split(':')[0]) && pool.split(':').length === 3;
-
 /** Only quota pool identifiers and the local day persist, never text, responses, or credentials. */
 export class ProviderExhaustionState {
   private state: Exhaustion;
@@ -32,23 +26,24 @@ export class ProviderExhaustionState {
       exhausted: Array.isArray(stored.exhausted) ? stored.exhausted.filter(validPool) : [] };
   }
   private today(): void {
-    const day = dayOf(this.now());
-    if (this.state.day !== day) { this.state = { day, exhausted: [] }; this.quotaFailures.clear(); this.persist(); }
+    const next = advanceExhaustionDay(this.state, this.now());
+    if (next.changed) { this.state = next.state; this.quotaFailures.clear(); this.persist(); }
   }
   private persist(): void {
     const snapshot = { ...this.state, exhausted: [...this.state.exhausted] };
     this.writes = this.writes.then(() => this.storage?.update(PROVIDER_EXHAUSTION_KEY, snapshot)).then(() => {}, () => {});
   }
   public exhausted(): LanguageModelRoutingProvider[] {
-    this.today(); return [...new Set(this.state.exhausted.map(pool => pool.split(':')[0] as LanguageModelRoutingProvider))];
+    this.today(); return exhaustedProviders(this.state);
   }
-  public isExhausted(route: QuotaRoute): boolean { this.today(); return this.state.exhausted.includes(quotaPool(route)); }
+  public isExhausted(route: QuotaRoute): boolean { this.today(); return quotaPoolIsExhausted(this.state, route); }
   public mark(route: QuotaRoute, failure?: ProviderError): void {
     const pool = quotaPool(route);
     this.today();
     if (failure && !this.quotaFailures.has(pool)) this.quotaFailures.set(pool,
       new ProviderError(failure.message, failure.action, false, failure.status ?? 429, 'quotaExhausted'));
-    if (!this.state.exhausted.includes(pool)) { this.state.exhausted.push(pool); this.persist(); this.changed(); }
+    const next = markExhaustion(this.state, route);
+    if (next.changed) { this.state = next.state; this.persist(); this.changed(); }
   }
   public quotaFailure(route: QuotaRoute): ProviderError {
     this.today();
@@ -66,8 +61,8 @@ export class ProviderExhaustionState {
   public async flush(): Promise<void> { await this.writes; }
   public clear(provider?: LanguageModelRoutingProvider): void {
     this.today();
-    const keep = (pool: string) => provider !== undefined && !pool.startsWith(`${provider}:`);
-    this.state.exhausted = this.state.exhausted.filter(keep);
+    const keep = (pool: string) => keepExhaustionPool(pool, provider);
+    this.state = clearExhaustion(this.state, provider);
     for (const pool of this.quotaFailures.keys()) if (!keep(pool)) this.quotaFailures.delete(pool);
     this.persist(); this.changed();
   }
@@ -85,21 +80,6 @@ export function clearProviderExhaustionForCredential(key: string): void {
 }
 export async function resetProviderExhaustion(): Promise<void> { exhaustion.clear(); await exhaustion.flush(); }
 
-/** The status alone never establishes daily exhaustion. Free-text diagnostics stay local. */
-export function isProviderQuotaExhausted(provider: string, status: number, payload: unknown): boolean {
-  if (provider === 'gemini') return status === 429 && classifyGeminiRateLimit(payload).kind === 'quotaExhausted';
-  if (provider !== 'groq' && provider !== 'cloudflare') return false;
-  const data = payload as { errors?: Array<{ code?: number }>; error?: { code?: number; message?: string }; message?: string } | undefined;
-  if (provider === 'cloudflare' && (data?.errors?.some(error => error.code === 3036) || data?.error?.code === 3036)) return true;
-  const text = JSON.stringify(payload ?? '').toLowerCase();
-  return status === 429 && !/per[_ -]?(?:minute|second)|\b(?:rpm|tpm)\b/u.test(text) &&
-    /per[_ -]?(?:day|month)|daily|monthly|\b(?:rpd|tpd)\b/u.test(text);
-}
-
-export function validProviderOrder(value: unknown): value is LanguageModelRoutingProvider[] {
-  return Array.isArray(value) && value.length > 0 && value.length <= 5 &&
-    value.every(isLanguageModelRoutingProvider) && new Set(value).size === value.length;
-}
 const name = (provider: string) => provider === 'gemini' ? 'Gemini' : provider === 'groq' ? 'Groq'
   : provider === 'cloudflare' ? 'Cloudflare' : provider === 'openai' ? 'OpenAI' : 'Anthropic';
 
@@ -181,7 +161,7 @@ export async function runWithProviderSwitch<T>(route: TutorLanguageModelRoute, m
   }
   const { order, state } = dependencies;
   const next = async (provider: LanguageModelRoutingProvider): Promise<LanguageModelRoutingProvider | undefined> => {
-    for (const candidate of order.slice(Math.max(0, order.indexOf(provider) + 1))) {
+    for (const candidate of providerCandidates(order, provider)) {
       if (state.isExhausted(switched(candidate))) { dependencies.skip?.(switched(candidate)); continue; }
       if (!await dependencies.hasCredentials(candidate)) continue;
       return candidate;
@@ -189,9 +169,7 @@ export async function runWithProviderSwitch<T>(route: TutorLanguageModelRoute, m
     return undefined;
   };
   const switched = (provider: LanguageModelRoutingProvider): TutorLanguageModelRoute => {
-    const model = TUTOR_MODELS[provider][mode];
-    return { ...route, provider, model, fastModel: TUTOR_MODELS[provider].fast, geminiProfile: 'standard',
-      thinkingOrEffort: modeEffort(provider, model, mode, route.thinkingOrEffort) };
+    return switchedProviderRoute(route, provider, mode);
   };
   let current = route;
   if (state.isExhausted(current)) {
@@ -210,8 +188,9 @@ export async function runWithProviderSwitch<T>(route: TutorLanguageModelRoute, m
       attributeProviderError(error, current, true);
       if (signal.aborted || !(error instanceof ProviderError)) throw error;
       const attempted = error.attemptedRoute ?? current;
-      const overloaded = attempted.provider === 'gemini' && (error.status === 503 || error.reason === 'overloaded');
-      if (error.reason !== 'quotaExhausted' && !overloaded) throw error;
+      const cause = providerSwitchCause(attempted.provider, error.status, error.reason, signal.aborted, true);
+      if (!cause) throw error;
+      const overloaded = cause === 'overloaded';
       if (!overloaded) state.mark(attempted, error);
       const provider = await next(attempted.provider);
       if (!provider) throw error;

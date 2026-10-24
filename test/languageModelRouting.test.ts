@@ -133,6 +133,10 @@ describe('one provider list and one effort list', () => {
       .toBe('gemini-3.6-flash');
   });
 
+  it('V275 refuses a model setting containing a parent path segment', () => {
+    expect(validatedPanelSetting('translation.model', '../escape')).toBeUndefined();
+  });
+
   it('recognise their own members and refuse everything else', () => {
     expect(isLanguageModelRoutingProvider('gemini')).toBe(true);
     expect(isLanguageModelRoutingProvider('googleCloudTranslation')).toBe(false);

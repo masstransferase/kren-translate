@@ -134,8 +134,9 @@ export function availabilityNames(get: (key: string, fallback: string) => string
       ? get(`${prefix}.alternateModel`, prefix === 'tutor' ? TUTOR_DEFAULTS.configuration['tutor.alternateModel'] : DEFAULT_PRO_MODELS[0]!.id) : raw), label, target);
     const alternate = get(`${prefix}.alternateModel`, prefix === 'tutor' ? TUTOR_DEFAULTS.configuration['tutor.alternateModel'] : DEFAULT_PRO_MODELS[0]!.id);
     add(owner(alternate, 'geminiPro'), alternate, `${label}, paid model`, target);
-    const fallback = get(`${prefix}.fallbackModel`, DEFAULT_GEMINI_MODEL);
-    add(owner(fallback, primaryProvider), fallback, `${label}, fallback`, target);
+    const fallback = prefix === 'tutor' ? get('tutor.hintModel', TUTOR_DEFAULTS.configuration['tutor.hintModel'])
+      : get(`${prefix}.fallbackModel`, DEFAULT_GEMINI_MODEL);
+    add(owner(fallback, primaryProvider), fallback, prefix === 'tutor' ? 'Tutor, Fast model' : `${label}, fallback`, target);
   }
   for (const provider of Object.keys(TUTOR_MODELS) as Array<keyof typeof TUTOR_MODELS>) {
     for (const name of Object.values(TUTOR_MODELS[provider])) add(provider, name, 'Tutor default', 'tutor');
@@ -160,7 +161,7 @@ export function availabilityNames(get: (key: string, fallback: string) => string
   add(owner(fast, tutorProvider === 'gemini' ? tutorGeminiProvider : tutorProvider), fast, 'Tutor, stored Fast model', 'tutor');
   add(tutorProvider === 'gemini' ? tutorGeminiProvider : tutorProvider,
     tutorModeModel(tutorProvider, 'fast', fast), 'Tutor, Fast model', 'tutor');
-  for (const key of ['tutor.alternateModel', 'tutor.fallbackModel', 'tutor.liveModel', 'tutor.imageModel'] as const) {
+  for (const key of ['tutor.alternateModel', 'tutor.hintModel', 'tutor.liveModel', 'tutor.imageModel'] as const) {
     for (const provider of ['gemini', 'geminiPro'] as const) add(provider, TUTOR_DEFAULTS.configuration[key], `Tutor default, ${key}`, 'tutor');
   }
   for (const provider of ['gemini', 'openai', 'anthropic', 'groq', 'cloudflare'] as const) {

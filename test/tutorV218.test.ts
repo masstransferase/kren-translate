@@ -63,7 +63,9 @@ describe('V218 picture styles', () => {
     try {
       if (provider === 'gemini') await generateSituationPicture('A café.', 'credential', new AbortController().signal, undefined, undefined, 'illustrated');
       else await generateCloudflareSituationPicture('A café.', 'account', 'credential', new AbortController().signal, undefined, undefined, 'illustrated');
-      const body = String((fetcher.mock.calls as unknown[][])[0]![1] && ((fetcher.mock.calls as unknown[][])[0]![1] as RequestInit).body);
+      // Changed 2026-10-22 (V294, owner I60/I64): the default Cloudflare model sends its style in multipart prompt.
+      const sent = ((fetcher.mock.calls as unknown[][])[0]![1] as RequestInit).body;
+      const body = sent instanceof FormData ? String(sent.get('prompt')) : String(sent);
       expect(body).toContain(SITUATION_PICTURE_ILLUSTRATED_STYLE);
       expect(body).not.toContain(SITUATION_PICTURE_STYLE);
     } finally { vi.unstubAllGlobals(); }
@@ -76,8 +78,10 @@ describe('V218 picture styles', () => {
   it.each(['none', 'intro'] as const)('puts the keyboard select immediately after Situation picture in ADVANCED under %s', (mode) => {
     const state = createTutorViewState(); state.conversation.situationPicture = mode;
     const $ = load(renderTutorConversation(state));
+    // Changed 2026-10-24 (V309, owner I80): Situation picture moved to MODE; Picture style stays in ADVANCED after Reply length.
     const picture = $('[data-tutor-conversation-situation-picture]');
-    const style = picture.closest('label').next().find('select');
+    expect(picture.closest('details').is('[data-persist-id="tutor-conversation-mode"]')).toBe(true);
+    const style = $('[data-tutor-conversation-reply-length]').closest('label').next().find('select');
     expect(style.attr('data-setting')).toBe('tutor.conversation.pictureStyle');
     expect(style.closest('label').text()).toContain('Picture style');
     expect(style.closest('label').text()).toContain('How situation pictures look.');

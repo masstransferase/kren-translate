@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { load } from 'cheerio';
-vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, window: {},
+// Changed 2026-10-23 (V300, verification R28): missing-picture actions now use the shared modal popup.
+vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, window: { showErrorMessage: vi.fn(async () => undefined) },
   Uri: { joinPath: (...parts: unknown[]) => parts },
   workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) } }));
 import { KrenResultsViewProvider } from '../src/resultsView.js';

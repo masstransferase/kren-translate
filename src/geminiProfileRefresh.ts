@@ -1,3 +1,4 @@
+import { geminiProfileLabel } from '@kren/core';
 import { KREN_SECRET_KEYS } from './operations.js';
 
 export type GeminiRefreshProfile = 'default' | 'alternate';
@@ -28,12 +29,12 @@ export function geminiRefreshTarget(profile: GeminiRefreshProfile): GeminiRefres
       secretKey: KREN_SECRET_KEYS.geminiPro,
       setKeyCommand: 'kren.setGeminiProApiKey',
       keyHint: 'setGeminiProKey',
-      label: 'Paid'
+      label: geminiProfileLabel('pro')
     }
     : {
       secretKey: KREN_SECRET_KEYS.gemini,
       setKeyCommand: 'kren.setGeminiApiKey',
       keyHint: 'setGeminiKey',
-      label: 'Free Tier'
+      label: geminiProfileLabel('standard')
     };
 }

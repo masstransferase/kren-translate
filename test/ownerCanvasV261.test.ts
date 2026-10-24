@@ -65,7 +65,7 @@ it('V261 patches provider order with named triangle buttons and preserves focus 
   assert.equal(icons['border-color'], 'transparent'); assert.equal(icons.color, 'var(--vscode-foreground)');
 });
 
-it('V261 sizes Start text with stylesheet rules and keeps Updates available reachable beside Home', () => {
+it('V261 sizes Start text with stylesheet rules and keeps Updates available reachable below the header buttons', () => {
   const $ = load(page({ activeScreen: 'start', systemUpdatesAvailable: true })); const css = $('style').text();
   assert.equal(declarations(css, '.welcome-lead')['font-size'], '14px');
   assert.equal(declarations(css, '.welcome-step strong')['font-size'], '18px');
@@ -74,7 +74,14 @@ it('V261 sizes Start text with stylesheet rules and keeps Updates available reac
   assert.equal($('.welcome-lead[style], .welcome-step strong[style]').length, 0);
   const button = $('#result-screen [data-system-updates]');
   assert.equal(button.text(), 'Updates available'); assert.equal(button.hasClass('secondary'), false);
-  assert.equal(button.prev().attr('data-command'), 'showStartPage');
+  // Changed 2026-10-21 (owner, canvas): The row follows the header and moves up 50px.
+  assert.equal(button.parent().hasClass('system-updates-row'), true);
+  assert.equal(button.parent().prev().is('header.intro-header'), true);
+  assert.equal(button.parent().parent().attr('id'), 'result-screen');
+  assert.equal(declarations(css, '.system-updates-row').display, 'flex');
+  assert.equal(declarations(css, '.system-updates-row').position, 'relative');
+  assert.equal(declarations(css, '.system-updates-row').top, '-50px');
+  assert.equal(declarations(css, '.system-updates-row')['justify-content'], 'flex-end');
   assert.equal(button.closest('details, .hidden, [hidden]').length, 0);
   assert.equal(button.is('button:not([disabled])'), true);
   assert.equal(declarations(css, '[data-system-updates]')['font-size'], '10px');

@@ -13,7 +13,7 @@ import { finalizeTutorTakeHome } from '../src/resultsViewTakeHome.js';
 import { ProviderExhaustionState, withProviderSwitch } from '../src/languageModelSwitching.js';
 import { ProviderError } from '../src/errors.js';
 import { renderKrenResultViewHtml, renderTutorTakeHome } from '../src/resultViewHtml.js';
-import type { KrenResultsViewProvider } from '../src/resultsView.js';
+import { KrenResultsViewProvider } from '../src/resultsView.js';
 import type { KrenRuntime, TutorLanguageModelRoute } from '../src/operations.js';
 import type { TutorStructuredGenerationRequest } from '../src/tutor/generation.js';
 import { PANEL_SETTINGS_FIXTURE } from './support/panelSettingsFixture.js';
@@ -28,7 +28,8 @@ it('salvages a bad naturally entry and patches the visible card while logging on
   const state = createTutorViewState(); state.conversation.status = 'stopped'; state.conversation.speakerOn = false;
   const postMessage = vi.fn();
   const log = vi.fn();
-  const view = { tutorState: state, actions: { settings: () => PANEL_SETTINGS_FIXTURE, log },
+  // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+  const view = { showMissingCredentialError: KrenResultsViewProvider.prototype.showMissingCredentialError, tutorState: state, actions: { settings: () => PANEL_SETTINGS_FIXTURE, log },
     view: { webview: { postMessage } } } as unknown as KrenResultsViewProvider;
   const badQuote = 'Invented private quote.';
   finalizeTutorTakeHome(view, false, { input, value: { ...card, naturally: [naturally, { ...naturally, quote: badQuote }] } });
@@ -105,7 +106,8 @@ function fixture() {
       id: `example-${index}`, sentence: `Today the careful team applies this useful English pattern in example number ${index}.`,
       targetIds: [target.id], annotations: [{ targetId: target.id, excerpt: `example number ${index}`, explanation: 'Why it fits.' }] })) };
   state.lesson = { recipe, lesson, findings: [] }; state.viewedExampleIds = lesson.examples.map(example => example.id);
-  const view = { tutorState: state, tutorGeneration: 0, tutorExampleControllers: new Map(), tutorReviewControllers: new Map(),
+  // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+  const view = { showMissingCredentialError: KrenResultsViewProvider.prototype.showMissingCredentialError, tutorState: state, tutorGeneration: 0, tutorExampleControllers: new Map(), tutorReviewControllers: new Map(),
     tutorHintControllers: new Map(), render: vi.fn(), actions: { settings: () => PANEL_SETTINGS_FIXTURE, log: vi.fn(), notify: vi.fn(), generateTutor: vi.fn() } } as unknown as KrenResultsViewProvider;
   return { view, lesson, recipe };
 }

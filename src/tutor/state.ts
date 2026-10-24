@@ -1,3 +1,4 @@
+import { missingCredentialDetails, missingCredentialMessage, type MissingCredentials } from '../requestCenter.js';
 import { type TutorSituationRegister } from '@kren/core/tutor';
 import {
   REWRITE_DOMAINS,
@@ -407,6 +408,7 @@ export type TutorSpeechProvider = 'auto' | 'handy' | 'gemini' | 'cloudflare' | '
 export type ActiveTutorSpeechProvider = 'handy' | 'gemini' | 'cloudflare' | 'groq';
 
 export interface TutorSpeechRoute {
+  missingCredentials?: MissingCredentials;
   provider?: ActiveTutorSpeechProvider;
   reason?: string;
 }
@@ -419,15 +421,19 @@ export function resolveTutorSpeechRoute(
   cloudflareConfigured = false,
   groqConfigured = false
 ): TutorSpeechRoute {
+  const missing = (provider: 'gemini' | 'groq' | 'cloudflare'): TutorSpeechRoute => {
+    const missingCredentials = missingCredentialDetails(provider);
+    return { reason: missingCredentialMessage(missingCredentials), missingCredentials };
+  };
   if (configured === 'off') return { reason: 'Speech input is turned off in Settings.' };
-  if (configured === 'groq') return groqConfigured ? { provider: 'groq' } : { reason: 'Set your Groq API key in KREN menu, Credentials.' };
+  if (configured === 'groq') return groqConfigured ? { provider: 'groq' } : missing('groq');
   if (configured === 'cloudflare') return cloudflareConfigured
     ? { provider: 'cloudflare' }
-    : { reason: 'Set the Cloudflare account ID and API token in Settings.' };
+    : missing('cloudflare');
   if (configured === 'gemini') {
     return geminiKeyConfigured
       ? { provider: 'gemini' }
-      : { reason: 'No Gemini Free Tier API key is configured.' };
+      : missing('gemini');
   }
   if (configured === 'handy') {
     if (handyStatus === 'checking') return { reason: 'Looking for Handy.' };
@@ -443,7 +449,7 @@ export function resolveTutorSpeechRoute(
   if (groqConfigured) return { provider: 'groq' };
   return geminiKeyConfigured
     ? { provider: 'gemini' }
-    : { reason: 'Handy was not found and no Cloudflare credentials, Groq API key, or Gemini Free Tier API key are configured.' };
+    : { ...missing('cloudflare'), reason: `Handy was not found. ${['cloudflare', 'groq', 'gemini'].map(provider => missingCredentialMessage(missingCredentialDetails(provider as 'cloudflare' | 'groq' | 'gemini'))).join(' ')}` };
 }
 
 export interface TutorSpeechState {

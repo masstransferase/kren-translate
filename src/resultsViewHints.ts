@@ -65,6 +65,7 @@ export async function writeTutorPracticeHint(view: KrenResultsViewProvider, exer
       };
     } catch (error: unknown) {
       if (controller.signal.aborted || view.tutorState.exerciseSet !== exerciseSet) return;
+      view.showMissingCredentialError(error, true);
       view.actions.log(`[practice hint failed] ${safePanelErrorMessage(error)}`);
       view.tutorState = {
         ...view.tutorState,
@@ -174,6 +175,7 @@ export async function writeTutorConversationHint(view: KrenResultsViewProvider, 
           view.tutorConversationTurnGeneration !== turnGeneration) return;
       view.actions.log(`[conversation hint${requestState.readerRequested ? '' : ' prefetch'} failed] ${safePanelErrorMessage(error)}`);
       if (!requestState.readerRequested) return;
+      view.showMissingCredentialError(error, true);
       const failure = 'The hint could not be written.';
       view.tutorState = { ...view.tutorState, conversation: {
         ...view.tutorState.conversation, hintBusy: false, hintFailure: failure

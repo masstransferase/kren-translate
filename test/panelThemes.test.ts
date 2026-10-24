@@ -155,8 +155,12 @@ it('carries all nine owner edits through shared renderer rules and markup', () =
   $('header').each((_, header) => {
     const buttons = $(header).find('.top-actions button').toArray();
     const gear = buttons.findIndex(node => node.attribs['data-command'] === 'showSettings');
-    expect(buttons[gear + 1]!.attribs['data-command']).toBe('toggleTheme');
-    expect(buttons[gear + 2]!.attribs).toHaveProperty('data-menu-toggle');
+    // Changed 2026-10-20 (owner, canvas): AI English Tutor and Credentials now sit between the
+    // gear and the theme switch; the theme switch still comes right before the menu.
+    expect(buttons[gear + 1]!.attribs['data-command']).toBe('showTutor');
+    expect(buttons[gear + 2]!.attribs['data-command']).toBe('showCredentials');
+    expect(buttons[gear + 3]!.attribs['data-command']).toBe('toggleTheme');
+    expect(buttons[gear + 4]!.attribs).toHaveProperty('data-menu-toggle');
   });
   expect(source).toContain('class="audio secondary icon-button"');
   expect(source).toContain('M4 9.5h3.5L12 5.5v13l-4.5-4H4z');

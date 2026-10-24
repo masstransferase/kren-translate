@@ -6,7 +6,9 @@ import { createContext, runInContext, runInNewContext } from 'node:vm';
 export function mountedPanel(html: string, postMessage: (message: Record<string, unknown>) => void,
   media: { playError?: { name: string }; state?: Record<string, unknown>;
     style?: (element: { getAttribute(name: string): string | null }) => Record<string, string | undefined>;
-    startupError?: string } = {}) {
+    startupError?: string;
+    // 2026-10-24: V310. A browser keeps what setState stored and scrollTo moves the page; both are opt-in so older tests keep their static state.
+    stateful?: boolean; scrollable?: boolean } = {}) {
   const $ = load(html);
   const cache = new Map<unknown, Element>();
   const events = new Map<unknown, Map<string, Array<(event: any) => void>>>();
@@ -45,6 +47,9 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     set title(value: string) { this.setAttribute('title', value); }
     get id() { return this.getAttribute('id') ?? ''; }
     set id(value: string) { this.setAttribute('id', value); }
+    // Changed 2026-10-22 (V294, owner I60/I64): credential links retain their native keyboard target.
+    get href() { return this.getAttribute('href') ?? ''; }
+    set href(value: string) { this.setAttribute('href', value); }
     get src() { return this.getAttribute('src') ?? ''; }
     set src(value: string) { this.setAttribute('src', value); }
     get parentElement() { return wrap(this.node.parent()); }
@@ -56,6 +61,11 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     getAttribute(name: string) { return this.node.attr(name) ?? null; }
     hasAttribute(name: string) { return this.node.is('[' + name + ']'); }
     setAttribute(name: string, value: string) { this.node.attr(name, String(value)); }
+    // Changed 2026-10-22 (V294, owner I60/I64): deferred credential links use native dataset and text append.
+    get dataset() { return new Proxy({} as Record<string, string>, {
+      get: (_target, key: string) => this.getAttribute('data-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())) ?? undefined,
+      set: (_target, key: string, value: string) => { this.setAttribute('data-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()), value); return true; }
+    }); }
     removeAttribute(name: string) { this.node.removeAttr(name); }
     querySelector(selector: string) { return wrap(this.node.find(selector).first()); }
     querySelectorAll(selector: string) { return this.node.find(selector).toArray().map(node => wrap($(node))!); }
@@ -63,7 +73,7 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     matches(selector: string) { return this.node.is(selector); }
     contains(child: Element) { return child === this || child.node.parents().toArray().some(node => node === this.node[0]); }
     appendChild(child: Element) { this.node.append(child.node); return child; }
-    append(...children: Element[]) { children.forEach(child => this.appendChild(child)); }
+    append(...children: Array<Element | string>) { children.forEach(child => typeof child === 'string' ? this.node.append(child) : this.appendChild(child)); }
     replaceChildren(...children: Element[]) { this.node.empty(); this.append(...children); }
     replaceWith(child: Element) { this.node.replaceWith(child.node); }
     insertBefore(child: Element, before: Element | null) { if (before) before.node.before(child.node); else this.appendChild(child); }
@@ -112,8 +122,10 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     documentElement: wrap($('html'))!, body: wrap($('body'))!, activeElement: null as Element | null,
     fonts: { ready: Promise.resolve() }, addEventListener: (name: string, callback: (event: any) => void) => listen(document, name, callback) };
   const window = { addEventListener: (name: string, callback: (event: any) => void) => listen(window, name, callback),
-    setTimeout, clearTimeout, scrollTo() {}, scrollY: 0, innerWidth: 800, innerHeight: 600 };
-  const api = { getState: () => { if (media.startupError) throw new Error(media.startupError); return media.state ?? {}; }, setState() {}, postMessage };
+    setTimeout, clearTimeout, scrollX: 0, scrollY: 0, innerWidth: 800, innerHeight: 600,
+    scrollTo(x: number, y: number): void { if (media.scrollable) { window.scrollX = x; window.scrollY = y; } } };
+  const api = { getState: () => { if (media.startupError) throw new Error(media.startupError); return media.state ?? {}; },
+    setState(value: Record<string, unknown>) { if (media.stateful) media.state = value; }, postMessage };
   const observers: Array<() => void> = [];
   const context = createContext({ document, window, acquireVsCodeApi: () => api,
     HTMLElement: Element, Element, Node: Element, InputEvent: PanelInputEvent, HTMLTextAreaElement: Textarea, HTMLSelectElement: Select, HTMLButtonElement: Button,
@@ -135,13 +147,18 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
       emit(window, 'error', { message: (error as Error).message, lineno: 12, colno: 7 });
     }
   }
-  return { document, query: document.querySelector, message: (message: Record<string, unknown>) => emit(window, 'message', { data: message }),
-    event: (element: Element, name: string) => emit(element, name, { target: element }),
+  return { document, state: () => media.state, query: document.querySelector, message: (message: Record<string, unknown>) => emit(window, 'message', { data: message }),
+    // Changed 2026-10-21 (owner, I56/I57): native details toggles reach document capture listeners.
+    event: (element: Element, name: string) => {
+      emit(element, name, { target: element });
+      if (name === 'toggle') emit(document, name, { target: element });
+    },
     input: (element: Element, inputType: string) => {
       const event = Object.assign(new PanelInputEvent(inputType), { target: element });
       emit(element, 'input', event); emit(document, 'input', event);
     },
-    change: (element: Element) => emit(document, 'change', { target: element }),
+    // 2026-10-24: V310. A change reaches window listeners first, as it does in a browser (capture phase).
+    change: (element: Element) => { emit(window, 'change', { target: element }); emit(document, 'change', { target: element }); },
     click: (element: Element) => { const event = { target: element, preventDefault() {} }; emit(element, 'click', event); emit(document, 'click', event); },
     key: (key: string) => emit(document, 'keydown', { key, preventDefault() {}, stopImmediatePropagation() {} }),
     mutate: () => observers.forEach(callback => callback()),

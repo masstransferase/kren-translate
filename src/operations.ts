@@ -1,4 +1,4 @@
-import { centeredProviderError, providerCredentialAction, runFeatureRequest, unwrapRequestOutcome, CURRENT_REQUEST_POLICIES } from './requestCenter.js';
+import { missingCredentialError, centeredProviderError, runFeatureRequest, unwrapRequestOutcome, CURRENT_REQUEST_POLICIES } from './requestCenter.js';
 import { compatibleDefaultModel, routedModel, transcribeGroqAudio } from './providers/openAICompatible.js';
 import { type ProviderExhaustionState } from './languageModelSwitching.js';
 import { modeEffort, TUTOR_MODELS } from './tutor/thinkingMode.js';
@@ -200,26 +200,18 @@ const MERRIAM_WEBSTER_OPERATIONS: Record<MerriamWebsterOperation, {
   reference: MerriamWebsterReference;
   secretKey: MerriamWebsterSecretKey;
   label: string;
-  missingKeyMessage: string;
-  missingKeyAction: 'setMerriamWebsterCollegiateKey' |
-    'setMerriamWebsterMedicalKey' |
-    'setMerriamWebsterThesaurusKey';
   noEntryMessage: (text: string) => string;
 }> = {
   englishDictionary: {
     reference: 'collegiate',
     secretKey: KREN_SECRET_KEYS.merriamWebsterCollegiate,
     label: 'English Dictionary Search',
-    missingKeyMessage: 'Set your Merriam-Webster Collegiate API key before searching.',
-    missingKeyAction: 'setMerriamWebsterCollegiateKey',
     noEntryMessage: (text) => `Merriam-Webster Collegiate returned no entry for “${text}”.`
   },
   medical: {
     reference: 'medical',
     secretKey: KREN_SECRET_KEYS.merriamWebsterMedical,
     label: 'Medical Dictionary Search',
-    missingKeyMessage: 'Set your Merriam-Webster Medical API key before searching.',
-    missingKeyAction: 'setMerriamWebsterMedicalKey',
     noEntryMessage: (text) =>
       `Merriam-Webster Medical Dictionary returned no entry for “${text}”.`
   },
@@ -227,8 +219,6 @@ const MERRIAM_WEBSTER_OPERATIONS: Record<MerriamWebsterOperation, {
     reference: 'thesaurus',
     secretKey: KREN_SECRET_KEYS.merriamWebsterThesaurus,
     label: 'Synonyms Search',
-    missingKeyMessage: 'Set your Merriam-Webster Collegiate Thesaurus API key before searching.',
-    missingKeyAction: 'setMerriamWebsterThesaurusKey',
     noEntryMessage: (text) =>
       `Merriam-Webster Collegiate Thesaurus returned no entry for “${text}”.`
   }
@@ -262,6 +252,7 @@ export interface KrenRuntime {
 
 export interface TutorLanguageModelRoute {
   fastModel?: string;
+  fastThinkingOrEffort?: LanguageModelRoutingEffort;
   provider: LanguageModelRoutingProvider;
   model: string;
   thinkingOrEffort: LanguageModelRoutingEffort;
@@ -287,7 +278,8 @@ export async function runTutorStructuredRequest(
 ): Promise<unknown> {
   if (request.kind !== 'liveSessionCredential') {
     return unwrapRequestOutcome(await runFeatureRequest({ runtime,
-      route: { ...route, fastModel: route.fastModel ?? runtime.getSetting('tutor.hintModel', TUTOR_MODELS.gemini.fast) },
+      route: { ...route, fastModel: route.fastModel ?? runtime.getSetting('tutor.hintModel', TUTOR_MODELS.gemini.fast),
+        fastThinkingOrEffort: route.fastThinkingOrEffort ?? runtime.getSetting('tutor.hintThinkingOrEffort', 'auto') },
       signal, policy: CURRENT_REQUEST_POLICIES.tutor, thinking: { tutor: request },
       execute: (selected, _mode, selectedSignal, selectedRequest, maxAttempts) => runTutorTransport(runtime, selected, selectedRequest!, selectedSignal, maxAttempts)
     }));
@@ -298,17 +290,15 @@ export async function runTutorStructuredRequest(
 async function runTutorTransport(runtime: KrenRuntime, route: TutorLanguageModelRoute,
   request: TutorStructuredGenerationRequest, signal: AbortSignal, attemptsOverride?: number): Promise<unknown> {
   if (request.kind === 'liveSessionCredential') {
-    const liveSecretKey = route.geminiProfile === 'pro'
+    const liveProfile = runtime.getSetting<GeminiProfile>('tutor.liveGeminiProfile', 'standard');
+    const liveSecretKey = liveProfile === 'pro'
       ? KREN_SECRET_KEYS.geminiPro
       : KREN_SECRET_KEYS.gemini;
     const apiKey = await runtime.getSecret(liveSecretKey);
     if (!apiKey) {
-      throw new ProviderError(
-        `Set your Gemini ${route.geminiProfile === 'pro' ? 'Paid' : 'Free Tier'} API key before using Live replies.`,
-        route.geminiProfile === 'pro' ? 'setGeminiProKey' : 'setGeminiKey'
-      );
+      throw missingCredentialError('gemini', liveProfile);
     }
-    await beforeLanguageModelRequest(runtime, 'gemini', route.geminiProfile);
+    await beforeLanguageModelRequest(runtime, 'gemini', liveProfile);
     return { apiKey };
   }
   const secretKey = route.provider === 'gemini'
@@ -318,22 +308,10 @@ async function runTutorTransport(runtime: KrenRuntime, route: TutorLanguageModel
       : route.provider === 'groq' ? KREN_SECRET_KEYS.groq
         : route.provider === 'cloudflare' ? KREN_SECRET_KEYS.cloudflareApiToken : KREN_SECRET_KEYS.anthropic;
   const apiKey = await runtime.getSecret(secretKey);
-  if (!apiKey) {
-    if (route.provider === 'groq' || route.provider === 'cloudflare') throw missingCompatibleCredentials(route.provider);
-    const providerName = route.provider === 'gemini'
-      ? route.geminiProfile === 'pro' ? 'Gemini Paid' : 'Gemini Free Tier'
-      : route.provider === 'openai' ? 'OpenAI' : 'Anthropic';
-    const action = route.provider === 'gemini'
-      ? route.geminiProfile === 'pro' ? 'setGeminiProKey' : 'setGeminiKey'
-      : route.provider === 'openai' ? 'setOpenAIKey' : 'setAnthropicKey';
-    throw new ProviderError(
-      `Set your ${providerName} API key before using AI English Tutor.`,
-      action
-    );
-  }
+  if (!apiKey) throw route.provider === 'cloudflare' ? await missingCloudflareCredentials(runtime) : missingCredentialError(route.provider, route.geminiProfile);
+  const accountId = route.provider === 'cloudflare' ? await requireCloudflareAccount(runtime) : undefined;
   await beforeLanguageModelRequest(runtime, route.provider, route.geminiProfile);
   const maxAttempts = attemptsOverride ?? 1;
-  const accountId = route.provider === 'cloudflare' ? await requireCloudflareAccount(runtime) : undefined;
   const settings: TutorTransportSettings = { ...route, model: routedModel(route.provider, route.model), apiKey, accountId, maxAttempts };
   return requestTutorStructuredJson(settings, request, signal);
 }
@@ -350,7 +328,9 @@ export async function runTutorTranslation(runtime: KrenRuntime, route: TutorLang
   text: string, signal: AbortSignal, targetLanguage?: string, retry = false): Promise<KrenResult> {
   const request: TutorStructuredGenerationRequest = { kind: 'translate', learnerInput: text, retry,
     instruction: '', input: text, schema: {}, schemaName: 'kren_tutor_translation' };
-  return unwrapRequestOutcome(await runFeatureRequest({ runtime, route, signal,
+  return unwrapRequestOutcome(await runFeatureRequest({ runtime, route: { ...route,
+    fastModel: route.fastModel ?? runtime.getSetting('tutor.hintModel', TUTOR_MODELS.gemini.fast),
+    fastThinkingOrEffort: route.fastThinkingOrEffort ?? runtime.getSetting('tutor.hintThinkingOrEffort', 'auto') }, signal,
     policy: CURRENT_REQUEST_POLICIES.tutor, thinking: { tutor: request },
     execute: (next, mode, selectedSignal, _request, maxAttempts) => runKrenOperationOnce({ ...runtime, thinkingMode: mode,
       allowExternalTranslation: true, getSetting: <T>(key: string, fallback: T): T => {
@@ -376,6 +356,7 @@ export async function runTutorAudioTranscription(
   transcribe: TutorAudioTranscriber = transcribeGeminiAudio,
   provider: 'gemini' | 'cloudflare' | 'groq' = 'gemini'
 ): Promise<string> {
+  await beforeLanguageModelRequest(runtime, provider, 'standard');
   if (provider === 'groq') return transcribeGroqAudio(await runtime.getSecret(KREN_SECRET_KEYS.groq) ?? '', audio, signal);
   if (provider === 'cloudflare') {
     const accountId = await runtime.getSecret(KREN_SECRET_KEYS.cloudflareAccountId);
@@ -384,12 +365,8 @@ export async function runTutorAudioTranscription(
   }
   const apiKey = await runtime.getSecret(KREN_SECRET_KEYS.gemini);
   if (!apiKey) {
-    throw new ProviderError(
-      'Set your Gemini Free Tier API key before recording with Gemini.',
-      'setGeminiKey'
-    );
+    throw missingCredentialError('gemini');
   }
-  await beforeLanguageModelRequest(runtime, 'gemini', 'standard');
   return transcribe(
     apiKey,
     audio,
@@ -694,10 +671,7 @@ async function rewriteText(
     KREN_SECRET_KEYS[languageModelCredentialSlot('gemini', profile)]
   );
   if (!key) {
-    const message = profile === 'pro'
-      ? 'Set your Gemini Paid API key before using the Paid rewrite profile.'
-      : 'Set your Gemini Free Tier API key before using the Free Tier rewrite profile.';
-    throw new ProviderError(message, profile === 'pro' ? 'setGeminiProKey' : 'setGeminiKey');
+    throw missingCredentialError('gemini', profile);
   }
   await beforeLanguageModelRequest(runtime, 'gemini', profile);
   const model = routing.model;
@@ -809,7 +783,7 @@ function operationLanguageModelRoute(runtime: KrenRuntime, prefix: FeatureRoutin
 }
 
 function missingRouteCredentials(route: TutorLanguageModelRoute): ProviderError {
-  return new ProviderError('Set provider credentials before adding a User Dictionary entry.', providerCredentialAction(route));
+  return missingCredentialError(route.provider, route.geminiProfile);
 }
 
 function routingGeminiThinking(
@@ -964,7 +938,7 @@ async function lookupMerriamWebster(
   const reference = MERRIAM_WEBSTER_OPERATIONS[operation];
   const apiKey = await runtime.getSecret(reference.secretKey);
   if (!apiKey) {
-    throw new ProviderError(reference.missingKeyMessage, reference.missingKeyAction);
+    throw missingCredentialError(reference.reference === 'collegiate' ? 'merriamWebsterCollegiate' : reference.reference === 'medical' ? 'merriamWebsterMedical' : 'merriamWebsterThesaurus');
   }
   const result = await new MerriamWebsterProvider(apiKey, reference.reference).lookup(
     dictionaryRequest(analysis),
@@ -1003,10 +977,7 @@ async function lookupMerriamWebster(
     sourceLanguage: resolvedTranslationSource(runtime, analysis.text),
     targetLanguage
   };
-  const provider = await createGoogleCloudProvider(
-    runtime,
-    'Merriam-Webster returned no entry for this expression. Set your Google Cloud Translation API key to use the multi-word fallback.'
-  );
+  const provider = await createGoogleCloudProvider(runtime);
   return provider.translate(request, signal);
 }
 
@@ -1039,26 +1010,10 @@ export async function runUserDictionaryCapture(
       ? runtime.getSecret(KREN_SECRET_KEYS.merriamWebsterCollegiate)
       : Promise.resolve(undefined)
   ]);
-  if (!apiKey) {
-    if (settings.provider === 'groq' || settings.provider === 'cloudflare') throw centeredProviderError(missingCompatibleCredentials(settings.provider), { ...settings });
-    const providerName = settings.provider === 'gemini'
-      ? settings.geminiProfile === 'pro' ? 'Gemini Paid' : 'Gemini Free Tier'
-      : settings.provider === 'openai' ? 'OpenAI' : 'Anthropic';
-    const action = settings.provider === 'gemini'
-      ? settings.geminiProfile === 'pro' ? 'setGeminiProKey' as const : 'setGeminiKey' as const
-      : settings.provider === 'openai'
-        ? 'setOpenAIKey' as const
-        : 'setAnthropicKey' as const;
-    throw centeredProviderError(new ProviderError(
-      `Set your ${providerName} API key before adding a User Dictionary entry.`,
-      action
-    ), { ...settings });
-  }
+  if (!apiKey) throw centeredProviderError(settings.provider === 'cloudflare' ? await missingCloudflareCredentials(runtime) : missingCredentialError(settings.provider, settings.geminiProfile), { ...settings });
+  if (settings.provider === 'cloudflare') await requireCloudflareAccount(runtime);
   if (settings.captureMode === 'merriamWebsterAndLlm' && !merriamWebsterApiKey) {
-    throw new ProviderError(
-      'Set your Merriam-Webster Collegiate API key before using Merriam-Webster + LLM capture.',
-      'setMerriamWebsterCollegiateKey'
-    );
+    throw missingCredentialError('merriamWebsterCollegiate');
   }
   await beforeLanguageModelRequest(runtime, settings.provider, settings.geminiProfile);
   const languageModelCapture = runFeatureRequest({ runtime, route: { ...settings }, signal,
@@ -1272,10 +1227,7 @@ async function lookupKoreanDictionary(
 ): Promise<KrenResult> {
   const apiKey = await runtime.getSecret(KREN_SECRET_KEYS.koreanDictionary);
   if (!apiKey) {
-    throw new ProviderError(
-      'Set your Korean Basic Dictionary API key before searching.',
-      'setDictionaryKey'
-    );
+    throw missingCredentialError('koreanDictionary');
   }
   const result = await new KoreanDictionaryProvider(apiKey).lookup(
     dictionaryRequest(analysis),
@@ -1342,10 +1294,7 @@ async function createTranslationProvider(
       KREN_SECRET_KEYS[languageModelCredentialSlot('gemini', profile)]
     );
     if (!key) {
-      const message = profile === 'pro'
-        ? 'Set your Gemini Paid API key before using Gemini.'
-        : 'Set your Gemini Free Tier API key before using Gemini.';
-      throw new ProviderError(message, profile === 'pro' ? 'setGeminiProKey' : 'setGeminiKey');
+      throw missingCredentialError('gemini', profile);
     }
     await beforeLanguageModelRequest(runtime, 'gemini', profile);
     const model = routing.model;
@@ -1418,10 +1367,7 @@ async function createLanguageModelProvider(
     KREN_SECRET_KEYS[languageModelCredentialSlot('gemini', profile)]
   );
   if (!key) {
-    const message = profile === 'pro'
-      ? 'Set your Gemini Paid API key before using the Gemini Paid profile.'
-      : 'Set your Gemini Free Tier API key before using the Gemini Free Tier profile.';
-    throw new ProviderError(message, profile === 'pro' ? 'setGeminiProKey' : 'setGeminiKey');
+    throw missingCredentialError('gemini', profile);
   }
   await beforeLanguageModelRequest(runtime, 'gemini', profile);
   return new GeminiProvider(
@@ -1449,19 +1395,11 @@ async function createExternalLanguageModelProvider(
   thinkingOrEffort?: LanguageModelRoutingEffort
 ): Promise<LanguageModelProvider> {
   const key = await runtime.getSecret(KREN_SECRET_KEYS[languageModelCredentialSlot(providerId, 'standard')]);
-  if (!key) {
-    if (providerId === 'groq' || providerId === 'cloudflare') throw missingCompatibleCredentials(providerId);
-    const providerName = providerId === 'openai' ? 'OpenAI' : 'Anthropic';
-    const action = providerId === 'openai' ? 'setOpenAIKey' : 'setAnthropicKey';
-    throw new ProviderError(
-      `Set your ${providerName} API key before using ${providerName}.`,
-      action
-    );
-  }
+  if (!key) throw providerId === 'cloudflare' ? await missingCloudflareCredentials(runtime) : missingCredentialError(providerId);
+  const accountId = providerId === 'cloudflare' ? await requireCloudflareAccount(runtime) : undefined;
   await beforeLanguageModelRequest(runtime, providerId);
   const attempts = languageModelRetries(runtime, 'languageModel.retry');
   if (providerId === 'groq' || providerId === 'cloudflare') {
-    const accountId = providerId === 'cloudflare' ? await requireCloudflareAccount(runtime) : undefined;
     return new CompatibleLanguageModelProvider(providerId, key, routedModel(providerId, model ?? compatibleDefaultModel(providerId)), thinkingOrEffort, attempts, accountId);
   }
   if (providerId === 'openai') {
@@ -1508,12 +1446,11 @@ async function beforeLanguageModelRequest(
 }
 
 async function createGoogleCloudProvider(
-  runtime: KrenRuntime,
-  missingKeyMessage = 'Set your Google Cloud Translation API key before using this provider.'
+  runtime: KrenRuntime
 ): Promise<GoogleCloudTranslationProvider> {
   const key = await runtime.getSecret(KREN_SECRET_KEYS.googleCloudTranslation);
   if (!key) {
-    throw new ProviderError(missingKeyMessage, 'setGoogleCloudTranslationKey');
+    throw missingCredentialError('googleCloudTranslation');
   }
   return new GoogleCloudTranslationProvider(key, (characters) =>
     runtime.reserveCloudCharacters(characters)
@@ -1540,13 +1477,11 @@ export const REPLAY_SUBJECTS: Record<KrenOperation, string> = {
 
 async function requireCloudflareAccount(runtime: KrenRuntime): Promise<string> {
   const accountId = await runtime.getSecret(KREN_SECRET_KEYS.cloudflareAccountId);
-  if (!accountId) throw new ProviderError('Set the Cloudflare account ID and API token in KREN menu, Credentials.', 'setCloudflareCredentials');
+  if (!accountId) throw missingCredentialError('cloudflare', 'standard', ['account ID']);
   return accountId;
 }
 
-function missingCompatibleCredentials(provider: 'groq' | 'cloudflare'): ProviderError {
-  return new ProviderError(provider === 'groq'
-    ? 'Set your Groq API key in KREN menu, Credentials.'
-    : 'Set the Cloudflare account ID and API token in KREN menu, Credentials.',
-    provider === 'groq' ? 'setGroqKey' : 'setCloudflareCredentials');
+async function missingCloudflareCredentials(runtime: KrenRuntime): Promise<ProviderError> {
+  const accountId = await runtime.getSecret(KREN_SECRET_KEYS.cloudflareAccountId);
+  return missingCredentialError('cloudflare', 'standard', accountId ? ['API token'] : ['account ID', 'API token']);
 }
