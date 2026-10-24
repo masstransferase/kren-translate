@@ -1445,8 +1445,16 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     // settings block. The position was saved only by the debounced scroll event below, so a
     // change inside that window restored an older one, and the patch moved it unseen. A change
     // now saves the position before any handler posts, and a patch runs inside holdScroll.
-    function saveScrollNow() {
-      if (scrollIsStable) savePanelState({ scroll: { screen: activeScreen, top: window.scrollY } });
+    // 2026-10-24: V311. A change also records where its control sits on screen, for restoreScroll.
+    function saveScrollNow(event) {
+      if (!scrollIsStable) return;
+      const control = event?.target;
+      const attribute = control instanceof HTMLElement
+        ? ['data-model-preset', 'data-setting'].find((name) => control.hasAttribute(name)) : undefined;
+      const selector = attribute ? control.tagName.toLowerCase() + '[' + attribute + '=' + JSON.stringify(control.getAttribute(attribute)) + ']' : '';
+      const anchor = selector ? { selector, index: Array.from(document.querySelectorAll(selector)).indexOf(control),
+        offset: control.getBoundingClientRect().top } : undefined;
+      savePanelState({ scroll: { screen: activeScreen, top: window.scrollY, ...(anchor ? { anchor } : {}) } });
     }
     function holdScroll(update) {
       const left = window.scrollX;
@@ -1456,6 +1464,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     }
     window.addEventListener('change', saveScrollNow, true);
     let scrollTimer = 0;
+    let scrollRestorePending = false;
     if (scrollIsStable) {
       window.addEventListener('scroll', () => {
         window.clearTimeout(scrollTimer);
@@ -1506,7 +1515,24 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       focusTutorConversationSetup.scrollIntoView({ block: 'start' });
     } else if (scrollIsStable && restored.scroll && restored.scroll.screen === activeScreen &&
         typeof restored.scroll.top === 'number') {
+      scrollRestorePending = true;
+    }
+    // 2026-10-24: V311. Measured in Edge, the restore ran here, before applyConditionalSettings at
+    // the end of the script hid 191 px of rows above the Live rows, so scroll anchoring pulled the
+    // view up towards Provider; and Provider, which shortens the summary above it, restored 19 px
+    // off. So restoreScroll runs on the final layout and puts a just-changed control back in place.
+    function restoreScroll() {
       window.scrollTo(0, restored.scroll.top);
+      const anchor = restored.scroll.anchor;
+      if (!anchor) return;
+      const control = typeof anchor.selector === 'string' ? document.querySelectorAll(anchor.selector)[anchor.index] : undefined;
+      const box = control instanceof HTMLElement ? control.getBoundingClientRect() : undefined;
+      if (box && (box.width > 0 || box.height > 0) && typeof anchor.offset === 'number') {
+        const shift = box.top - anchor.offset;
+        if (Math.abs(shift) >= 1) window.scrollTo(0, Math.round(window.scrollY + shift));
+      }
+      // Used once: a later document restores the position this one settled on.
+      savePanelState({ scroll: { screen: activeScreen, top: window.scrollY } });
     }
     const focusTutorTarget = document.body.getAttribute('data-focus-tutor-target');
     if (activeScreen === 'tutor' && focusTutorTarget) {
@@ -3977,7 +4003,6 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     function scrollTutorStoppedActions() {
       document.querySelector('[data-tutor-stopped-actions]')?.scrollIntoView({ block: 'end' });
     }
-    ${options.tutorScrollToStoppedActions ? 'scrollTutorStoppedActions();' : ''}
     initializeTutorConversationPicture();
     ${options.tutorConversationPicturePending ? `patchTutorConversationPicture(${JSON.stringify({
       image: options.tutorConversationPicturePending.image,
@@ -3994,6 +4019,9 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     window.addEventListener('resize', sizeLanguageModelUsage);
     document.fonts.ready.then(sizeLanguageModelUsage);
     applyConditionalSettings();
+    // The layout is final here. The stopped actions still win, as they did when they came later.
+    if (scrollRestorePending) restoreScroll();
+    ${options.tutorScrollToStoppedActions ? 'scrollTutorStoppedActions();' : ''}
     ${panelNoticeScript(options.panelNotices ?? [])}
     vscode.postMessage({ command: 'generatedAudioReady' });
   </script>
