@@ -4009,7 +4009,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       mode: options.tutor?.conversation.situationPicture
     })});` : ''}
     checkTutorDevelopingPicture(${JSON.stringify(options.tutorConversationPictureCommittedTurn ?? null)});
-    ${audio ? `void playPronunciation(${JSON.stringify(audio.url).replace(/</gu, '\u003c')}, false);` : ''}
+    ${audio ? `void playPronunciation(${JSON.stringify(audio.url).replace(/</gu, '\\u003c')}, false);` : ''}
     requestAnimationFrame(sizeLanguageModelUsage);
     const usageBox = document.querySelector('[data-language-model-usage]');
     if (usageBox) new ResizeObserver(sizeLanguageModelUsage).observe(usageBox);

@@ -1617,6 +1617,13 @@ describe('KREN rich result view', () => {
     // 2026-10-05: pronunciation starts through the allowlisted script path; rendered src attributes stay local.
     expect(html).toContain(`void playPronunciation(${JSON.stringify(audioUrl)}, false);`);
     expect(html).not.toContain(`src="${audioUrl}"`);
+    // 2026-10-24: CodeQL found the '<' escape replaced '<' with itself; a URL can no longer close the script.
+    const hostile = renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test', nonce: 'test-nonce', brandImageUri, result, sourceText: result.sourceText,
+      allowReplace: true, autoplayAudio: { url: audioUrl + '?a=</script>', headword: 'deliberate' }, settings, proModels
+    });
+    expect(hostile).toContain('?a=\\u003c/script>');
+    expect(hostile).not.toContain('?a=</script>');
     expect(html).toContain("message.command === 'playPronunciation'");
     expect(html).toContain("command: 'pronunciationStarted'");
     expect(html).toContain("command: 'pronunciationFailed'");
