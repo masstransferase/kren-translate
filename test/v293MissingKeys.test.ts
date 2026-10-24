@@ -262,7 +262,7 @@ describe('D22 A selection guidance and reader reachability', () => {
       message: missingCredentialMessage(missingCredentialDetails('merriamWebsterCollegiate')) };
     const html = render({}, tutor), $ = load(html);
     const reason = $('.tutor-drawer .tutor-failure');
-    const script = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/giu)].map(match => match[1]).join('\n');
+    const scripts = load(html), script = scripts('script').toArray().map(node => scripts(node).html() ?? '').join('\n');
     const start = script.indexOf('function linkCredentialReasons('), end = script.indexOf('\n    }', start) + 6;
     const patch = runInNewContext(`${script.slice(start, end)}; linkCredentialReasons`, {
       document: { querySelectorAll: () => [{ textContent: reason.text(), querySelector: (selector: string) => reason.find(selector).get(0),
@@ -290,7 +290,7 @@ describe('D22 A selection guidance and reader reachability', () => {
   });
   it('activating an Open Credentials link by keyboard reaches the host Credentials command', () => {
     const html = render(), post = vi.fn(), preventDefault = vi.fn();
-    const script = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/giu)].map(match => match[1]).join('\n');
+    const scripts = load(html), script = scripts('script').toArray().map(node => scripts(node).html() ?? '').join('\n');
     const start = script.indexOf("document.addEventListener('click',"), end = script.indexOf("window.addEventListener('message',", start);
     class Link {
       closest(selector: string) { return selector === 'a[data-command="showCredentials"]' ? this : null; }
