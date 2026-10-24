@@ -41,6 +41,12 @@ describe('KREN User Guide', () => {
     for (const document of [guide, manual]) {
       expect(document).toContain('Finish the lesson and its practice first.');
       expect(document).toContain('Let KREN choose');
+      // Changed 2026-10-21 (owner, I56/I57): both manuals explain the front actions and preserved saved Source.
+      expect(document).toMatch(/Setting.*open.*MODE.*without changing any option/u);
+      expect(document).toMatch(/(?:Start.*Demo|Demo.*Start)/u);
+      expect(document).toMatch(/A situation.*default source/u);
+      expect(document).toMatch(/saved source choice is kept/u);
+      expect(document).toMatch(/Start and Demo are disabled with the tooltip/u);
       // 2026-10-11: V218 shortens the manual while retaining completion of every lesson example/practice item.
       expect(document).toMatch(/every (?:current |lesson )?(?:practice item|example)/u);
       expect(document).toMatch(/annotation excerpts/u);
@@ -272,7 +278,8 @@ describe('KREN User Guide', () => {
     // Changed 2026-10-06: The task names the rendered ADVANCED group rather than calling it conversation mode.
     expect(guide).toMatch(/conversation (?:\*\*)?ADVANCED(?:\*\*)?[^\n]*Live transcription language/u);
     expect(guide).toMatch(/Automatic[^.]*provider detection/u);
-    expect(guide).toMatch(/transcription stays verbatim/u);
+    // Changed 2026-10-19: V282 (2.0.1 page text) describes spoken display formatting and recognition filtering.
+    expect(guide).toMatch(/Spoken turns are shown with a capital at the start, a capital "I", and final punctuation[^\n]*misheard non-English speech is dropped/u);
     expect(guide).toMatch(/reset information dialog[^.]*choose OK/u);
     expect(guide).toMatch(/Reset confirmation is also announced to screen readers/u);
     expect(guide).not.toContain('highlights the longest meaningful quoted run');

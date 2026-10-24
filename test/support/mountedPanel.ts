@@ -45,6 +45,9 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     set title(value: string) { this.setAttribute('title', value); }
     get id() { return this.getAttribute('id') ?? ''; }
     set id(value: string) { this.setAttribute('id', value); }
+    // Changed 2026-10-22 (V294, owner I60/I64): credential links retain their native keyboard target.
+    get href() { return this.getAttribute('href') ?? ''; }
+    set href(value: string) { this.setAttribute('href', value); }
     get src() { return this.getAttribute('src') ?? ''; }
     set src(value: string) { this.setAttribute('src', value); }
     get parentElement() { return wrap(this.node.parent()); }
@@ -56,6 +59,11 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     getAttribute(name: string) { return this.node.attr(name) ?? null; }
     hasAttribute(name: string) { return this.node.is('[' + name + ']'); }
     setAttribute(name: string, value: string) { this.node.attr(name, String(value)); }
+    // Changed 2026-10-22 (V294, owner I60/I64): deferred credential links use native dataset and text append.
+    get dataset() { return new Proxy({} as Record<string, string>, {
+      get: (_target, key: string) => this.getAttribute('data-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())) ?? undefined,
+      set: (_target, key: string, value: string) => { this.setAttribute('data-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()), value); return true; }
+    }); }
     removeAttribute(name: string) { this.node.removeAttr(name); }
     querySelector(selector: string) { return wrap(this.node.find(selector).first()); }
     querySelectorAll(selector: string) { return this.node.find(selector).toArray().map(node => wrap($(node))!); }
@@ -63,7 +71,7 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     matches(selector: string) { return this.node.is(selector); }
     contains(child: Element) { return child === this || child.node.parents().toArray().some(node => node === this.node[0]); }
     appendChild(child: Element) { this.node.append(child.node); return child; }
-    append(...children: Element[]) { children.forEach(child => this.appendChild(child)); }
+    append(...children: Array<Element | string>) { children.forEach(child => typeof child === 'string' ? this.node.append(child) : this.appendChild(child)); }
     replaceChildren(...children: Element[]) { this.node.empty(); this.append(...children); }
     replaceWith(child: Element) { this.node.replaceWith(child.node); }
     insertBefore(child: Element, before: Element | null) { if (before) before.node.before(child.node); else this.appendChild(child); }
@@ -136,7 +144,11 @@ export function mountedPanel(html: string, postMessage: (message: Record<string,
     }
   }
   return { document, query: document.querySelector, message: (message: Record<string, unknown>) => emit(window, 'message', { data: message }),
-    event: (element: Element, name: string) => emit(element, name, { target: element }),
+    // Changed 2026-10-21 (owner, I56/I57): native details toggles reach document capture listeners.
+    event: (element: Element, name: string) => {
+      emit(element, name, { target: element });
+      if (name === 'toggle') emit(document, name, { target: element });
+    },
     input: (element: Element, inputType: string) => {
       const event = Object.assign(new PanelInputEvent(inputType), { target: element });
       emit(element, 'input', event); emit(document, 'input', event);

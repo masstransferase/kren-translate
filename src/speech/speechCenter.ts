@@ -1,3 +1,4 @@
+import { missingCredentialDetails, missingCredentialMessage, type MissingCredentials } from '../requestCenter.js';
 import { WindowsEdgeReadAloudTransport, type EdgeReadAloudOptions, type EdgeTemporaryAudio, type EdgeActiveSpeech } from '../windowsEdgeReadAloud.js';
 import { writeFile } from 'node:fs/promises';
 import { WindowsNativeAudioTransport, createAudio, removeAudio, type OneShotPlayer, type PlayerOptions, type NativeProcess, type TemporaryAudio } from '../windowsNativeAudioPlayer.js';
@@ -7,6 +8,7 @@ export { tutorChirpVoices, tutorConversationSpeechVoice, tutorLearnerEdgeVoice, 
 import { GoogleChirpPlayer, type ChirpPlayback } from '../googleChirpSpeech.js';
 import { recordLanguageModelUsage } from '../languageModelUsage.js';
 import { normalizedTutorLiveVoice } from '../tutor/state.js';
+import { sentencePause } from './sentencePause.js';
 import { TUTOR_DEFAULTS } from '../tutor/defaults.js';
 import { READ_ALOUD_PROVIDER_DEFAULT, READ_ALOUD_EDGE_VOICE_DEFAULT } from '../panelSettings.js';
 import { normalizedReadAloudChirpVoice, resolveReadAloudChirpLocale } from '../readAloudChirp.js';
@@ -14,7 +16,7 @@ import { prepareTextForSpeech } from '../windowsReadAloud.js';
 import { type EdgeAudioPlayback, type EdgeReadAloudResult } from '../windowsEdgeReadAloud.js';
 import { EDGE_SPEECH_AUTO_LOCALE, resolveEdgeSpeechLocale, resolveEdgeSpeechVoice } from '@kren/core/edge-speech';
 import { edgeSpeechFailureMessage, edgeSpeechRetryNotice } from '../edgeSpeechMessages.js';
-import type { SpeechAdapter, SpeechProvider, SpeechResult, SpeechVoice } from './speechAdapter.js';
+import type { SpeechAdapter, SpeechProvider, SpeechResult, SpeechVoice, SpeechPlaybackBarrier } from './speechAdapter.js';
 
 export type { SpeechAdapter, SpeechProvider, SpeechResult, SpeechVoice } from './speechAdapter.js';
 export { GOOGLE_CHIRP_ENDPOINT, chirpSpeakingRate, chirpSentences } from '../googleChirpSpeech.js';
@@ -35,24 +37,25 @@ export interface TutorSpeechFallback {
 class SpeechNotice {
   private noticeShown = false;
   private conversation: unknown;
-  constructor(private readonly notify: (message: string) => void) {}
+  constructor(private readonly notify: (message: string, missing?: MissingCredentials) => void) {}
   public beginConversation(identity: unknown): boolean {
     if (this.conversation === identity) return false;
     this.conversation = identity;
     this.noticeShown = false;
     return true;
   }
-  public reportSpeechFailure(message: string): void {
+  public reportSpeechFailure(message: string, missing?: MissingCredentials): void {
     if (this.noticeShown) return;
     this.noticeShown = true;
-    this.notify(message);
+    if (missing) this.notify(message, missing);
+    else this.notify(message);
   }
-  public reportFallback(message: string, result?: TutorSpeechFallback): void {
+  public reportFallback(message: string, result?: TutorSpeechFallback, missing?: MissingCredentials): void {
     if (result?.unavailable) {
-      this.reportSpeechFailure(`${message} Edge Online and Local Windows speech are unavailable.`);
+      this.reportSpeechFailure(`${message} Edge Online and Local Windows speech are unavailable.`, missing);
       return;
     }
-    this.reportSpeechFailure(`${message}${result?.edgeUnavailable ? ` Edge Online is unavailable too (${result.edgeCause ?? 'synthesis failed'}).` : ''} KREN is using the ${result?.provider === 'windowsLocal' ? 'Windows' : 'Edge'} voice.`);
+    this.reportSpeechFailure(`${message}${result?.edgeUnavailable ? ` Edge Online is unavailable too (${result.edgeCause ?? 'synthesis failed'}).` : ''} KREN is using the ${result?.provider === 'windowsLocal' ? 'Windows' : 'Edge'} voice.`, missing);
   }
 }
 
@@ -68,7 +71,7 @@ export class GoogleChirpSpeech {
   private pending?: number;
   private onStarted?: () => void;
   constructor(getSecret: (slot: string) => PromiseLike<string | undefined>, playback: ChirpPlayback,
-    notify: (message: string) => void, fetcher: typeof fetch = fetch,
+    notify: (message: string, missing?: MissingCredentials) => void, fetcher: typeof fetch = fetch,
     private readonly log: (line: string) => void = () => {},
     private readonly onFallback: () => void = () => {}) {
     this.adapter = new GoogleChirpPlayer(getSecret, playback, fetcher, log, recordSpeechUsage);
@@ -87,10 +90,10 @@ export class GoogleChirpSpeech {
   public cancellationGeneration(): number { return this.generation; }
   public dispose(): void { this.stop(); }
   public warnMissingKey(): void {
-    this.reportSpeechFailure('Google Cloud Text-to-Speech needs a key. Open KREN menu, Credentials. KREN is using the Edge voice.');
+    this.notice.reportSpeechFailure(missingCredentialMessage(missingCredentialDetails('googleCloudTextToSpeech')), missingCredentialDetails('googleCloudTextToSpeech'));
   }
   public reportSpeechFailure(message: string): void { this.notice.reportSpeechFailure(message); }
-  public reportFallback(message: string, result?: TutorSpeechFallback): void { this.notice.reportFallback(message, result); }
+  public reportFallback(message: string, result?: TutorSpeechFallback, missing?: MissingCredentials): void { this.notice.reportFallback(message, result, missing); }
   public async speak(text: string, options: ChirpSpeechOptions,
     fallback: (text?: string) => Promise<void | TutorSpeechFallback>): Promise<void> {
     const generation = ++this.generation;
@@ -101,7 +104,7 @@ export class GoogleChirpSpeech {
       this.log(`[speech] Google Cloud Text-to-Speech failed (${result.cause}); using Edge.`);
       onFallbackSafe(this.onFallback);
       const used = await fallback(result.remainingText ?? text);
-      if (generation === this.generation) this.reportFallback(chirpNotice(result), used || undefined);
+      if (generation === this.generation) this.reportFallback(chirpNotice(result), used || undefined, result.missingKey ? missingCredentialDetails('googleCloudTextToSpeech') : undefined);
     } finally { if (this.pending === generation) this.pending = undefined; }
   }
   public async test(options: ChirpSpeechOptions): Promise<string> {
@@ -123,7 +126,7 @@ export class GoogleChirpSpeech {
 }
 
 function chirpNotice(result: Extract<SpeechResult, { status: 'failed' }>): string {
-  return result.missingKey ? 'Google Cloud Text-to-Speech needs a key. Open KREN menu, Credentials.' : result.message!;
+  return result.missingKey ? missingCredentialMessage(missingCredentialDetails('googleCloudTextToSpeech')) : result.message!;
 }
 function onFallbackSafe(notify: () => void): void {
   // 2026-10-11: A reveal observer cannot prevent the selected speech fallback.
@@ -149,6 +152,7 @@ export interface SpeechHost {
   log(line: string): void;
 }
 interface SpeechSettings {
+  sentencePauseMilliseconds: number;
   provider: SpeechProvider; edgeLocale: string; edgeVoice: string; edgeRatePercent: number;
   voice: string; rate: number; volume: number; pythonCommand: string;
   chirpVoice: string; female: string; male: string; edgeFemale: string; edgeMale: string;
@@ -169,7 +173,7 @@ export class SpeechCenter {
     return tutor || shared || edge || windows;
   }
   public dispose(): void { this.stop(); }
-  public async speak(text: string, resultLanguage?: string, settingsSource: 'shared' | 'tutor' = 'shared', edgeVoice?: string): Promise<void | TutorSpeechFallback> {
+  public async speak(text: string, resultLanguage?: string, settingsSource: 'shared' | 'tutor' = 'shared', edgeVoice?: string, playbackBarrier?: SpeechPlaybackBarrier): Promise<void | TutorSpeechFallback> {
     const session = ++this.generation;
     const settings = this.settings(settingsSource);
     const utteranceVoice = settingsSource === 'tutor' && settings.provider === 'windowsLocal'
@@ -180,6 +184,7 @@ export class SpeechCenter {
     this.tutor.stop(); this.shared.stop(); this.edge.stop(); this.windows.stop();
     const cancellation = speechNotice.cancellationGeneration();
     const current = () => session === this.generation && cancellation === speechNotice.cancellationGeneration();
+    const barrier = settingsSource === 'tutor' && playbackBarrier ? async () => await playbackBarrier() && current() : undefined;
     const provider = edgeVoice && settings.provider !== 'googleChirp' ? 'edgeOnline' : settings.provider;
     const chirpReadAloud = settingsSource === 'shared' && settings.provider === 'googleChirp';
     const voices = settingsSource === 'tutor' ? tutorChirpVoices(edgeVoice, settings) : undefined;
@@ -191,6 +196,7 @@ export class SpeechCenter {
     const releaseSpeech = settingsSource === 'tutor' || chirpReadAloud ? this.host.hold() : undefined;
     let status: { dispose(): void } | undefined;
     let message: string | undefined, edgeCause: string | undefined;
+    let missingCredentials: MissingCredentials | undefined;
     let used: TutorSpeechFallback | undefined;
     try {
       for (const source of order) {
@@ -213,24 +219,29 @@ export class SpeechCenter {
           const languageCode = chirpReadAloud ? resolveReadAloudChirpLocale(resolved) : 'en-US';
           if (!languageCode) outcome = { status: 'failed', cause: 'unsupported locale', message: `Google Cloud Text-to-Speech does not support ${resolved}.` };
           else outcome = await speechNotice.adapter.speak(remaining, { voice: voices?.voice ?? settings.chirpVoice, languageCode,
-            feature: chirpReadAloud ? 'readAloud' : 'tutorSpeech' }, settings.edgeRatePercent, settings.volume, onStarted);
+            ...(barrier ? { playbackBarrier: barrier } : {}),
+            feature: chirpReadAloud ? 'readAloud' : 'tutorSpeech',
+            ...(settings.sentencePauseMilliseconds > 0 ? { sentencePauseMilliseconds: settings.sentencePauseMilliseconds } : {}) }, settings.edgeRatePercent, settings.volume, onStarted);
         } else if (source === 'edgeOnline') {
           const storedVoice = provider === 'googleChirp' ? voices?.edgeVoice ?? settings.edgeVoice
             : provider === 'windowsLocal' && settingsSource === 'tutor'
             ? tutorChirpVoices(edgeVoice ?? this.host.speakerVoice(), settings).edgeVoice : edgeVoice ?? settings.edgeVoice;
-          outcome = block ? { status: 'failed', cause: block } : await this.speakEdge(remaining, resultLanguage, settings, storedVoice, onStarted, current, chirpReadAloud);
+          outcome = block ? { status: 'failed', cause: block } : await this.speakEdge(remaining, resultLanguage, settings, storedVoice, onStarted, current, chirpReadAloud, barrier);
         } else {
-          outcome = await this.windows.speak(remaining, { voice: utteranceVoice ?? settings.voice }, settings.rate, settings.volume, onStarted);
+          outcome = await this.windows.speak(remaining, { voice: utteranceVoice ?? settings.voice,
+            ...(barrier ? { playbackBarrier: barrier } : {}),
+            ...(settings.sentencePauseMilliseconds > 0 ? { sentencePauseMilliseconds: settings.sentencePauseMilliseconds } : {}) }, settings.rate, settings.volume, onStarted);
         }
         if (!current() || outcome.status === 'stopped') return;
         if (outcome.status === 'completed') {
           if (source !== 'googleChirp') used = { provider: source, ...(edgeCause ? { edgeUnavailable: true, edgeCause } : {}) };
-          if (message) speechNotice.reportFallback(message, provider === 'edgeOnline' && used ? { ...used, edgeUnavailable: false } : used);
+          if (message) speechNotice.reportFallback(message, provider === 'edgeOnline' && used ? { ...used, edgeUnavailable: false } : used, missingCredentials);
           return used;
         }
+        remaining = outcome.remainingText ?? remaining;
         if (source === 'googleChirp') {
-          remaining = outcome.remainingText ?? remaining;
           message = chirpNotice(outcome);
+          missingCredentials = outcome.missingKey ? missingCredentialDetails('googleCloudTextToSpeech') : undefined;
           if (outcome.cause !== 'unsupported locale') this.host.log(`[speech] Google Cloud Text-to-Speech failed (${outcome.cause}); using Edge.`);
         } else if (source === 'edgeOnline') {
           edgeCause = outcome.cause;
@@ -263,7 +274,7 @@ export class SpeechCenter {
             message = 'Local Windows speech failed.';
             this.host.log('[speech] Local Windows failed; using Edge Online.');
           } else if (message) {
-            speechNotice.reportFallback(message, { provider: source, unavailable: true });
+            speechNotice.reportFallback(message, { provider: source, unavailable: true }, missingCredentials);
             return { provider: source, unavailable: true, edgeUnavailable: true };
           } else {
             this.host.notify('error', 'KREN could not use the selected Windows voice. Choose another voice in KREN Settings or verify that Windows speech is installed.');
@@ -277,14 +288,18 @@ export class SpeechCenter {
   }
 
   private async speakEdge(text: string, resultLanguage: string | undefined, speechSettings: SpeechSettings,
-    storedVoice: string, onStarted: () => void, current: () => boolean, chirpReadAloud: boolean): Promise<SpeechResult> {
+    storedVoice: string, onStarted: () => void, current: () => boolean, chirpReadAloud: boolean, playbackBarrier?: SpeechPlaybackBarrier): Promise<SpeechResult> {
     const configuredLocale = speechSettings.edgeLocale;
+    let remaining = text;
     const speakIn = async (chosen: string): Promise<EdgeReadAloudResult> => {
-      const outcome = await this.edge.speak(text, {
+      const outcome: SpeechResult = await this.edge.speak(remaining, {
+        ...(playbackBarrier ? { playbackBarrier } : {}),
         pythonCommand: speechSettings.pythonCommand,
         voice: resolveEdgeSpeechVoice(chosen, storedVoice) ?? '',
-        playback: this.host.playback()
+        playback: this.host.playback(),
+        ...(speechSettings.sentencePauseMilliseconds > 0 ? { sentencePauseMilliseconds: speechSettings.sentencePauseMilliseconds } : {})
       }, speechSettings.edgeRatePercent, speechSettings.volume, onStarted).catch(() => ({ status: 'failed' as const, cause: 'synthesis or playback failed' }));
+      if (outcome.status === 'failed') remaining = outcome.remainingText ?? remaining;
       return outcome.status === 'failed' && outcome.cause === 'edge-tts package missing' ? 'dependencyMissing' : outcome.status;
     };
     const { locale } = resolveEdgeSpeechLocale({ configured: configuredLocale, resultLanguage, text, fallback: 'en-US' });
@@ -299,8 +314,9 @@ export class SpeechCenter {
       }
     }
     if (!current() || result === 'stopped') return { status: 'stopped' };
-    if (result === 'dependencyMissing') return { status: 'failed', cause: 'edge-tts package missing' };
-    if (result === 'failed') return { status: 'failed', cause: 'synthesis or playback failed', message: edgeSpeechFailureMessage(locale, retriedLocale, storedVoice) };
+    const unspoken = remaining !== text ? { remainingText: remaining } : {};
+    if (result === 'dependencyMissing') return { status: 'failed', cause: 'edge-tts package missing', ...unspoken };
+    if (result === 'failed') return { status: 'failed', cause: 'synthesis or playback failed', message: edgeSpeechFailureMessage(locale, retriedLocale, storedVoice), ...unspoken };
     if (retriedLocale && !chirpReadAloud) this.host.notify('information', edgeSpeechRetryNotice(locale, retriedLocale));
     return { status: 'completed' };
   }
@@ -309,6 +325,7 @@ export class SpeechCenter {
     const config = this.host.configuration();
     // Each feature reads its own namespace; only the interpreter location is shared.
     return settingsSource === 'tutor' ? {
+      sentencePauseMilliseconds: sentencePause(config.get<number>('tutor.readAloud.sentencePauseMilliseconds', 0)),
       provider: config.get<SpeechProvider>('tutor.readAloud.provider', TUTOR_DEFAULTS.configuration['tutor.readAloud.provider']),
       edgeLocale: config.get<string>('tutor.readAloud.edgeLocale', TUTOR_DEFAULTS.configuration['tutor.readAloud.edgeLocale']),
       edgeVoice: config.get<string>('tutor.readAloud.edgeVoice', TUTOR_DEFAULTS.configuration['tutor.readAloud.edgeVoice']),
@@ -320,6 +337,7 @@ export class SpeechCenter {
       chirpVoice: '', female: config.get<string>('tutor.liveFemaleVoice', 'Callirrhoe'), male: config.get<string>('tutor.liveMaleVoice', 'Enceladus'),
       edgeFemale: config.get<string>('tutor.readAloud.edgeFemaleVoice', 'en-US-AvaNeural'), edgeMale: config.get<string>('tutor.readAloud.edgeMaleVoice', 'en-US-ChristopherNeural')
     } : {
+      sentencePauseMilliseconds: 0,
       provider: config.get<SpeechProvider>('readAloud.provider', READ_ALOUD_PROVIDER_DEFAULT),
       edgeLocale: config.get<string>('readAloud.edgeLocale', EDGE_SPEECH_AUTO_LOCALE),
       edgeVoice: config.get<string>('readAloud.edgeVoice', READ_ALOUD_EDGE_VOICE_DEFAULT),

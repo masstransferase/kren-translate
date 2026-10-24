@@ -1,9 +1,9 @@
 import { credentialHelpFor } from './credentialHelp.js';
 import { systemUpdatesAvailable, type EnvironmentChecks } from './environmentCheck.js';
-import { PanelNoticeQueue, type PanelNoticeOptions } from './panelNotices.js';
+import { PanelNoticeQueue, showNativePanelNotice, type PanelNoticeKind, type PanelNoticeOptions } from './panelNotices.js';
 import { GROQ_RETIRED_MODELS } from './tutor/models.js';
 import { GROQ_MODELS } from './providers/openAICompatible.js';
-import { runTutorGeneration, unwrapRequestOutcome, CURRENT_REQUEST_POLICIES } from './requestCenter.js';
+import { missingCredentialsOf, showMissingCredentialNotice, runTutorGeneration, unwrapRequestOutcome, CURRENT_REQUEST_POLICIES } from './requestCenter.js';
 import { tutorLessonConversationReadiness } from './tutor/lessonConversation.js';
 import { regeneratePreparedPrompt, askTutorQuestion, applyTutorDiagnosticReport, confirmTutorDiagnosticReportDeletion, diagnoseTutorConversation, findTutorTargets, generateTutorExercises, cancelTutorExercises, cancelTutorLesson, regenerateTutorExample, cancelTutorExample, startTutorLessonGeneration, updateTutorTarget } from './resultsViewLesson.js';
 import { updateProviderSwitchSetting, confirmTutorReset, confirmTutorLessonReset, updateTutorSetting, previewTutorEdgeVoice, previewTutorGeminiVoice, updateTutorVoiceDefault, updatePanelTheme } from './resultsViewSettings.js';
@@ -24,6 +24,7 @@ import { clearTutorConversationStopSafetyTimer, tutorConversationReaderSpeaking,
 import { stopTutorLiveAudio, playTutorLiveAudio, tutorLivePlaybackProgress, finishTutorLiveTurnTiming, closeTutorLiveMicrophone, clearTutorLiveActivityEndTimer, scheduleTutorLiveActivityEnd, postTutorLiveTalkState, toggleTutorLiveMicrophone, tutorLiveChoiceNote, closeTutorLiveSession, cancelTutorLiveCoachingRequests, releaseTutorConversationResources, beginTutorLiveReply, appendTutorLiveReply, appendTutorLiveInput, beginTutorLiveSpokenReply, finishTutorLiveSpokenTurn, completeTutorLiveSpokenTurn, attachTutorLiveCoaching, failTutorLiveSpokenTurn, cancelTutorLiveSpokenTurn, interruptTutorLiveReply, postTutorLiveAudio, tutorLiveReplayAvailable, tutorConversationReplayAvailable, postTutorConversationReplayState, completeTutorLiveReply, rememberTutorLiveQuestionAudio, failTutorLiveAudio, logTutorLiveAudioError, postTutorLiveSpeakerState, disableTutorLive } from './resultsViewLive.js';
 import { safePanelErrorMessage, tutorFailureMessage } from './resultsViewErrors.js';
 import { findTutorSituation, tutorCustomSituation } from '@kren/core/tutor';
+import { KNOWN_TUTOR_LIVE_MODEL_IDS } from './panelSettings.js';
 import * as vscode from 'vscode';
 import {
   customModelIdentifiers,
@@ -441,7 +442,7 @@ function configuredCustomModels(provider: CustomModelProvider): string[] {
 
 
 export type KrenResultsViewPanel = Pick<KrenResultsViewProvider,
-  'environmentChecks' | 'environmentChecksChanged' | 'handy' | 'showWarningMessage' | 'showErrorMessage' | 'showProviderSwitchNotice' | 'clear' | 'reveal' | 'showTutor' | 'hide' | 'showSettings' | 'showCredentials' | 'refreshTutorTakeHomeSetting' | 'playPronunciation' | 'refresh' | 'edgeAudioPlayback' | 'playGeneratedAudioBase64' | 'generatedAudioFailureCause' | 'holdTutorSpeech' | 'tutorLiveSpeaking' | 'tutorSpeechVoice' | 'tutorSpeechConversationIdentity' | 'tutorOpeningSpeechFallback' | 'tutorSpeechPlaybackStarted' | 'stopGeneratedAudio' | 'setResult' | 'showResult' | 'showUserDictionaryDraft' | 'showUserDictionaryGenerationFailure' | 'showUserDictionary' | 'dispose' | 'resolveWebviewView'>;
+  'showMissingCredentialError' | 'environmentChecks' | 'environmentChecksChanged' | 'handy' | 'showInformationMessage' | 'panelVisible' | 'withPanelProgress' | 'showWarningMessage' | 'showErrorMessage' | 'showProviderSwitchNotice' | 'clear' | 'reveal' | 'showTutor' | 'hide' | 'showSettings' | 'showCredentials' | 'refreshTutorTakeHomeSetting' | 'playPronunciation' | 'refresh' | 'edgeAudioPlayback' | 'playGeneratedAudioBase64' | 'generatedAudioFailureCause' | 'holdTutorSpeech' | 'tutorLiveSpeaking' | 'tutorSpeechVoice' | 'tutorSpeechConversationIdentity' | 'tutorOpeningSpeechFallback' | 'tutorSpeechPlaybackStarted' | 'stopGeneratedAudio' | 'setResult' | 'showResult' | 'showUserDictionaryDraft' | 'showUserDictionaryGenerationFailure' | 'showUserDictionary' | 'dispose' | 'resolveWebviewView'>;
 export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewId = 'kren.resultsView';
   public static readonly enabledContext = 'kren.resultsEnabled';
@@ -574,6 +575,8 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   tutorReplayAllGeneration = 0;
   tutorConversationSpeechSequenceRunning = false;
   tutorConversationIntroSpeaking = false;
+  tutorIntroCompletionWait: { cancel(): void; playbackComplete(): void } | undefined;
+  tutorLiveOpeningAudioReady: Promise<void> | undefined;
   tutorConversationOpeningWait: { timer: ReturnType<typeof setTimeout>; resolve(): void } | undefined;
   tutorLiveReplayWait:
     { timer: ReturnType<typeof setTimeout>; resolve: () => void } | undefined;
@@ -644,7 +647,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   // uncovered the panel while work was still running: two Rewrites share a notice, so the
   // first to finish cleared it for both, and Translate followed by Rewrite uncovered the
   // panel the moment Rewrite returned. The overlay now lifts when the last one finishes.
-  private readonly busyOperations: Array<{ id: number; notice: string }> = [];
+  private readonly busyOperations: Array<{ id: number; notice: string; cancel?: () => void }> = [];
   private nextBusyOperationId = 0;
   // Carried by the gear's render and cleared by the reader's next message, so Settings
   // opens at Rewrite once without dragging later edits back to that section.
@@ -685,7 +688,8 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     const generate: ResultsViewActions['generateTutor'] = (request, route, signal) => runTutorGeneration({ request: { ...request,
       transcriptTurns: request.kind.startsWith('conversation') && !request.kind.startsWith('conversationDemo')
         ? this.tutorState.conversation.transcript.length : request.transcriptTurns
-    }, route: { ...route, fastModel: configuredTutorHintModel() }, signal, policy: CURRENT_REQUEST_POLICIES.tutor,
+    }, route: { ...route, fastModel: configuredTutorHintModel(),
+      fastThinkingOrEffort: route.fastThinkingOrEffort ?? actions.settings().tutorHintThinkingOrEffort ?? TUTOR_DEFAULTS.configuration['tutor.hintThinkingOrEffort'] }, signal, policy: CURRENT_REQUEST_POLICIES.tutor,
       generate: actions.generateTutor.bind(actions), log: actions.log.bind(actions) }).then(unwrapRequestOutcome);
     this.actions = new Proxy(actions, { get: (target, key) => key === 'generateTutor' ? generate : Reflect.get(target, key) });
     this.applyStoredTutorPreferences();
@@ -695,12 +699,13 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   private readonly notices = new PanelNoticeQueue(
     () => this.view?.visible === true,
     notice => this.view?.webview.postMessage({ command: 'panelNotice', notice }),
-    (kind, message, options, choices) => kind === 'warning'
-      ? vscode.window.showWarningMessage(message, options, ...choices)
-      : vscode.window.showErrorMessage(message, options, ...choices),
+    (kind, message, options, choices) => showNativePanelNotice(vscode.window, kind, message, options, choices),
     id => this.view?.webview.postMessage({ command: 'panelNoticeWithdraw', id }),
     line => this.actions.log(line)
   );
+  public showInformationMessage(message: string, optionsOrChoice?: PanelNoticeOptions | string, ...choices: string[]): Promise<string | undefined> {
+    return this.showPanelNotice('information', message, optionsOrChoice, ...choices);
+  }
   public showWarningMessage(message: string, optionsOrChoice?: PanelNoticeOptions | string, ...choices: string[]): Promise<string | undefined> {
     return this.showPanelNotice('warning', message, optionsOrChoice, ...choices);
   }
@@ -708,7 +713,18 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     return this.showPanelNotice('error', message, optionsOrChoice, ...choices);
   }
 
-  private showPanelNotice(kind: 'warning' | 'error', message: string, optionsOrChoice?: PanelNoticeOptions | string, ...choices: string[]): Promise<string | undefined> {
+  public credentialPresence() {
+    return this.actions.settings().credentialPresence;
+  }
+
+  public showMissingCredentialError(error: unknown, offerProviderChoice = false): boolean {
+    const missing = missingCredentialsOf(error);
+    if (!missing) return false;
+    void showMissingCredentialNotice(missing, this, '', offerProviderChoice);
+    return true;
+  }
+
+  private showPanelNotice(kind: PanelNoticeKind, message: string, optionsOrChoice?: PanelNoticeOptions | string, ...choices: string[]): Promise<string | undefined> {
     return this.notices.show(kind, message, optionsOrChoice, ...choices);
   }
   private closePanelNotices(): void {
@@ -740,7 +756,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   }
 
   /** Called wherever one of those choices changes, and nowhere else. */
-  private persistTutorPreferences(): void {
+  public persistTutorPreferences(): void {
     this.actions.writeTutorPreferences?.(
       tutorConversationPreferencesOf(this.tutorState.conversation)
     );
@@ -750,6 +766,8 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     if (this.view && this.view !== view) this.closePanelNotices();
     this.disposeViewDisposables();
     this.view = view;
+    this.renderedScreen = undefined;
+    this.notices.open();
     view.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
@@ -759,6 +777,12 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       view.webview.onDidReceiveMessage((message: unknown) => {
         const command = typeof message === 'object' && message !== null
           ? (message as { command?: unknown }).command : undefined;
+        if (command === 'cancelPanelProgress') {
+          const id = (message as { operationId?: unknown }).operationId;
+          const operation = this.busyOperations.at(-1);
+          if (operation && operation.id === id) operation.cancel?.();
+          return;
+        }
         if (command === 'panelNoticeResponse') {
           this.notices.respond(message);
           return;
@@ -783,7 +807,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
           return;
         }
         if (isCommandMessage(message) && (
-          message.command === 'runCommand' || message.command === 'resetTutorSession' ||
+          (message.command === 'runCommand' && message.action !== 'kren.applyGlobalRouting') || message.command === 'resetTutorSession' ||
           message.command === 'resetTutorLesson' || message.command === 'showSettings' ||
           message.command === 'showCredentials' || message.command === 'showStartPage' ||
           message.command === 'previewTutorEdgeVoice' || message.command === 'previewTutorGeminiVoice' ||
@@ -818,6 +842,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       view.onDidChangeVisibility(() => {
         if (this.view !== view) return;
         if (!view.visible) { this.closePanelNotices(); return; }
+        this.notices.open();
         if (this.generatedAudioReadyCallback) void view.webview.postMessage({ command: 'requestGeneratedAudioReady' });
         ensureTutorConversationPicture(this);
         postTutorLiveTalkState(this);
@@ -951,6 +976,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   }
 
   public refresh(): void {
+    void this.view?.webview.postMessage({ command: 'credentialPresenceReady', presence: this.actions.settings().credentialPresence ?? {} });
     reconcileTutorTakeHomeSetting(this);
     this.syncTutorRoutingSettings();
     this.customModels = {
@@ -1410,7 +1436,18 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   private settingsSnapshot(): string {
     const settings: Record<string, unknown> = { ...this.actions.settings() };
     for (const volatileField of VOLATILE_SETTINGS_FIELDS) delete settings[volatileField];
+    // A saved global draft does not change a feature's result until Apply to All.
+    delete settings.globalRouting;
     return JSON.stringify(Object.keys(settings).sort().map((key) => [key, settings[key]]));
+  }
+
+  public get panelVisible(): boolean { return this.view?.visible === true; }
+
+  /** Reuse the panel's long-busy popup for extension operations. */
+  public async withPanelProgress<T>(title: string, task: () => Thenable<T>, cancel?: () => void): Promise<T> {
+    const operation = this.beginBusy(title, cancel);
+    try { return await task(); }
+    finally { this.endBusy(operation); }
   }
 
   /**
@@ -1423,10 +1460,10 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     return this.busyOperations.at(-1)?.notice;
   }
 
-  private beginBusy(notice: string): number {
+  private beginBusy(notice: string, cancel?: () => void): number {
     const id = (this.nextBusyOperationId += 1);
-    this.busyOperations.push({ id, notice });
-    this.render();
+    this.busyOperations.push({ id, notice, cancel });
+    this.updateBusyPopup();
     return id;
   }
 
@@ -1434,7 +1471,15 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     const index = this.busyOperations.findIndex((operation) => operation.id === id);
     if (index < 0) return;
     this.busyOperations.splice(index, 1);
-    this.render();
+    this.updateBusyPopup();
+  }
+
+  private updateBusyPopup(): void {
+    if (this.view && this.renderedScreen !== undefined) {
+      const operation = this.busyOperations.at(-1);
+      void this.view.webview.postMessage({ command: 'panelProgress', notice: this.busyNotice(),
+        cancelId: operation?.cancel ? operation.id : undefined });
+    } else this.render();
   }
 
   private rewriteReplayState(): RewriteReplayState | undefined {
@@ -1552,6 +1597,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
         ? { grammarChoices: this.state.grammarChoices ?? [] }
         : {}),
       ...(this.busyNotice() ? { busyNotice: this.busyNotice() } : {}),
+      busyCancelId: this.busyOperations.at(-1)?.cancel ? this.busyOperations.at(-1)?.id : undefined,
       ...(this.pendingSettingsFocus ? { focusSettingsSection: this.pendingSettingsFocus } : {}),
       ...(this.pendingTutorTargetFocus
         ? { focusTutorTargetId: this.pendingTutorTargetFocus }
@@ -1602,6 +1648,8 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     if (this.activeScreen === 'tutor' && this.renderedScreen === 'tutor' && this.tutorState.conversation.status !== 'idle' &&
         (this.generatedAudioResolver || this.tutorSpeechHolds || this.tutorConversationSpeechSequenceRunning || this.tutorState.conversation.openingReveal ||
           this.tutorState.conversation.speechReveal)) {
+      // Conversation patches do not replace the lesson or execute its reset announcement.
+      if (this.pendingTutorAnnouncement) this.deferredSpeechRender = true;
       void this.view.webview.postMessage({ command: 'tutorConversationRender', html,
         ...(committedPictureTurn !== undefined ? { committedTurn: committedPictureTurn } : {}) });
       if (!pictureCheckPending) this.tutorConversationPictureCommitPending = false;
@@ -1859,6 +1907,11 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       // Commands can ask for consent or await playback. Their receiver bypasses the
       // settings queue, and their completion must not hold it either.
       const action = message.action;
+      if (action === 'kren.applyGlobalRouting') {
+        // This bounded command waits behind draft saves, so the preview uses the latest choices.
+        await vscode.commands.executeCommand('kren.applyGlobalRouting');
+        return;
+      }
       if (!isPanelCommand(action)) {
         const text = `KREN programming error: command "${action}" is not available in this build.`;
         this.actions.log(`[panel command unavailable] ${action}`);
@@ -2373,26 +2426,6 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
         ensureTutorConversationPicture(this);
       }
     }
-    if (message.command === 'useTutorSituationSource') {
-      const conversation = this.tutorState.conversation;
-      if (conversation.status === 'idle' && conversation.from === 'lesson' &&
-          !tutorLessonConversationReadiness(this.tutorState).ready) {
-        const defaultSituation = TUTOR_SITUATIONS[0]!;
-        this.tutorState = { ...this.tutorState, conversation: {
-          ...conversation,
-          from: 'situation',
-          situationId: defaultSituation.id,
-          register: conversation.registerChosenByReader
-            ? conversation.register
-            : defaultSituation.register,
-          openModeAfterRender: true
-        } };
-        this.render();
-        this.tutorState = { ...this.tutorState, conversation: {
-          ...this.tutorState.conversation, openModeAfterRender: undefined
-        } };
-      }
-    }
     if (message.command === 'tutorConversationPictureDecoded' ||
         message.command === 'tutorConversationPictureFailed') {
       // 2026-10-02: A replacement document can acknowledge an already-counted picture again.
@@ -2794,7 +2827,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       void this.actions.refreshGeminiImageModels?.().then((models) => {
         if (generation !== this.imageModelRefresh) return;
         this.imageModels = models;
-        if (this.activeScreen === 'tutor') this.render();
+        this.postModelCatalog('geminiImage', models);
       }).catch(() => this.actions.log('[settings background refresh failed] Gemini image models.'));
     }
     if (message.command === 'refreshGeminiModels') {
@@ -2881,6 +2914,12 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       });
   }
 
+  private postModelCatalog(catalog: string, models: GeminiModelOption[]): void {
+    if (this.activeScreen === 'settings' || this.activeScreen === 'tutor') {
+      void this.view?.webview.postMessage({ command: 'modelCatalogReady', catalog, models });
+    }
+  }
+
   /**
    * The Refresh beside a Default-profile Model field, which queries the default Gemini key.
    *
@@ -2895,7 +2934,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       .then((models) => {
         if (generation !== this.proModelRefresh) return;
         this.proModels = models;
-        if (this.activeScreen === 'settings' || this.activeScreen === 'tutor') this.render(false, this.activeScreen === 'tutor');
+        this.postModelCatalog('gemini', models);
       })
       .catch(() => {
         this.actions.log('[settings background refresh failed] Gemini models.');
@@ -2909,7 +2948,10 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       .then((models) => {
         if (generation !== this.liveModelRefresh) return;
         this.liveModels = models;
-        if (this.activeScreen === 'tutor') this.render();
+        this.postModelCatalog('geminiLive', [
+          ...KNOWN_TUTOR_LIVE_MODEL_IDS.map(id => ({ id, displayName: id })),
+          ...models.filter(model => !KNOWN_TUTOR_LIVE_MODEL_IDS.some(id => id === model.id))
+        ]);
       })
       .catch(() => {
         this.actions.log('[settings background refresh failed] Gemini Live models.');
@@ -2922,7 +2964,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       .then((models) => {
         if (generation !== this.proModelRefresh) return;
         this.proModels = models;
-        if (this.activeScreen === 'settings' || this.activeScreen === 'tutor') this.render(false, this.activeScreen === 'tutor');
+        this.postModelCatalog('gemini', models);
       })
       .catch(() => {
         this.actions.log('[settings background refresh failed] Gemini models.');
@@ -2935,7 +2977,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       .then((models) => {
         if (generation !== this.openAIModelRefresh) return;
         this.openAIModels = models;
-        if (this.activeScreen === 'settings' || this.activeScreen === 'tutor') this.render(false, this.activeScreen === 'tutor');
+        this.postModelCatalog('openai', models);
       })
       .catch(() => {
         this.actions.log('[settings background refresh failed] OpenAI models.');
@@ -2948,7 +2990,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       .then((models) => {
         if (generation !== this.groqModelRefresh) return;
         this.groqModels = models;
-        if (this.activeScreen === 'settings' || this.activeScreen === 'tutor') this.render(false, this.activeScreen === 'tutor');
+        this.postModelCatalog('groq', models);
       })
       .catch(() => {
         this.actions.log('[settings background refresh failed] Groq models.');
@@ -2961,7 +3003,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       .then((models) => {
         if (generation !== this.anthropicModelRefresh) return;
         this.anthropicModels = models;
-        if (this.activeScreen === 'settings' || this.activeScreen === 'tutor') this.render(false, this.activeScreen === 'tutor');
+        this.postModelCatalog('anthropic', models);
       })
       .catch(() => {
         this.actions.log('[settings background refresh failed] Anthropic models.');

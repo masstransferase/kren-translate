@@ -23,8 +23,11 @@ export const TUTOR_DEFAULTS = {
     "tutor.readAloud.voice": "Microsoft David Desktop",
     "tutor.readAloud.rate": 0,
     "tutor.readAloud.volume": 100,
+    "tutor.readAloud.sentencePauseMilliseconds": 0,
     "tutor.model": "gemini-3.8-flash",
     "tutor.hintModel": "gemini-3.5-flash-lite",
+    "tutor.hintThinkingOrEffort": "auto",
+    "tutor.liveGeminiProfile": "standard",
     "tutor.liveModel": "gemini-3.8-live",
     "tutor.conversation.liveTranscriptionLanguage": "english",
     "tutor.liveCustomModels": "[]",
@@ -34,11 +37,9 @@ export const TUTOR_DEFAULTS = {
     "tutor.thinkingOrEffort": "auto",
     "tutor.geminiProfile": "standard",
     "tutor.fallbackEnabled": true,
-    "tutor.fallbackModel": "gemini-3.6-flash",
-    "tutor.fallbackThinkingOrEffort": "auto",
     "tutor.pictureProvider": "gemini",
     "tutor.imageModel": "gemini-3.1-flash-lite-image",
-    "tutor.cloudflareImageModel": "@cf/black-forest-labs/flux-1-schnell",
+    "tutor.cloudflareImageModel": "@cf/black-forest-labs/flux-2-klein-4b",
     "tutor.imageCustomModels": "[]"
   },
   lesson: {
@@ -63,7 +64,7 @@ export const TUTOR_DEFAULTS = {
   conversation: {
     situationId: TUTOR_SITUATIONS[0]!.id, rolesSwapped: false, starts: 'kren',
     register: TUTOR_SITUATIONS[0]!.register, registerChosenByReader: false,
-    from: 'lesson', customSituation: '', coachOpen: false, speakerOn: true,
+    from: 'situation', customSituation: '', coachOpen: false, speakerOn: true,
     coaching: 'afterwards', send: 'stopSpeaking', replies: 'liveGemini', liveVoice: 'Aoede',
     replyLength: 'short', situationPicture: 'graduallyEntering',
     pictureTransparency: '40', balloonTransparency: '20'

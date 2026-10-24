@@ -11,11 +11,10 @@
  * capture contract in Core already names it and that contract is versioned; this module
  * gives it the neutral name the other four features need.
  */
-import { USER_DICTIONARY_PROVIDERS } from '@kren/core/user-dictionary';
+import * as core from '@kren/core';
 import type { LanguageModelProviderId } from './types.js';
-import { DEFAULT_GEMINI_MODEL } from './providers/geminiModels.js';
 
-export const LANGUAGE_MODEL_ROUTING_PROVIDERS = [...USER_DICTIONARY_PROVIDERS, 'groq', 'cloudflare'] as const;
+export const LANGUAGE_MODEL_ROUTING_PROVIDERS = core.LANGUAGE_MODEL_ROUTING_PROVIDERS;
 
 export type LanguageModelRoutingProvider = LanguageModelProviderId;
 
@@ -24,22 +23,10 @@ export function languageModelCredentialSlot(
   provider: LanguageModelRoutingProvider,
   profile: 'standard' | 'pro'
 ): 'gemini' | 'geminiPro' | 'openai' | 'anthropic' | 'groq' | 'cloudflareApiToken' {
-  return provider === 'gemini' ? profile === 'pro' ? 'geminiPro' : 'gemini' : provider === 'cloudflare' ? 'cloudflareApiToken' : provider;
+  return core.languageModelCredentialSlot(provider, profile);
 }
 
-interface RoutingOption<T extends string> {
-  id: T;
-  label: string;
-}
-
-export const LANGUAGE_MODEL_ROUTING_EFFORTS = [
-  { id: 'auto', label: 'Auto' },
-  { id: 'none', label: 'None' },
-  { id: 'minimal', label: 'Minimal' },
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' }
-] as const satisfies readonly RoutingOption<string>[];
+export const LANGUAGE_MODEL_ROUTING_EFFORTS = core.LANGUAGE_MODEL_ROUTING_EFFORTS;
 
 export type LanguageModelRoutingEffort =
   typeof LANGUAGE_MODEL_ROUTING_EFFORTS[number]['id'];
@@ -49,55 +36,48 @@ export type LanguageModelRoutingEffort =
  * not arbitrary text: it goes into a request path, so it is held to the characters the three
  * providers actually use. The `models/` prefix is Gemini's own fully-qualified form.
  */
-export const LANGUAGE_MODEL_IDENTIFIER_PATTERN = /^(?:models\/)?[\w@.:-]+(?:\/[\w.:-]+)*$/u;
+export const LANGUAGE_MODEL_IDENTIFIER_PATTERN = core.LANGUAGE_MODEL_IDENTIFIER_PATTERN;
 
 export function languageModelRoutingProviderOptions(): Array<[
   LanguageModelRoutingProvider,
   string
 ]> {
-  return LANGUAGE_MODEL_ROUTING_PROVIDERS.map((id) => [
-    id,
-    id === 'gemini' ? 'Google Gemini' : id === 'openai' ? 'OpenAI API' : id === 'groq' ? 'Groq' : id === 'cloudflare' ? 'Cloudflare Workers AI' : 'Anthropic Claude API'
-  ]);
+  return core.languageModelRoutingProviderOptions();
 }
 
 export function languageModelRoutingEffortOptions(): Array<[
   LanguageModelRoutingEffort,
   string
 ]> {
-  return LANGUAGE_MODEL_ROUTING_EFFORTS.map((option) => [option.id, option.label]);
+  return core.languageModelRoutingEffortOptions();
 }
 
 export function languageModelRoutingProviderLabel(
   provider: LanguageModelRoutingProvider
 ): string {
-  return languageModelRoutingProviderOptions()
-    .find(([id]) => id === provider)?.[1] ?? provider;
+  return core.languageModelRoutingProviderLabel(provider);
 }
 
 export function languageModelRoutingEffortLabel(
   effort: LanguageModelRoutingEffort
 ): string {
-  return LANGUAGE_MODEL_ROUTING_EFFORTS
-    .find((option) => option.id === effort)?.label ?? effort;
+  return core.languageModelRoutingEffortLabel(effort);
 }
 
 export function isLanguageModelRoutingProvider(
   value: unknown
 ): value is LanguageModelRoutingProvider {
-  return typeof value === 'string' &&
-    LANGUAGE_MODEL_ROUTING_PROVIDERS.some((provider) => provider === value);
+  return core.isLanguageModelRoutingProvider(value);
 }
 
 export function isLanguageModelRoutingEffort(
   value: unknown
 ): value is LanguageModelRoutingEffort {
-  return typeof value === 'string' &&
-    LANGUAGE_MODEL_ROUTING_EFFORTS.some((option) => option.id === value);
+  return core.isLanguageModelRoutingEffort(value);
 }
 
 export function isLanguageModelIdentifier(value: unknown): value is string {
-  return typeof value === 'string' && LANGUAGE_MODEL_IDENTIFIER_PATTERN.test(value.trim());
+  return core.isLanguageModelIdentifier(value);
 }
 
 /**
@@ -106,12 +86,4 @@ export function isLanguageModelIdentifier(value: unknown): value is string {
  * A reader who has changed nothing must see no change, so these three literals are the
  * contract, and `test/languageModelRouting.test.ts` pins them against the old behaviour.
  */
-export const TRANSLATION_ROUTING_DEFAULTS = {
-  provider: 'gemini',
-  model: DEFAULT_GEMINI_MODEL,
-  thinkingOrEffort: 'auto'
-} as const satisfies {
-  provider: LanguageModelRoutingProvider;
-  model: string;
-  thinkingOrEffort: LanguageModelRoutingEffort;
-};
+export const TRANSLATION_ROUTING_DEFAULTS = core.TRANSLATION_ROUTING_DEFAULTS;

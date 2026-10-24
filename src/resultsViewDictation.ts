@@ -1,3 +1,4 @@
+import { missingCredentialDetails, showMissingCredentialNotice } from './requestCenter.js';
 import { submitTutorConversationTurn } from './resultsViewTurns.js';
 import type { TutorDictationTarget } from './resultsView.js';
 import { StandardConversationTurnTiming } from './tutor/conversationTiming.js';
@@ -92,7 +93,12 @@ export async function toggleTutorDictation(view: KrenResultsViewProvider, target
       Boolean(settings.credentialPresence?.groq)
         );
     if (!route.provider) {
-      view.actions.notify('error', `KREN: ${route.reason ?? 'Speech input is unavailable.'}`);
+      const missing = route.missingCredentials?.provider === 'cloudflare'
+        ? missingCredentialDetails('cloudflare', 'standard', [
+          ...(!settings.credentialPresence?.cloudflareAccountId ? ['account ID'] : []),
+          ...(!settings.credentialPresence?.cloudflareApiToken ? ['API token'] : [])]) : route.missingCredentials;
+      if (missing) await showMissingCredentialNotice(missing, view, '', true);
+      else view.actions.notify('error', `KREN: ${route.reason ?? 'Speech input is unavailable.'}`);
       return;
     }
     if (route.provider === 'gemini' || route.provider === 'cloudflare' || route.provider === 'groq') {
@@ -287,7 +293,7 @@ export async function stopGeminiDictation(view: KrenResultsViewProvider, target:
         : controller.signal.aborted
           ? `KREN: ${providerName} transcription timed out or was canceled.`
           : `KREN: ${providerName} transcription failed. ${detail}`;
-      view.actions.notify('error', message);
+      if (!view.showMissingCredentialError(error, true)) view.actions.notify('error', message);
     } finally {
       clearTimeout(timeout);
       if (view.geminiTranscriptionController === controller) {

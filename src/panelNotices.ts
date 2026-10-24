@@ -1,6 +1,6 @@
 import type { MessageOptions } from 'vscode';
 
-export type PanelNoticeKind = 'warning' | 'error';
+export type PanelNoticeKind = 'information' | 'warning' | 'error';
 export interface PanelNoticeOptions extends MessageOptions { signal?: AbortSignal }
 export interface PanelNotice {
   id: number;
@@ -11,11 +11,22 @@ export interface PanelNotice {
   choices: string[];
 }
 
+/** The only native message boundary. Every fallback is a dialog with an explicit action. */
+export function showNativePanelNotice(window: Pick<typeof import('vscode').window,
+    'showInformationMessage' | 'showWarningMessage' | 'showErrorMessage'>,
+    kind: PanelNoticeKind, message: string, options: MessageOptions, choices: string[]): Thenable<string | undefined> {
+  if (kind === 'information') return window.showInformationMessage(message, { ...options, modal: true }, ...choices);
+  if (kind === 'warning') return window.showWarningMessage(message, { ...options, modal: true }, ...choices);
+  return window.showErrorMessage(message, { ...options, modal: true }, ...choices);
+}
+
 /** Pending status notices survive a webview render, but never the panel closing. */
 export class PanelNoticeQueue {
   private nextId = 0;
+  private closed = false;
+  private readonly nativeWaiting: Array<() => void> = [];
   private readonly pending = new Map<number, { notice: PanelNotice; resolve(value: string | undefined): void;
-    cleanup(): void; stopTimer(): void; fallback(reason: string): void; shown: boolean; diagnostics: Set<string> }>();
+    cleanup(): void; startTimer(): void; stopTimer(): void; fallback(reason: string): void; shown: boolean; diagnostics: Set<string> }>();
   constructor(private readonly visible: () => boolean,
     private readonly post: (notice: PanelNotice) => PromiseLike<boolean> | undefined,
     private readonly fallback: (kind: PanelNoticeKind, message: string, options: MessageOptions, choices: string[]) => PromiseLike<string | undefined>,
@@ -24,30 +35,77 @@ export class PanelNoticeQueue {
 
   snapshot(): PanelNotice[] { return [...this.pending.values()].map(item => item.notice); }
 
+  open(): void { this.closed = false; }
+
+  private native(kind: PanelNoticeKind, message: string, options: MessageOptions, choices: string[]): PromiseLike<string | undefined> {
+    return this.fallback(kind, message, { ...options, modal: true }, choices.length ? choices : ['OK']);
+  }
+
+  private drainNative(): void {
+    if (this.pending.size) return;
+    // VS Code owns native question ordering. A pending Find must not hold Reset.
+    while (!this.pending.size && this.nativeWaiting.length) this.nativeWaiting.shift()?.();
+  }
+
+  private question(kind: PanelNoticeKind, message: string, options: MessageOptions, choices: string[], signal?: AbortSignal): Promise<string | undefined> {
+    return new Promise(resolve => {
+      const cancel = () => {
+        const index = this.nativeWaiting.indexOf(show);
+        if (index < 0) return;
+        this.nativeWaiting.splice(index, 1);
+        signal?.removeEventListener('abort', cancel);
+        resolve(undefined);
+      };
+      const show = () => {
+        signal?.removeEventListener('abort', cancel);
+        if (signal?.aborted) { resolve(undefined); return; }
+        let answer: PromiseLike<string | undefined>;
+        try { answer = this.native(kind, message, options, choices); }
+        catch { answer = Promise.resolve(undefined); }
+        void Promise.resolve(answer)
+          .catch(() => undefined).then(answer => {
+            resolve(signal?.aborted ? undefined : answer);
+          });
+      };
+      this.nativeWaiting.push(show);
+      signal?.addEventListener('abort', cancel, { once: true });
+      this.drainNative();
+    });
+  }
+
   show(kind: PanelNoticeKind, message: string, optionsOrChoice?: PanelNoticeOptions | string, ...items: string[]): Promise<string | undefined> {
     const { signal, ...options } = typeof optionsOrChoice === 'object' ? optionsOrChoice : {};
     const choices = typeof optionsOrChoice === 'string' ? [optionsOrChoice, ...items] : items;
     if (signal?.aborted) return Promise.resolve(undefined);
-    // Questions belong to VS Code, so they never enter or hold the panel notice queue.
-    if (choices.length > 0 || options.modal === true || !this.visible()) {
-      return Promise.resolve(this.fallback(kind, message, options, choices));
+    // Questions use VS Code after the reader dismisses existing panel cards.
+    if (choices.length > 0 || options.modal === true) {
+      return this.question(kind, message, options, choices, signal);
+    }
+    if (this.closed || !this.visible()) {
+      return Promise.resolve(this.native(kind, message, options, choices));
     }
     return new Promise(resolve => {
       const notice: PanelNotice = { id: ++this.nextId, kind, message, detail: options.detail,
         modal: options.modal === true, choices };
       const cancel = () => { if (this.remove(notice.id)) resolve(undefined); };
-      // Start before post(): a delivered promise can itself remain unresolved.
-      const timer = setTimeout(() => fallback('no acknowledgment in 1.5 s'), 1_500);
-      timer.unref?.();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const startTimer = () => {
+        if (timer || this.pending.get(notice.id)?.shown) return;
+        timer = setTimeout(() => fallback('no acknowledgment in 1.5 s'), 1_500);
+        timer.unref?.();
+      };
       const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', cancel); };
       const fallback = (reason: string) => {
         if (!this.remove(notice.id)) return;
         this.log(`[panel notice] ${notice.id} fell back: ${reason}`);
         // The panel card is retired before the native modal can answer it.
-        void Promise.resolve().then(() => this.fallback(kind, message, { ...options, modal: true }, choices))
+        void Promise.resolve().then(() => this.native(kind, message, options, choices))
           .then(answer => resolve(signal?.aborted ? undefined : answer), () => resolve(undefined));
       };
-      this.pending.set(notice.id, { notice, resolve, cleanup, stopTimer: () => clearTimeout(timer), fallback, shown: false, diagnostics: new Set() });
+      this.pending.set(notice.id, { notice, resolve, cleanup, startTimer, stopTimer: () => clearTimeout(timer), fallback, shown: false, diagnostics: new Set() });
+      // Only the front card is eligible for acknowledgment. Reading an earlier card
+      // never spends a queued notice's display budget.
+      if (this.pending.size === 1) startTimer();
       signal?.addEventListener('abort', cancel, { once: true });
       try {
         void Promise.resolve(this.post(notice)).then(delivered => {
@@ -98,6 +156,8 @@ export class PanelNoticeQueue {
     this.pending.delete(id);
     item.cleanup();
     this.withdrawCard(id);
+    this.pending.values().next().value?.startTimer();
+    this.drainNative();
     return item;
   }
 
@@ -117,10 +177,11 @@ export class PanelNoticeQueue {
   }
 
   close(): void {
+    this.closed = true;
     const pending = [...this.pending.values()];
     for (const { notice, resolve } of pending) {
       this.remove(notice.id);
-      void Promise.resolve(this.fallback(notice.kind, notice.message, {}, notice.choices)).then(resolve, () => resolve(undefined));
+      void Promise.resolve(this.native(notice.kind, notice.message, { detail: notice.detail }, notice.choices)).then(resolve, () => resolve(undefined));
     }
   }
 }
@@ -138,7 +199,7 @@ export function buildPanelNoticeCard(document: Pick<Document, 'createElement' | 
   overlay.setAttribute('data-kren-notice', String(notice.id));
   overlay.setAttribute('role', 'alertdialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', notice.kind === 'error' ? 'Error' : 'Warning');
+  overlay.setAttribute('aria-label', notice.kind === 'error' ? 'Error' : notice.kind === 'information' ? 'Information' : 'Warning');
   overlay.setAttribute('aria-describedby', 'kren-notice-message');
   const card = document.createElement('div');
   // This function is copied with toString() after production minification. Module
@@ -152,7 +213,7 @@ export function buildPanelNoticeCard(document: Pick<Document, 'createElement' | 
   icon.setAttribute('stroke', 'currentColor');
   icon.setAttribute('stroke-width', '2');
   icon.setAttribute('aria-hidden', 'true');
-  icon.textContent = notice.kind === 'error' ? '⛔' : '⚠';
+  icon.textContent = notice.kind === 'error' ? '⛔' : notice.kind === 'information' ? 'i' : '⚠';
   const text = document.createElement('div');
   text.className = 'popup-message';
   text.id = 'kren-notice-message';
@@ -304,7 +365,9 @@ export function installPanelNotices(vscode: { postMessage(message: unknown): voi
           card.remove();
         }
       } else {
-        for (const card of suspendedBusy.splice(0)) document.body.append(card);
+        for (const card of suspendedBusy.splice(0)) {
+          if (!card.hasAttribute('data-panel-progress-retired')) document.body.append(card);
+        }
       }
       if (busy()) {
         clearOverlay();

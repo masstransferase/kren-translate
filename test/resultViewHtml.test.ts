@@ -20,7 +20,8 @@ const SETTINGS_GROUP_ORDER = [
   'Grammar Check',
   'Explain Meaning or Nuance',
   'Rewrite Text',
-  'Read Aloud (Windows)',
+  // Changed 2026-10-21 (owner, canvas): The Settings section is named Read Aloud.
+  'Read Aloud',
   'Dictionary',
   'User Dictionary',
   // 2026-10-04: The remembered theme choice has its own Display section.
@@ -137,6 +138,8 @@ const settings: KrenPanelSettings = {
   tutorReadAloudVoice: 'Microsoft David Desktop',
   tutorReadAloudRate: 0,
   tutorReadAloudVolume: 100,
+  // 2026-10-21: V286 requires the tutor sentence pause default.
+  tutorSentencePauseMilliseconds: 0,
   quickMenuRewriteVariant: 'all',
   rewriteModality: 'written',
   rewriteFunction: 'general',
@@ -292,13 +295,18 @@ describe('KREN rich result view', () => {
     for (const feature of ['translation', 'grammar', 'explain', 'rewrite', 'userDictionary', 'tutor']) {
       const group = $(`[data-llm-routing="${feature}"]`);
       const prefix = feature === 'grammar' ? 'userDictionary' : feature === 'explain' ? 'explanation' : feature;
+      // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+      const featureSuffixes = feature === 'tutor'
+        ? [...suffixes.filter(suffix => suffix !== 'fallbackModel' && suffix !== 'fallbackThinkingOrEffort'), 'hintModel', 'hintThinkingOrEffort']
+        : suffixes;
       expect(group, `${feature} routing group`).toHaveLength(1);
       const keys = group.find('.setting').filter((_, row) => !$(row).is('[data-model-identifier]'))
         .map((_, row) => {
           const control = $(row).find('select,input').first();
           return control.attr('data-setting') ?? control.attr('data-model-preset') ?? '';
-        }).get().filter((key) => suffixes.some((suffix) => key === `${prefix}.${suffix}`));
-      expect(keys, feature).toEqual(suffixes.map((suffix) => `${prefix}.${suffix}`));
+        }).get().filter((key) => featureSuffixes.some((suffix) => key === `${prefix}.${suffix}`));
+      expect(keys, feature).toEqual(featureSuffixes.map((suffix) => `${prefix}.${suffix}`));
+      if (feature === 'tutor') expect(group.find('[data-setting="tutor.fallbackModel"], [data-setting="tutor.fallbackThinkingOrEffort"]')).toHaveLength(0);
       for (const key of keys) {
         const title = group.find(`[data-setting="${key}"], [data-model-preset="${key}"]`).first()
           .closest('.setting').find('.setting-title').text();
@@ -1537,7 +1545,8 @@ describe('KREN rich result view', () => {
     const reasons = load(startHtml)('.capability:disabled .capability-reason');
     expect(reasons.length).toBeGreaterThanOrEqual(3);
     reasons.each((_index, reason) => {
-      expect(load(reason).text()).toMatch(/unavailable.*(?:API key|disabled)/iu);
+      // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+      expect(load(reason).text()).toMatch(/(?:API key.*KREN menu, Credentials|disabled)/iu);
     });
   });
 
@@ -1635,6 +1644,48 @@ describe('KREN rich result view', () => {
       expect(load(referenceHtml)('img.provider-logo[alt="Merriam-Webster logo"]')).toHaveLength(2);
       expect(referenceHtml).toContain('.provider-logo { width: 50px; height: 50px;');
     }
+  });
+
+  // Changed 2026-10-20: owner decision 12 A. The manual names the version alone and mentions the
+  // User Dictionary only when it is turned off, which is when its missing commands need explaining.
+  // 2026-10-20 (owner, canvas): header shortcuts to the tutor and Credentials, on every page.
+  it('puts AI English Tutor and Credentials between Settings and the theme switch in every header', () => {
+    for (const activeScreen of ['start', 'settings', 'credentials', 'manual', 'tutor', 'result'] as const) {
+      const $ = load(renderKrenResultViewHtml({ cspSource: 'vscode-webview://test', nonce: 'test-nonce', settings, proModels, activeScreen }));
+      const header = $('header.top').first();
+      const commands = header.find('.top-actions > .icon-button').map((_, el) => $(el).attr('data-command') ?? 'menu').get();
+      const at = commands.indexOf('showSettings');
+      expect(commands.slice(at, at + 4), activeScreen).toEqual(['showSettings', 'showTutor', 'showCredentials', 'toggleTheme']);
+      expect(header.find('[data-command="showTutor"]').attr('aria-label')).toBe('Open the AI English Tutor');
+      // A chat bubble with a sparkle (owner choice B, 2026-10-20), not the Ask sparkles.
+      expect(header.find('[data-command="showTutor"] path').first().attr('d')).toBe('M4 5.5h16v10.5H10l-4.5 3.5V16H4z');
+      expect(header.find('[data-command="showCredentials"]').attr('aria-label')).toBe('Open KREN Credentials');
+    }
+    const html = renderKrenResultViewHtml({ cspSource: 'vscode-webview://test', nonce: 'test-nonce', settings, proModels });
+    expect(html).toContain('.top-actions .icon-button { padding-left: 4px; padding-right: 4px; }');
+    // 2026-10-20 (owner, canvas): no gap between header buttons, 4px around the menu, 30px Start page name.
+    expect(html).toContain('.top-actions { display: flex; flex-shrink: 0; align-items: center; gap: 0; }');
+    expect(html).toContain('.top-actions > .menu-wrap { padding-left: 4px; padding-right: 4px; }');
+    expect(html).toContain('.intro-header .brand-name { font-size: 30px; }');
+    expect(html).toContain('.provider { padding-top: 10px; padding-bottom: 10px; }');
+  });
+
+  // Changed 2026-10-21 (owner, canvas): The heading carries the version, with a separate notice only when off.
+  it('puts the version in the manual heading and notes only a turned-off User Dictionary', () => {
+    const render = (userDictionaryEnabled: boolean) => renderKrenResultViewHtml({
+      cspSource: 'vscode-webview://test', nonce: 'test-nonce', settings: { ...settings, userDictionaryEnabled }, proModels
+    });
+    const on = render(true);
+    for (const enabled of [true, false]) {
+      const $ = load(render(enabled));
+      const manual = $('#manual-screen');
+      expect(manual.children('h2').text()).toBe(`KREN ${settings.extensionVersion} User Manual`);
+      expect(manual.find('p').filter((_, el) => /^Version\b/u.test($(el).text())).length).toBe(0);
+      expect(manual.children('h2').next('p').text()).toBe(enabled ? '' : 'User Dictionary is turned off in Settings, so its commands are hidden.');
+    }
+    expect(on).not.toContain('User Dictionary is enabled');
+    expect(on).not.toContain('User Dictionary is turned off');
+    expect(render(false)).toContain('<p>User Dictionary is turned off in Settings, so its commands are hidden.</p>');
   });
 
   it('renders per-variant copy and editor-only replace actions', () => {
@@ -1800,7 +1851,8 @@ describe('KREN rich result view', () => {
     expect(html).toContain('>Start Page</button>');
     expect(html).toContain("target.closest('.menu-wrap')");
     expect(html).not.toContain('&#9432;');
-    expect(html).toContain('KREN User Manual');
+    // Changed 2026-10-21 (owner, canvas): The manual heading includes the version.
+    expect(load(html)('#manual-screen > h2').text()).toBe('KREN 1.0.0 User Manual');
     expect(html).toContain(krenCreditLine('1.0.0'));
     // Changed 2026-10-06: V211 moves requirements into setup and Reference without losing the facts.
     expect(html).toContain('<h3>Set up</h3>');
@@ -2032,6 +2084,10 @@ describe('KREN rich result view', () => {
     expect(html).toContain('2. Choose an action');
     // 2026-10-03: Readers need an inline replica of the status bar item in the visible step.
     const $ = load(html);
+    // Changed 2026-10-19: V282 (2.0.1 page text) names the tutor in the visible introduction.
+    const lead = $('.welcome-lead');
+    expect(lead.text()).toBe('KREN is a privacy-conscious language copilot for dictionaries, smart grammar checking, translation, nuance, rewriting, and read-aloud, with multilingual and auto-detect support, plus an LLM-based AI English Tutor, inside VS Code.');
+    expect(lead.parents('details, [hidden]')).toHaveLength(0);
     const step = $('.welcome-step').filter((_, element) =>
       $(element).children('strong').text().includes('Choose an action'));
     expect(step).toHaveLength(1);

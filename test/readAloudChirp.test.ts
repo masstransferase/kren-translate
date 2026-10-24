@@ -1,3 +1,5 @@
+// Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+import { missingCredentialMessage, showMissingCredentialNotice } from '../src/requestCenter.js';
 // 2026-10-13: V231 tests the shipped Read Aloud entry and mounted source switches.
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -27,6 +29,8 @@ import { mountedPanel } from './support/mountedPanel.js';
 const source = readFileSync('src/extension.ts', 'utf8');
 const entry = source.slice(source.indexOf('async function readAloudText('), source.indexOf('\nasync function ', source.indexOf('async function readAloudText(') + 1));
 const construction = source.slice(source.indexOf('  chirpSpeech = new GoogleChirpSpeech'), source.indexOf('\n  grammarCodeActions ='));
+// Changed 2026-10-23 (V301, verification R28): the production speech callback uses the shared visibility router.
+const speechProgress = source.slice(source.indexOf('function krenSpeechProgress('), source.indexOf('\nfunction ', source.indexOf('function krenSpeechProgress(') + 1));
 const transpile = (text: string) => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
 const credential = ['mock', 'speech', 'only'].join('-');
@@ -48,11 +52,12 @@ function harness(values: Record<string, unknown> = {}, panelOpen = true) {
     stop: vi.fn(() => false), playBase64: vi.fn(async (): Promise<'completed' | 'failed' | 'stopped'> => 'completed') };
   const native = { beginSession: vi.fn(), play: vi.fn(async (_audio: string, _volume: number, started?: () => void): Promise<'completed' | 'failed' | 'stopped'> => { started?.(); return 'completed'; }), stop: vi.fn(() => false), failureCause: () => 'mediaFailed' };
   const windows = { speak: vi.fn(async (_text: string, _options: any) => true), stop: vi.fn(() => false) };
-  const panel = { edgeAudioPlayback: () => panelOpen ? {} : undefined,
+  const credentialPopup = vi.fn(async (message: string, _options: unknown, _choice: string) => { notify('error', message); return undefined; });
+  const panel = { showErrorMessage: credentialPopup, showCredentials: vi.fn(async () => {}), edgeAudioPlayback: () => panelOpen ? {} : undefined,
     playGeneratedAudioBase64: vi.fn(async (): Promise<'completed' | 'failed' | 'stopped'> => 'completed'),
     stopGeneratedAudio: vi.fn(() => false), generatedAudioFailureCause: () => undefined,
     tutorSpeechPlaybackStarted: vi.fn(), holdTutorSpeech: vi.fn(() => vi.fn()), tutorSpeechConversationIdentity: () => 'conversation', tutorLiveSpeaking: () => false };
-  const context: any = { context: { secrets: { get: getSecret } }, GoogleChirpSpeech, SpeechCenter, EdgeOnlineSpeechAdapter, LocalWindowsSpeechAdapter, fetch: fetcher,
+  const context: any = { missingCredentialMessage, showMissingCredentialNotice, context: { secrets: { get: getSecret } }, GoogleChirpSpeech, SpeechCenter, EdgeOnlineSpeechAdapter, LocalWindowsSpeechAdapter, fetch: fetcher,
     nativeAudioPlayer: native, readAloudSession: 0, resultsView: panel, edgeReadAloudPlayer: edge, readAloudPlayer: windows,
     outputChannel: { appendLine: log }, notify, normalizedReadAloudChirpVoice, resolveReadAloudChirpLocale, prepareTextForSpeech,
     resolveEdgeSpeechLocale, resolveEdgeSpeechVoice, EDGE_SPEECH_AUTO_LOCALE, tutorChirpVoices, TUTOR_DEFAULTS,
@@ -61,9 +66,9 @@ function harness(values: Record<string, unknown> = {}, panelOpen = true) {
     vscode: { workspace: { isTrusted: true, getConfiguration: () => ({ get }) },
       commands: { executeCommand: vi.fn(async () => {}) }, window: { setStatusBarMessage: () => ({ dispose() {} }) } } };
   // 2026-10-14: Keep production construction and forwarding; the center owns the Stop generation.
-  runInNewContext(transpile(construction + '\n' + entry), context);
+  runInNewContext(transpile(speechProgress + '\n' + construction + '\n' + entry), context);
   mountSpeechCenter(context);
-  return { context, edge, windows, native, panel, tutor: context.chirpSpeech as GoogleChirpSpeech, fetcher, getSecret, notify, log, get,
+  return { credentialPopup, context, edge, windows, native, panel, tutor: context.chirpSpeech as GoogleChirpSpeech, fetcher, getSecret, notify, log, get,
     speak: (text = '**안녕하세요** [1].', language?: string) => context.readAloudText(context.context, text, language) as Promise<void> };
 }
 
@@ -197,13 +202,14 @@ it.each(['no key', 'unsupported locale', 'voice unavailable', 'network failure',
   expect(h.notify).toHaveBeenCalledOnce();
   const message = h.notify.mock.calls[0]![1];
   expect(message).toMatch(/Google Cloud Text-to-Speech.*Windows voice/su);
-  expect(message).toMatch(cause === 'no key' ? /needs a key.*Credentials/su : cause === 'unsupported locale' ? /does not support zh-TW/u : cause === 'voice unavailable' ? /no Korean voice named Callirrhoe/u : cause === 'playback failure' ? /audio could not play.*native player: mediaFailed/u : /failed/u);
+  expect(message).toMatch(cause === 'no key' ? /Text-to-Speech.*key.*Credentials/su : cause === 'unsupported locale' ? /does not support zh-TW/u : cause === 'voice unavailable' ? /no Korean voice named Callirrhoe/u : cause === 'playback failure' ? /audio could not play.*native player: mediaFailed/u : /failed/u);
   expect(message).not.toContain('Private transport detail');
   expect(h.fetcher).toHaveBeenCalledTimes(cause === 'no key' || cause === 'unsupported locale' ? 0 : cause === 'voice unavailable' || cause === 'playback failure' ? 2 : 4);
 });
 it('names Edge when no key falls back successfully and keeps the notice separate from the tutor', async () => {
   const h = harness(); h.getSecret.mockResolvedValue(undefined); await h.speak(); await h.speak();
-  expect(h.windows.speak).not.toHaveBeenCalled(); expect(h.notify).toHaveBeenCalledOnce(); expect(h.notify.mock.calls[0]![1]).toMatch(/needs a key.*Edge voice/su);
+  expect(h.windows.speak).not.toHaveBeenCalled(); expect(h.notify).toHaveBeenCalledOnce(); expect(h.notify.mock.calls[0]![1]).toMatch(/Text-to-Speech.*key.*Credentials.*Edge voice/su);
+  expect(h.credentialPopup).toHaveBeenCalledWith(expect.stringMatching(/Credentials.*Edge voice/u), { modal: true }, 'Open Credentials');
   h.tutor.reportFallback('Tutor speech failed.', { provider: 'edgeOnline' }); expect(h.notify).toHaveBeenCalledTimes(2);
 });
 it.each(['restricted', 'declined'])('continues to Windows when fallback Edge is %s', async cause => {
@@ -211,11 +217,11 @@ it.each(['restricted', 'declined'])('continues to Windows when fallback Edge is 
   if (cause === 'restricted') h.context.vscode.workspace.isTrusted = false;
   else h.context.ensureEdgeTtsConsent.mockResolvedValue(false);
   await h.speak(); expect(h.edge.speak).not.toHaveBeenCalled(); expect(h.windows.speak).toHaveBeenCalledOnce();
-  expect(h.notify).toHaveBeenCalledOnce(); expect(h.notify.mock.calls[0]![1]).toMatch(/needs a key.*Windows voice/su);
+  expect(h.notify).toHaveBeenCalledOnce(); expect(h.notify.mock.calls[0]![1]).toMatch(/Text-to-Speech.*key.*Credentials.*Windows voice/su);
 });
 it('reports all sources unavailable once when Windows also fails', async () => {
   const h = harness(); h.getSecret.mockResolvedValue(undefined); h.edge.speak.mockResolvedValue('failed'); h.windows.speak.mockResolvedValue(false);
-  await h.speak(); expect(h.notify).toHaveBeenCalledOnce(); expect(h.notify.mock.calls[0]![1]).toMatch(/needs a key.*Edge Online and Local Windows speech are unavailable/su);
+  await h.speak(); expect(h.notify).toHaveBeenCalledOnce(); expect(h.notify.mock.calls[0]![1]).toMatch(/Text-to-Speech.*key.*Credentials.*Edge Online and Local Windows speech are unavailable/su);
 });
 it('Stop during synthesis prevents fallback and notices', async () => {
   const h = harness(); let finish!: (value: Response) => void;

@@ -1,8 +1,8 @@
 {
   "name": "kren-translate",
   "displayName": "KREN: LLM-based Multilingual Dictionary, Translate & Rewrite",
-  "description": "Selection-first dictionaries, offline English grammar checking, translation, nuance explanation, multilingual rewriting, and read aloud inside VS Code.",
-  "version": "2.0.0",
+  "description": "LLM-based dictionaries, translation, rewriting, and an AI English Tutor with lessons, practice, and spoken conversation, plus offline English grammar checking and read aloud inside VS Code.",
+  "version": "2.0.1",
   "private": true,
   "publisher": "masstransferase",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -41,7 +41,13 @@
     "text to speech",
     "Gemini",
     "OpenAI",
-    "Claude"
+    "Claude",
+    "English tutor",
+    "language learning",
+    "conversation practice",
+    "ESL",
+    "Groq",
+    "Cloudflare"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -101,7 +107,7 @@
       },
       {
         "command": "kren.openTutor",
-        "title": "Open AI English Tutor",
+        "title": "Start LLM-based AI English Tutor",
         "category": "KREN"
       },
       {
@@ -381,6 +387,51 @@
       {
         "command": "kren.deleteGroqApiKey",
         "title": "Delete Groq API Key",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testGoogleCloudTextToSpeech",
+        "title": "Test Google Cloud Text-to-Speech",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testGeminiConnection",
+        "title": "Test Gemini Free Tier Connection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testGeminiProConnection",
+        "title": "Test Gemini Paid Connection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testCloudflareConnection",
+        "title": "Test Cloudflare Connection",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testGoogleCloudTranslation",
+        "title": "Test Google Cloud Translation",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testMerriamWebsterCollegiate",
+        "title": "Test Merriam-Webster Collegiate",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testMerriamWebsterThesaurus",
+        "title": "Test Merriam-Webster Thesaurus",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.testMerriamWebsterMedical",
+        "title": "Test Merriam-Webster Medical",
+        "category": "KREN"
+      },
+      {
+        "command": "kren.openGeminiUsage",
+        "title": "Open Gemini Usage",
         "category": "KREN"
       },
       {
@@ -687,6 +738,80 @@
           "default": false,
           "description": "Show the independent LLM-only draft after Merriam-Webster returns a genuine no-match. Authentication, quota, network, and provider failures never trigger this fallback."
         },
+        "kren.global.provider": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "openai",
+            "anthropic",
+            "groq",
+            "cloudflare"
+          ],
+          "enumDescriptions": [
+            "Use the Gemini Developer API and the existing Gemini Free Tier credential.",
+            "Use the OpenAI API and the existing OpenAI credential.",
+            "Use the Anthropic Claude API and the existing Anthropic credential.",
+            "Use Groq with its key in Credentials. Free limits apply.",
+            "Use Cloudflare Workers AI with the existing account ID and API token. Shares its daily neurons allowance."
+          ],
+          "default": "gemini",
+          "description": "Saved Global LLM provider choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
+        "kren.global.geminiProfile": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "pro"
+          ],
+          "default": "standard",
+          "description": "Saved Global LLM geminiProfile choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
+        "kren.global.model": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Saved Global LLM model choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
+        "kren.global.alternateModel": {
+          "type": "string",
+          "default": "gemini-3.1-pro-preview",
+          "description": "Saved Global LLM alternateModel choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
+        "kren.global.thinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Saved Global LLM thinkingOrEffort choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
+        "kren.global.fallbackEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Saved Global LLM fallbackEnabled choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
+        "kren.global.fallbackModel": {
+          "type": "string",
+          "default": "gemini-3.6-flash",
+          "description": "Saved Global LLM fallbackModel choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
+        "kren.global.fallbackThinkingOrEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Saved Global LLM fallbackThinkingOrEffort choice. Copied to supported KREN feature routes only after Apply to All is confirmed."
+        },
         "kren.userDictionary.provider": {
           "type": "string",
           "enum": [
@@ -886,6 +1011,13 @@
           "default": 4,
           "description": "Choose how long KREN waits for Windows to hand the microphone back before ending the helper. A longer wait means the Windows microphone indicator can stay lit for a few seconds after you press stop."
         },
+        "kren.tutor.readAloud.sentencePauseMilliseconds": {
+          "type": "number",
+          "enum": [0, 250, 500, 750, 1000],
+          "enumDescriptions": ["Engine default", "0.25 s", "0.5 s", "0.75 s", "1.0 s"],
+          "default": 0,
+          "description": "Pause between sentences in tutor speech. Gemini Live sets its own pauses."
+        },
         "kren.tutor.readAloud.provider": {
           "type": "string",
           "enum": [
@@ -1033,8 +1165,8 @@
             "FLUX.1 schnell, uses the account's free daily allowance.",
             "FLUX.2 klein 4B, uses the account's free daily allowance and takes about 25 seconds a picture."
           ],
-          "default": "@cf/black-forest-labs/flux-1-schnell",
-          "description": "Cloudflare model used for tutor situation pictures."
+          "default": "@cf/black-forest-labs/flux-2-klein-4b",
+          "description": "Cloudflare model used for tutor situation pictures, defaulting to FLUX.2 klein 4B unless explicitly configured."
         },
         "kren.tutor.imageModel": {
           "type": "string",
@@ -1045,6 +1177,13 @@
           "type": "string",
           "default": "[]",
           "description": "Custom tutor image model identifiers, stored as a JSON array."
+        },
+        "kren.tutor.liveGeminiProfile": {
+          "type": "string",
+          "enum": ["standard", "pro"],
+          "enumDescriptions": ["Free Tier", "Paid"],
+          "default": "standard",
+          "description": "Gemini credential profile used for tutor Live replies, Live model discovery, and Live voice previews."
         },
         "kren.tutor.liveModel": {
           "type": "string",
@@ -1143,14 +1282,10 @@
         "kren.tutor.fallbackEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Use the configured same-provider fallback after an eligible Gemini tutor failure on Free Tier or Paid."
+          "title": "Use Fast when Thorough is unavailable",
+          "description": "Retry eligible Gemini Thorough failures with the Fast model and its thinking level, using the same key and profile."
         },
-        "kren.tutor.fallbackModel": {
-          "type": "string",
-          "default": "gemini-3.6-flash",
-          "description": "Fallback model used by AI English Tutor."
-        },
-        "kren.tutor.fallbackThinkingOrEffort": {
+        "kren.tutor.hintThinkingOrEffort": {
           "type": "string",
           "enum": [
             "auto",
@@ -1161,7 +1296,7 @@
             "high"
           ],
           "default": "auto",
-          "description": "Thinking level or effort used independently by the tutor fallback model."
+          "description": "Thinking level or effort for the tutor Fast model, including fallback. Auto uses the model's lowest supported level."
         },
         "kren.userDictionary.smartWordCapture": {
           "type": "boolean",
@@ -2171,7 +2306,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@kren/core": "file:vendor/kren-core-0.38.3.tgz",
+    "@kren/core": "file:vendor/kren-core-0.41.1.tgz",
     "fast-xml-parser": "^5.10.1",
     "harper.js": "^2.4.0"
   },

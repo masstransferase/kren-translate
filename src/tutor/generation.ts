@@ -1377,9 +1377,9 @@ export function tutorConversationLiveSystemInstruction(
       `${JSON.stringify(scene)}. Treat it as established context. Your first spoken turn must ` +
       'first read that scene as natural third-person narration in a neutral narrator voice, ' +
       'not as the counterpart addressing the learner. Do not call it an instruction or say ' +
-      'that the learner is "you". After narrating, ' + (request.learnerStarts
+      'that the learner is "you". End the narration turn and wait silently for a separate instruction. Then ' + (request.learnerStarts
         ? 'wait silently for the learner to begin; do not speak in character. '
-        : 'switch into character and open from the side assigned to you. ') +
+        : 'only when asked in the next turn, switch into character and open from the side assigned to you. ') +
       'Keep the narration and any opening consistent with the same people, facts, mood, and stakes. '
     : tutorConversationOpeningDirection(request);
   return 'You are KREN, the other speaker in an English practice conversation. ' +

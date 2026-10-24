@@ -1,3 +1,4 @@
+// Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   KREN_SECRET_KEYS,
@@ -34,6 +35,7 @@ function route(overrides: Partial<TutorLanguageModelRoute> = {}): TutorLanguageM
     thinkingOrEffort: 'auto',
     geminiProfile: 'standard',
     fallbackEnabled: true,
+    fastModel: 'gemini-3.5-flash-lite',
     fallbackModel: 'gemini-3.6-flash',
     fallbackThinkingOrEffort: 'auto',
     ...overrides
@@ -106,7 +108,7 @@ describe('tutor fallback across Gemini profiles', () => {
 
     expect(host.getSetting).toHaveBeenCalledWith('gemini.retry.enabled', true);
     expect(requests.map(({ model }) => model)).toEqual([
-      'gemini-3.8-flash', 'gemini-3.6-flash'
+      'gemini-3.8-flash', 'gemini-3.5-flash-lite'
     ]);
   });
 
@@ -115,6 +117,8 @@ describe('tutor fallback across Gemini profiles', () => {
     ['pro', KREN_SECRET_KEYS.geminiPro]
   ] as const)('V134 selects the %s profile key for a Live session', async (geminiProfile, secretKey) => {
     const host = runtime();
+    // Changed 2026-10-23 (V304, owner I75): Live keys use the independent setting.
+    vi.mocked(host.getSetting).mockImplementation((key: string, fallback: unknown) => key === 'tutor.liveGeminiProfile' ? geminiProfile : fallback as never);
     await runTutorStructuredRequest(
       host,
       route({ geminiProfile }),
@@ -128,6 +132,8 @@ describe('tutor fallback across Gemini profiles', () => {
   // 2026-10-11: Gemini Live credentials are independent of the text provider.
   it.each(['standard', 'pro'] as const)('V222 retrieves the %s Gemini key with Groq routing', async geminiProfile => {
     const host = runtime();
+    // Changed 2026-10-23 (V304, owner I75): text provider and Live profile are independent.
+    vi.mocked(host.getSetting).mockImplementation((key: string, fallback: unknown) => key === 'tutor.liveGeminiProfile' ? geminiProfile : fallback as never);
     const result = await runTutorStructuredRequest(host, route({ provider: 'groq', geminiProfile }),
       { ...request, kind: 'liveSessionCredential' }, new AbortController().signal);
     expect(host.getSecret).toHaveBeenCalledWith(geminiProfile === 'pro' ? KREN_SECRET_KEYS.geminiPro : KREN_SECRET_KEYS.gemini);
@@ -136,18 +142,18 @@ describe('tutor fallback across Gemini profiles', () => {
   });
 
   it.each(['standard', 'pro'] as const)(
-    'V134 sends the fallback model and fallback thinking on the %s profile',
+    'V298 sends the Fast model and Fast thinking on the %s profile',
     async (geminiProfile) => {
       const requests = stubFetch('gemini-3.8-flash');
       const value = await runTutorStructuredRequest(runtime(), route({
         geminiProfile,
-        fallbackThinkingOrEffort: 'high'
+        fastThinkingOrEffort: 'high'
       }), request, new AbortController().signal);
 
       expect(requests).toEqual([
         // 2026-10-11: Auto now sends the model's lowest supported thinking.
         { model: 'gemini-3.8-flash', thinkingOrEffort: 'low' },
-        { model: 'gemini-3.6-flash', thinkingOrEffort: 'high' }
+        { model: 'gemini-3.5-flash-lite', thinkingOrEffort: 'high' }
       ]);
       expect(value).toEqual({ value: 'from the fallback' });
     }
@@ -164,7 +170,7 @@ describe('tutor fallback across Gemini profiles', () => {
   it('does not fall back to the same model it just failed on', async () => {
     const requests = stubFetch('gemini-3.8-flash');
     await expect(runTutorStructuredRequest(
-      runtime(), route({ fallbackModel: 'gemini-3.8-flash' }), request, new AbortController().signal
+      runtime(), route({ fastModel: 'gemini-3.8-flash' }), request, new AbortController().signal
     )).rejects.toThrow('503');
     expect(requests.map(({ model }) => model)).toEqual(['gemini-3.8-flash']);
   });
@@ -188,7 +194,7 @@ describe('tutor fallback across Gemini profiles', () => {
       host, route(), request, new AbortController().signal
     )).resolves.toEqual({ value: 'from the fallback' });
 
-    expect(models).toEqual(['gemini-3.8-flash', 'gemini-3.6-flash']);
+    expect(models).toEqual(['gemini-3.8-flash', 'gemini-3.5-flash-lite']);
   });
 
   it('V138 caps a retryable conversation opening at three primary attempts', async () => {
@@ -253,7 +259,7 @@ describe('tutor fallback across Gemini profiles', () => {
       await vi.runAllTimersAsync();
       await expect(pending).resolves.toEqual({ value: 'from the fallback' });
       expect(models).toEqual([
-        'gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.6-flash'
+        'gemini-3.8-flash', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'
       ]);
       expect(attempts).toHaveBeenCalledTimes(3);
       expect(backoffs.mock.calls).toEqual([[1_000]]);

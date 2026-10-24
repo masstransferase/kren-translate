@@ -1,0 +1,1501 @@
+{
+  "center:opening": {
+    "trace": [
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.5-flash-lite",
+        "fast",
+        "minimal"
+      ],
+      [
+        "event",
+        {
+          "feature": "tutor",
+          "kind": "conversationOpening",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] tutor gemini gemini-3.5-flash-lite in=0 out=0 think=0"
+      ],
+      [
+        "event",
+        {
+          "feature": "tutor",
+          "kind": "conversationOpening",
+          "trigger": "explicitAction",
+          "type": "failure",
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "cause": "serviceUnavailable",
+          "status": 500,
+          "codes": [],
+          "diagnostic": "HTTP 500 serviceUnavailable"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] tutor gemini gemini-3.5-flash-lite HTTP 500 serviceUnavailable"
+      ],
+      [
+        "delay",
+        1000
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.5-flash-lite",
+        "fast",
+        "minimal"
+      ],
+      [
+        "event",
+        {
+          "feature": "tutor",
+          "kind": "conversationOpening",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] tutor gemini gemini-3.5-flash-lite in=0 out=0 think=0"
+      ],
+      [
+        "event",
+        {
+          "feature": "tutor",
+          "kind": "conversationOpening",
+          "trigger": "explicitAction",
+          "type": "failure",
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "cause": "serviceUnavailable",
+          "status": 500,
+          "codes": [],
+          "diagnostic": "HTTP 500 serviceUnavailable"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] tutor gemini gemini-3.5-flash-lite HTTP 500 serviceUnavailable"
+      ],
+      [
+        "delay",
+        2000
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.5-flash-lite",
+        "fast",
+        "minimal"
+      ],
+      [
+        "event",
+        {
+          "feature": "tutor",
+          "kind": "conversationOpening",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 3,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] tutor gemini gemini-3.5-flash-lite in=0 out=0 think=0"
+      ],
+      [
+        "event",
+        {
+          "feature": "tutor",
+          "kind": "conversationOpening",
+          "trigger": "explicitAction",
+          "type": "failure",
+          "attempt": 3,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "cause": "serviceUnavailable",
+          "status": 500,
+          "codes": [],
+          "diagnostic": "HTTP 500 serviceUnavailable"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] tutor gemini gemini-3.5-flash-lite HTTP 500 serviceUnavailable"
+      ]
+    ],
+    "outcome": {
+      "type": "failed",
+      "cause": "serviceUnavailable",
+      "attemptedRoute": {
+        "provider": "gemini",
+        "model": "gemini-3.5-flash-lite",
+        "geminiProfile": "standard",
+        "mode": "fast",
+        "effort": "minimal"
+      },
+      "actions": [
+        "retry"
+      ],
+      "preservation": "none",
+      "history": [
+        {
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "status": 500,
+          "cause": "serviceUnavailable"
+        },
+        {
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "status": 500,
+          "cause": "serviceUnavailable"
+        },
+        {
+          "attempt": 3,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.5-flash-lite",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "minimal"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "status": 500,
+          "cause": "serviceUnavailable"
+        }
+      ],
+      "recovery": []
+    },
+    "usage": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3.5-flash-lite",
+        "geminiProfile": "standard",
+        "requests": 3,
+        "input": 0,
+        "output": 0,
+        "thinking": 0
+      }
+    ],
+    "exhausted": {
+      "day": "2026-10-19",
+      "exhausted": []
+    }
+  },
+  "host:opening": {
+    "trace": [
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "thorough",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 1,
+          "request": {
+            "feature": "tutor",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] tutor gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "failure",
+          "attempt": 1,
+          "request": {
+            "feature": "tutor",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "cause": "serviceUnavailable",
+          "status": 500,
+          "diagnostic": "HTTP 500 serviceUnavailable"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] tutor gemini gemini-3.8-flash HTTP 500 serviceUnavailable"
+      ],
+      [
+        "delay",
+        9000
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "thorough",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 2,
+          "request": {
+            "feature": "tutor",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] tutor gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "failure",
+          "attempt": 2,
+          "request": {
+            "feature": "tutor",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "cause": "serviceUnavailable",
+          "status": 500,
+          "diagnostic": "HTTP 500 serviceUnavailable"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] tutor gemini gemini-3.8-flash HTTP 500 serviceUnavailable"
+      ],
+      [
+        "delay",
+        9000
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "thorough",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 3,
+          "request": {
+            "feature": "tutor",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] tutor gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "failure",
+          "attempt": 3,
+          "request": {
+            "feature": "tutor",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "cause": "serviceUnavailable",
+          "status": 500,
+          "diagnostic": "HTTP 500 serviceUnavailable"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] tutor gemini gemini-3.8-flash HTTP 500 serviceUnavailable"
+      ]
+    ],
+    "outcome": {
+      "type": "failed",
+      "cause": "serviceUnavailable",
+      "attemptedRoute": {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "mode": "thorough",
+        "effort": "low"
+      },
+      "actions": [
+        "retry"
+      ],
+      "preservation": "none",
+      "history": [
+        {
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "cause": "serviceUnavailable",
+          "status": 500
+        },
+        {
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "cause": "serviceUnavailable",
+          "status": 500
+        },
+        {
+          "attempt": 3,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "cause": "serviceUnavailable",
+          "status": 500
+        }
+      ],
+      "recovery": []
+    },
+    "usage": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "requests": 3,
+        "input": 0,
+        "output": 0,
+        "thinking": 0
+      }
+    ],
+    "exhausted": {
+      "day": "2026-10-19",
+      "exhausted": []
+    }
+  },
+  "center:grammar": {
+    "trace": [
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "fast",
+        "low"
+      ],
+      [
+        "event",
+        {
+          "feature": "grammar",
+          "kind": "grammar",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] grammar gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "event",
+        {
+          "feature": "grammar",
+          "kind": "grammar",
+          "trigger": "explicitAction",
+          "type": "failure",
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "cause": "unreadableOutput",
+          "status": 200,
+          "codes": [
+            "unreadableOutput"
+          ],
+          "diagnostic": "unreadable output"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] grammar gemini gemini-3.8-flash unreadable output"
+      ],
+      [
+        "event",
+        {
+          "feature": "grammar",
+          "kind": "grammar",
+          "trigger": "explicitAction",
+          "type": "recovery",
+          "recovery": {
+            "decision": "escalation",
+            "from": {
+              "provider": "gemini",
+              "model": "gemini-3.8-flash",
+              "geminiProfile": "standard",
+              "mode": "fast",
+              "effort": "low"
+            },
+            "to": {
+              "provider": "gemini",
+              "model": "gemini-3.8-flash",
+              "geminiProfile": "standard",
+              "mode": "thorough",
+              "effort": "low"
+            }
+          }
+        }
+      ],
+      [
+        "log",
+        "[request recovery] grammar grammar escalation"
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "thorough",
+        "low"
+      ],
+      [
+        "event",
+        {
+          "feature": "grammar",
+          "kind": "grammar",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] grammar gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "event",
+        {
+          "feature": "grammar",
+          "kind": "grammar",
+          "trigger": "explicitAction",
+          "type": "failure",
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "cause": "requestRejected",
+          "status": 404,
+          "codes": [],
+          "diagnostic": "HTTP 404 requestRejected"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] grammar gemini gemini-3.8-flash HTTP 404 requestRejected"
+      ],
+      [
+        "event",
+        {
+          "feature": "grammar",
+          "kind": "grammar",
+          "trigger": "explicitAction",
+          "type": "recovery",
+          "recovery": {
+            "decision": "fallback",
+            "from": {
+              "provider": "gemini",
+              "model": "gemini-3.8-flash",
+              "geminiProfile": "standard",
+              "mode": "thorough",
+              "effort": "low"
+            },
+            "to": {
+              "provider": "gemini",
+              "model": "gemini-fallback",
+              "geminiProfile": "standard",
+              "mode": "thorough",
+              "effort": "low"
+            }
+          }
+        }
+      ],
+      [
+        "log",
+        "[request recovery] grammar grammar fallback"
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-fallback",
+        "thorough",
+        "low"
+      ],
+      [
+        "event",
+        {
+          "feature": "grammar",
+          "kind": "grammar",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 3,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-fallback",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "input": 4,
+          "output": 2,
+          "thinking": 1
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] grammar gemini gemini-fallback in=4 out=2 think=1"
+      ]
+    ],
+    "outcome": {
+      "type": "accepted",
+      "value": {
+        "ready": true
+      },
+      "warnings": [],
+      "route": {
+        "provider": "gemini",
+        "model": "gemini-fallback",
+        "geminiProfile": "standard",
+        "mode": "thorough",
+        "effort": "low"
+      },
+      "history": [
+        {
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [
+            "unreadableOutput"
+          ],
+          "status": 200,
+          "cause": "unreadableOutput"
+        },
+        {
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "status": 404,
+          "cause": "requestRejected"
+        },
+        {
+          "attempt": 3,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-fallback",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "outcome": "accepted",
+          "codes": [],
+          "status": 200
+        }
+      ],
+      "recovery": [
+        {
+          "decision": "escalation",
+          "from": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "to": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          }
+        },
+        {
+          "decision": "fallback",
+          "from": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "to": {
+            "provider": "gemini",
+            "model": "gemini-fallback",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          }
+        }
+      ]
+    },
+    "usage": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "requests": 2,
+        "input": 0,
+        "output": 0,
+        "thinking": 0
+      },
+      {
+        "provider": "gemini",
+        "model": "gemini-fallback",
+        "geminiProfile": "standard",
+        "requests": 1,
+        "input": 4,
+        "output": 2,
+        "thinking": 1
+      }
+    ],
+    "exhausted": {
+      "day": "2026-10-19",
+      "exhausted": []
+    }
+  },
+  "host:grammar": {
+    "trace": [
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "fast",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 1,
+          "request": {
+            "feature": "grammar",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] grammar gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "failure",
+          "attempt": 1,
+          "request": {
+            "feature": "grammar",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "cause": "unreadableOutput",
+          "status": 200,
+          "diagnostic": "unreadable output"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] grammar gemini gemini-3.8-flash unreadable output"
+      ],
+      [
+        "log",
+        "[thinking] grammar fast -> thorough (validation)"
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "thorough",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 1,
+          "request": {
+            "feature": "grammar",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] grammar gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "failure",
+          "attempt": 1,
+          "request": {
+            "feature": "grammar",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "cause": "requestRejected",
+          "status": 404,
+          "diagnostic": "HTTP 404 requestRejected"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] grammar gemini gemini-3.8-flash HTTP 404 requestRejected"
+      ],
+      [
+        "log",
+        "[request recovery] grammar fallback"
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-fallback",
+        "thorough",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 1,
+          "request": {
+            "feature": "grammar",
+            "provider": "gemini",
+            "model": "gemini-fallback",
+            "geminiProfile": "standard"
+          },
+          "input": 4,
+          "output": 2,
+          "thinking": 1
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] grammar gemini gemini-fallback in=4 out=2 think=1"
+      ]
+    ],
+    "outcome": {
+      "type": "accepted",
+      "value": {
+        "ready": true
+      },
+      "warnings": [],
+      "route": {
+        "provider": "gemini",
+        "model": "gemini-fallback",
+        "geminiProfile": "standard",
+        "mode": "thorough",
+        "effort": "low"
+      },
+      "history": [
+        {
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "cause": "unreadableOutput",
+          "status": 200
+        },
+        {
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "cause": "requestRejected",
+          "status": 404
+        },
+        {
+          "attempt": 3,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-fallback",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "outcome": "accepted",
+          "codes": []
+        }
+      ],
+      "recovery": [
+        {
+          "decision": "escalation",
+          "from": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "to": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          }
+        },
+        {
+          "decision": "fallback",
+          "from": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          },
+          "to": {
+            "provider": "gemini",
+            "model": "gemini-fallback",
+            "geminiProfile": "standard",
+            "mode": "thorough",
+            "effort": "low"
+          }
+        }
+      ]
+    },
+    "usage": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "requests": 2,
+        "input": 0,
+        "output": 0,
+        "thinking": 0
+      },
+      {
+        "provider": "gemini",
+        "model": "gemini-fallback",
+        "geminiProfile": "standard",
+        "requests": 1,
+        "input": 4,
+        "output": 2,
+        "thinking": 1
+      }
+    ],
+    "exhausted": {
+      "day": "2026-10-19",
+      "exhausted": []
+    }
+  },
+  "center:minute": {
+    "trace": [
+      [
+        "classification",
+        {
+          "kind": "rateLimit",
+          "retryable": true,
+          "quotaCategory": "perMinute",
+          "quotaLimit": "10",
+          "retryDelayMs": 2000
+        },
+        " {\"quotaCategory\":\"perMinute\",\"limit\":\"10\",\"retryDelay\":\"2s\"}"
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "fast",
+        "low"
+      ],
+      [
+        "event",
+        {
+          "feature": "translate",
+          "kind": "translate",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] translate gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "event",
+        {
+          "feature": "translate",
+          "kind": "translate",
+          "trigger": "explicitAction",
+          "type": "failure",
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "cause": "rateLimit",
+          "status": 429,
+          "codes": [],
+          "diagnostic": "HTTP 429 rateLimit"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] translate gemini gemini-3.8-flash HTTP 429 rateLimit"
+      ],
+      [
+        "delay",
+        2000
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "fast",
+        "low"
+      ],
+      [
+        "event",
+        {
+          "feature": "translate",
+          "kind": "translate",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "input": 4,
+          "output": 2,
+          "thinking": 1
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] translate gemini gemini-3.8-flash in=4 out=2 think=1"
+      ]
+    ],
+    "outcome": {
+      "type": "accepted",
+      "value": {
+        "ready": true
+      },
+      "warnings": [],
+      "route": {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "mode": "fast",
+        "effort": "low"
+      },
+      "history": [
+        {
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "status": 429,
+          "cause": "rateLimit"
+        },
+        {
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "outcome": "accepted",
+          "codes": [],
+          "status": 200
+        }
+      ],
+      "recovery": []
+    },
+    "usage": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "requests": 2,
+        "input": 4,
+        "output": 2,
+        "thinking": 1
+      }
+    ],
+    "exhausted": {
+      "day": "2026-10-19",
+      "exhausted": []
+    }
+  },
+  "host:minute": {
+    "trace": [
+      [
+        "classification",
+        {
+          "kind": "rateLimit",
+          "retryable": true,
+          "quotaCategory": "perMinute",
+          "quotaLimit": "10",
+          "retryDelayMs": 2000
+        },
+        " {\"quotaCategory\":\"perMinute\",\"limit\":\"10\",\"retryDelay\":\"2s\"}"
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "fast",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 1,
+          "request": {
+            "feature": "translate",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "input": 0,
+          "output": 0,
+          "thinking": 0
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] translate gemini gemini-3.8-flash in=0 out=0 think=0"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "failure",
+          "attempt": 1,
+          "request": {
+            "feature": "translate",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "cause": "rateLimit",
+          "status": 429,
+          "diagnostic": "HTTP 429 rateLimit"
+        }
+      ],
+      [
+        "usageLog",
+        "[provider failure] translate gemini gemini-3.8-flash HTTP 429 rateLimit"
+      ],
+      [
+        "delay",
+        2000
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "fast",
+        "low"
+      ],
+      [
+        "transportEvent",
+        {
+          "type": "usage",
+          "attempt": 2,
+          "request": {
+            "feature": "translate",
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard"
+          },
+          "input": 4,
+          "output": 2,
+          "thinking": 1
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] translate gemini gemini-3.8-flash in=4 out=2 think=1"
+      ]
+    ],
+    "outcome": {
+      "type": "accepted",
+      "value": {
+        "ready": true
+      },
+      "warnings": [],
+      "route": {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "mode": "fast",
+        "effort": "low"
+      },
+      "history": [
+        {
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "outcome": "failed",
+          "codes": [],
+          "cause": "rateLimit",
+          "status": 429
+        },
+        {
+          "attempt": 2,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "outcome": "accepted",
+          "codes": []
+        }
+      ],
+      "recovery": []
+    },
+    "usage": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "requests": 2,
+        "input": 4,
+        "output": 2,
+        "thinking": 1
+      }
+    ],
+    "exhausted": {
+      "day": "2026-10-19",
+      "exhausted": []
+    }
+  },
+  "center:midnight": {
+    "trace": [
+      [
+        "beforeMidnight",
+        {
+          "exhausted": true,
+          "persisted": {
+            "day": "2026-10-19",
+            "exhausted": [
+              "gemini:standard:gemini-3.8-flash"
+            ]
+          },
+          "failure": {
+            "message": "Fixed cached daily quota failure.",
+            "action": "configureGeminiModel",
+            "status": 429,
+            "reason": "quotaExhausted",
+            "attemptedRoute": {
+              "provider": "gemini",
+              "model": "gemini-3.8-flash",
+              "geminiProfile": "standard"
+            }
+          }
+        }
+      ],
+      [
+        "afterMidnight",
+        {
+          "exhausted": false,
+          "persisted": {
+            "day": "2026-10-20",
+            "exhausted": []
+          },
+          "failure": {
+            "message": "Gemini returned 429. Check provider quota and billing before retrying.",
+            "status": 429,
+            "reason": "quotaExhausted",
+            "attemptedRoute": {
+              "provider": "gemini",
+              "model": "gemini-3.8-flash",
+              "geminiProfile": "standard"
+            }
+          }
+        }
+      ],
+      [
+        "attempt",
+        "gemini",
+        "gemini-3.8-flash",
+        "fast",
+        "low"
+      ],
+      [
+        "event",
+        {
+          "feature": "translate",
+          "kind": "translate",
+          "trigger": "explicitAction",
+          "type": "usage",
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "input": 4,
+          "output": 2,
+          "thinking": 1
+        }
+      ],
+      [
+        "usageLog",
+        "[usage] translate gemini gemini-3.8-flash in=4 out=2 think=1"
+      ]
+    ],
+    "outcome": {
+      "type": "accepted",
+      "value": {
+        "ready": true
+      },
+      "warnings": [],
+      "route": {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "mode": "fast",
+        "effort": "low"
+      },
+      "history": [
+        {
+          "attempt": 1,
+          "route": {
+            "provider": "gemini",
+            "model": "gemini-3.8-flash",
+            "geminiProfile": "standard",
+            "mode": "fast",
+            "effort": "low"
+          },
+          "outcome": "accepted",
+          "codes": [],
+          "status": 200
+        }
+      ],
+      "recovery": []
+    },
+    "usage": [
+      {
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "geminiProfile": "standard",
+        "requests": 1,
+        "input": 4,
+        "output": 2,
+        "thinking": 1
+      }
+    ],
+    "exhausted": {
+      "day": "2026-10-20",
+      "exhausted": []
+    }
+  }
+}

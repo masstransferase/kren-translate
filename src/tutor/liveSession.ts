@@ -76,6 +76,7 @@ export interface TutorLiveSessionOptions {
   /** Conversation sessions may report a replacement character through a structured tool. */
   handoffEnabled?: boolean;
   apiKey: string;
+  geminiProfile?: 'standard' | 'pro';
   model: string;
   systemInstruction: string;
   /** A Gemini prebuilt voice name; left out, the server uses its default voice. */
@@ -611,7 +612,7 @@ export class TutorLiveSession {
 
   private recordUsage(failed = false): void {
     const counts = failed ? undefined : this.usageCounts;
-    recordLanguageModelUsage({ feature: 'conversationLive', provider: 'gemini', model: this.options.model },
+    recordLanguageModelUsage({ feature: 'conversationLive', provider: 'gemini', model: this.options.model, geminiProfile: this.options.geminiProfile },
       counts ? { usageMetadata: { promptTokenCount: counts.input, candidatesTokenCount: counts.output, thoughtsTokenCount: counts.thinking } } : undefined);
     if (failed) recordLanguageModelNoResponse({ feature: 'conversationLive', provider: 'gemini', model: this.options.model });
     this.usageCounts = undefined;

@@ -1,7 +1,33 @@
+import { missingCredentialError, missingCredentialDetails, missingCredentialMessage } from '../requestCenter.js';
 import { usageTrackedFetch } from '../languageModelUsage.js';
+import { ProviderError } from '../errors.js';
+
+/** Presence flags name only absent slots and never carry credential values. */
+export function cloudflareMissingCredentialError(accountIdPresent: boolean, tokenPresent: boolean) {
+  return missingCredentialError('cloudflare', 'standard',
+    [...(!accountIdPresent ? ['account ID'] : []), ...(!tokenPresent ? ['API token'] : [])]);
+}
+
+/** An account-scoped model search checks both credentials without running inference. */
+export async function testCloudflareCredentials(accountId: string, token: string, signal: AbortSignal): Promise<void> {
+  if (!accountId || !token) throw cloudflareMissingCredentialError(Boolean(accountId), Boolean(token));
+  let response: Response;
+  try {
+    response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/models/search?per_page=1`, {
+      headers: { Authorization: `Bearer ${token}` }, signal
+    });
+  } catch {
+    throw new ProviderError('Cloudflare model discovery could not be reached.');
+  }
+  if (!response.ok) throw new ProviderError(`Cloudflare model discovery failed (${response.status}). Check the account ID and API token.`, 'setCloudflareCredentials');
+  const payload = await response.json().catch(() => undefined) as { success?: unknown; result?: unknown } | undefined;
+  if (payload?.success !== true || !Array.isArray(payload.result)) {
+    throw new ProviderError('Cloudflare model discovery returned an invalid response. Check the account ID and API token.', 'setCloudflareCredentials');
+  }
+}
 /** Host-only Workers AI boundary. Neither credentials nor remote error text escape it. */
 export const CLOUDFLARE_PICTURE_ALLOWANCE = 'Pictures paused: the Cloudflare daily free allowance is used up. The conversation continues without pictures.';
-export const CLOUDFLARE_PICTURE_CREDENTIALS = 'Pictures paused: set the Cloudflare account ID and API token in KREN menu, Credentials.';
+export const CLOUDFLARE_PICTURE_CREDENTIALS = missingCredentialMessage(missingCredentialDetails('cloudflare'));
 export const CLOUDFLARE_AUTHENTICATION = 'authentication failed. Check the Cloudflare credentials in KREN menu, Credentials.';
 
 export class CloudflareAiError extends Error {
@@ -25,9 +51,7 @@ export async function runCloudflareAi(
   purpose: 'picture' | 'dictation', metadata?: CloudflareAiResponseMetadata
 ): Promise<unknown> {
   const picture = purpose === 'picture';
-  if (!accountId || !token) throw new CloudflareAiError(picture
-    ? CLOUDFLARE_PICTURE_CREDENTIALS
-    : 'Set the Cloudflare account ID and API token in Settings before recording with Cloudflare.');
+  if (!accountId || !token) throw cloudflareMissingCredentialError(Boolean(accountId), Boolean(token));
   let response: Response;
   const multipart = body instanceof FormData;
   try {

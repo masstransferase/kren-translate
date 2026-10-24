@@ -2,7 +2,7 @@ import { TUTOR_DEFAULTS } from '../src/tutor/defaults.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_GEMINI_MODEL, DEFAULT_PRO_MODELS } from '../src/providers/geminiModels.js';
-import { TUTOR_LIVE_MODEL_DEFAULT } from '../src/panelSettings.js';
+import { CLOUDFLARE_IMAGE_MODEL_DEFAULT, TUTOR_LIVE_MODEL_DEFAULT } from '../src/panelSettings.js';
 
 /**
  * The default Gemini model was a literal repeated in eight source sites and three settings.
@@ -50,7 +50,9 @@ describe('the default Gemini model', () => {
       if (name.startsWith('kren.tutor.')) {
         // Changed 2026-10-03: tutor models follow the owner's tutor defaults.
         const key = name.slice(5) as keyof typeof TUTOR_DEFAULTS.configuration;
-        expect(definition.default).toBe(TUTOR_DEFAULTS.configuration[key]);
+        // Changed 2026-10-22 (V294, owner I60/I64): picture defaults come from the effective settings resolver.
+        expect(definition.default).toBe(key === 'tutor.cloudflareImageModel'
+          ? CLOUDFLARE_IMAGE_MODEL_DEFAULT : TUTOR_DEFAULTS.configuration[key]);
         continue;
       }
       if (isAlternateProfileModel(name)) {

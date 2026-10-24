@@ -30,6 +30,8 @@ const signal = () => new AbortController().signal;
 const credentials = ['fixture', 'credential'].join('-');
 const flush = async () => { for (let i = 0; i < 5; i++) await new Promise<void>(resolve => setImmediate(resolve)); };
 const route: TutorLanguageModelRoute = { provider: 'gemini', model: TUTOR_MODELS.gemini.thorough,
+  // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+  fastModel: 'gemini-reader-fast-flash',
   thinkingOrEffort: 'auto', geminiProfile: 'pro', fallbackEnabled: true, fallbackModel: 'gemini-fallback-flash', fallbackThinkingOrEffort: 'auto' };
 const request: TutorStructuredGenerationRequest = { kind: 'lesson', input: '{}', instruction: 'Write JSON.', schema: {}, schemaName: 'lesson' };
 const quota = { error: { details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'RequestsPerDay', quotaValue: '10' }] }] } };
@@ -78,10 +80,11 @@ it('3: fallback quotas mark the attempted pool, and switched failures name the a
   let failure: unknown;
   try { await runTutorStructuredRequest(rt, route, request, signal()); } catch (error) { failure = error; }
   const paidFallback = recordedRequestOutcome(failure);
-  expect((failure as any).attemptedRoute).toMatchObject({ provider: 'gemini', model: route.fallbackModel, geminiProfile: 'pro' });
+  // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+  expect((failure as any).attemptedRoute).toMatchObject({ provider: 'gemini', model: route.fastModel, geminiProfile: 'pro' });
   const switchingRuntime = { ...rt, getSetting: <T>(key: string, fallback: T) => key === 'llm.providerSwitch' ? true as T : rt.getSetting(key, fallback) };
   await expect(switching.withProviderSwitch(switchingRuntime, route, 'thorough', signal(), async () => { throw failure; })).rejects.toBe(failure);
-  expect(rt.providerExhaustion!.isExhausted({ ...route, model: route.fallbackModel })).toBe(true);
+  expect(rt.providerExhaustion!.isExhausted({ ...route, model: route.fastModel! })).toBe(true);
   expect(rt.providerExhaustion!.isExhausted(route)).toBe(false);
   const other = runtime({ 'llm.providerOrder': ['gemini', 'groq', 'cloudflare'] });
   vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(quota), { status: 429 }))
@@ -107,7 +110,7 @@ it('3: fallback quotas mark the attempted pool, and switched failures name the a
   // Changed 2026-10-16: V257, F4 run 3, assert the recorded Paid fallback route instead of the removed grammar catch's source text.
   const fallbackOutcome = recordedRequestOutcome(failure);
   expect(fallbackOutcome?.history.at(-1)?.route).toMatchObject({ provider: 'cloudflare' });
-  expect(paidFallback?.history.at(-1)?.route).toMatchObject({ model: route.fallbackModel, geminiProfile: 'pro' });
+  expect(paidFallback?.history.at(-1)?.route).toMatchObject({ model: route.fastModel, geminiProfile: 'pro' });
 });
 it('4: every credential slot clears only its provider pools, and full reset clears memory and storage', async () => {
   const writes = new Map<string, unknown>();
@@ -203,7 +206,8 @@ it('9: Chirp Test and fallback logs say needs a key and make no request without 
   const fetcher = vi.fn(), log = vi.fn(), fallback = vi.fn(async () => {});
   const speech = new GoogleChirpSpeech(async () => undefined, { play: vi.fn(), stop: vi.fn(() => false) } as never, vi.fn(), fetcher, log);
   const options = { voice: 'Kore', ratePercent: 100, volume: 100 };
-  expect(await speech.test(options)).toContain('needs a key');
+  // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+  expect(await speech.test(options)).toMatch(/Google Cloud Text-to-Speech.*key.*Google Cloud Translation.*Credentials/u);
   await speech.speak('Hello.', options, fallback);
   expect(log.mock.calls.every(([line]) => line.includes('needs a key') && !line.includes('no response'))).toBe(true);
   expect(fetcher).not.toHaveBeenCalled(); expect(fallback).toHaveBeenCalledOnce();

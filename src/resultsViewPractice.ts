@@ -1,4 +1,4 @@
-import { runTutorContentRequest, recordedRequestOutcome } from './requestCenter.js';
+import { missingCredentialsOf, runTutorContentRequest, recordedRequestOutcome } from './requestCenter.js';
 import { ProviderError } from './errors.js';
 import { tutorProviderSwitchMessage } from './languageModelSwitching.js';
 import type { KrenResultsViewProvider } from './resultsView.js';
@@ -79,6 +79,7 @@ export async function diagnoseTutorPractice(view: KrenResultsViewProvider): Prom
       };
     } catch (error) {
       if (controller.signal.aborted) return;
+      view.showMissingCredentialError(error, true);
       view.actions.log(`Tutor practice diagnosis failed: ${tutorFailureMessage(error)}`);
       view.tutorState = {
         ...view.tutorState,
@@ -196,6 +197,7 @@ export async function reviewTutorExercise(view: KrenResultsViewProvider, exercis
       return 'success';
     } catch (error: unknown) {
       if (!current()) return 'canceled';
+      view.showMissingCredentialError(error, true);
       view.tutorState = {
         ...view.tutorState,
         reviewFailures: {
@@ -265,6 +267,14 @@ export async function reviewUnreviewedTutorExercises(view: KrenResultsViewProvid
       }
     } catch (error) {
       if (current()) view.actions.log(`Tutor batch review failed: ${tutorFailureMessage(error)}`);
+      if (current() && missingCredentialsOf(error)) {
+        view.showMissingCredentialError(error, true);
+        const message = tutorFailureMessage(error);
+        refusal = message;
+        view.tutorState = { ...view.tutorState, reviewFailures: { ...view.tutorState.reviewFailures,
+          ...Object.fromEntries(queue.map(item => [item.id, message])) } };
+        return;
+      }
       const outcome = recordedRequestOutcome(error);
       if (error instanceof ProviderError && error.reason === 'refused' || outcome?.type === 'failed' && outcome.cause === 'refused') {
         refusal = tutorFailureMessage(error);
@@ -462,6 +472,7 @@ export function submitTutorTool(view: KrenResultsViewProvider, highlight?: strin
       };
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
+      view.showMissingCredentialError(error, true);
       view.tutorState = {
         ...view.tutorState,
         toolDrawer: {

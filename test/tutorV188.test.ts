@@ -8,7 +8,7 @@ import { createTutorViewState, tutorConversationPreferencesOf, tutorResetAvailab
 import { TUTOR_DEFAULTS } from '../src/tutor/defaults.js';
 import { generateSituationPicture } from '../src/providers/situationPicture.js';
 import { geminiModelCatalog, listGeminiImageModels } from '../src/providers/geminiModels.js';
-import { validatedPanelSetting } from '../src/panelSettings.js';
+import { CLOUDFLARE_IMAGE_MODEL_DEFAULT, validatedPanelSetting } from '../src/panelSettings.js';
 import { isCommandMessage } from '../src/resultsViewCommands.js';
 import { confirmTutorReset, updateTutorSetting } from '../src/resultsViewSettings.js';
 import type { KrenResultsViewProvider } from '../src/resultsView.js';
@@ -57,11 +57,14 @@ describe('V188 tutor defaults and reset choices', () => {
     const declared = Object.fromEntries(Object.entries(properties)
       .filter(([key]) => key.startsWith('kren.tutor.'))
       .map(([key, property]) => [key.slice(5), (property as { default: unknown }).default]));
-    expect(declared).toEqual(TUTOR_DEFAULTS.configuration);
+    // Changed 2026-10-22 (V294, owner I60/I64): the effective resolver owns the picture model default.
+    expect(declared).toEqual({ ...TUTOR_DEFAULTS.configuration, 'tutor.cloudflareImageModel': CLOUDFLARE_IMAGE_MODEL_DEFAULT });
     const state = createTutorViewState();
     expect(state.settings).toMatchObject(TUTOR_DEFAULTS.lesson);
     expect(state.settings.axes).toEqual(TUTOR_DEFAULTS.axes);
     expect(state.conversation).toMatchObject(TUTOR_DEFAULTS.conversation);
+    // Changed 2026-10-21 (owner, I56/I57): new and reset preferences use the situation source.
+    expect(state.conversation.from).toBe('situation');
     expect(TUTOR_DEFAULTS.lesson.exerciseCount).toBe(6);
   });
 
@@ -199,10 +202,11 @@ describe('V188 model controls', () => {
     const tutor = load(html());
     // 2026-10-11: V221 labels the two routing roles; assert their meaning and owned settings.
     expect(tutor('[data-model-preset="tutor.model"]').closest('.setting').text()).toMatch(/thorough.*lessons/iu);
-    expect(tutor('[data-llm-routing="tutor"] > summary').text()).toMatch(/thorough.*Fallback Tutor Model:/iu);
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    expect(tutor('[data-llm-routing="tutor"] > summary').text()).toMatch(/thorough.*Fast model:.*Fast thinking:/iu);
     // 2026-10-05: assert all named model controls while allowing label capitalization changes.
     const titles = tutor('.setting-title').map((_i, el) => tutor(el).text().toLowerCase()).get();
-    for (const title of ['Thorough model', 'Thorough model identifier', 'Fallback Tutor Model', 'Fallback Tutor Model identifier', 'Fallback Tutor Model thinking level', 'Image Model']) expect(titles).toContain(title.toLowerCase());
+    for (const title of ['Thorough model', 'Thorough model identifier', 'Fast model', 'Fast model identifier', 'Fast thinking level', 'Image Model']) expect(titles).toContain(title.toLowerCase());
     const $ = load(renderKrenResultViewHtml({ cspSource: 'test', nonce: 'test', activeScreen: 'settings', settings: PANEL_SETTINGS_FIXTURE, proModels: [] }));
     expect($('[data-model-preset="translation.model"]').closest('.setting').find('.setting-title').text()).toBe('Model');
     expect($('[data-model-preset="translation.fallbackModel"]').closest('.setting').find('.setting-title').text()).toBe('Fallback model');

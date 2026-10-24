@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 const NOTIFICATION_NAMES = new Set([
   // 2026-10-12: The panel wrappers retain the same awaited confirmation contract.
+  // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+  'showKrenInformationMessage',
   'showKrenWarningMessage',
   'showKrenErrorMessage',
   'showInformationMessage',
@@ -93,7 +95,9 @@ describe('notification timing contract', () => {
     // Changed 2026-10-04: V205 adds the awaited lesson-source modal so Source reverts after it closes.
     // 2026-10-11: V219 adds the consent prompt shared by Groq and Cloudflare.
     // Changed 2026-10-16: V249, F12a, the edge-tts update adds one awaited confirmation prompt.
-    expect(awaitedPrompts).toHaveLength(37);
+    // Changed 2026-10-22 (V299, owner I69): Apply to All adds one awaited Apply/Cancel preview.
+    // Changed 2026-10-23 (V304, owner I75): the missing Live key adds one awaited choice.
+    expect(awaitedPrompts).toHaveLength(39);
     for (const call of awaitedPrompts) {
       const awaited = call.parent as ts.AwaitExpression;
       expect(ts.isVariableDeclaration(awaited.parent)).toBe(true);

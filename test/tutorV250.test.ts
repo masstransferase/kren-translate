@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { load } from 'cheerio';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+afterEach(() => vi.useRealTimers());
 
 vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, window: {},
   Uri: { joinPath: (...parts: unknown[]) => parts },
@@ -123,6 +124,7 @@ it('uses cleaned reply and nextQuestion text for both the balloons and speech', 
 });
 
 it('accepts cleaned openings before patching the panel and speaking them', async () => {
+  vi.useFakeTimers();
   const h = harness(); const panel = h.panel();
   const controller = new AbortController(); h.view.tutorConversationController = controller;
   const opening = tutorConversationOpening(await returned('conversationOpening', { scene: 'You are in a store.',
@@ -130,6 +132,8 @@ it('accepts cleaned openings before patching the panel and speaking them', async
     targetMarks: [{ field: 'opening', targetId: 'target', quote: '**', occurrence: 0 }] }), true, ['target']);
   expect(opening.targetMarks).toEqual([]);
   completeTutorConversationOpening(h.view, opening, controller, false); await flush();
+  // Changed 2026-10-22 (V295): cleaned opening speech follows the intro pause.
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(h.view.tutorState.conversation.currentQuestion).toBe('Try the oat milk today.');
   expect(h.actions.readAloudText.mock.calls.map(call => call[0])).toEqual(['You are in a store.', 'Try the oat milk today.']);
   expect(h.panel()).toBe(panel);

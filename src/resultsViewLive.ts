@@ -1,3 +1,4 @@
+import { showMissingCredentialNotice, type MissingCredentials } from './requestCenter.js';
 import { tutorConversationRequestControls, tutorConversationHandoffInstruction, tutorConversationHandoff } from './tutor/generation.js';
 import { tutorPlainText } from './tutor/plainText.js';
 import { cancelTutorTakeHome } from './resultsViewTakeHome.js';
@@ -25,7 +26,7 @@ import { punctuateSpokenAnswerForDisplay } from './tutor/spokenAnswer.js';
 import { TUTOR_LIVE_TEACHING_INSTRUCTION, tutorConversationLiveReplyQuote, tutorConversationTurnRequest } from './tutor/generation.js';
 import { configuredTutorMicrophoneCloseWait, configuredTutorSpeechProvider, configuredTutorLiveTranscriptionLanguage } from './resultsViewConfiguration.js';
 import { closeTutorDemoResources } from './resultsViewDemo.js';
-import { cancelTutorConversationReplayAll, cancelTutorLiveReplayWait } from './resultsViewReplay.js';
+import { cancelTutorConversationReplayAll, cancelTutorLiveReplayWait, cancelTutorIntroCompletion } from './resultsViewReplay.js';
 import { safePanelErrorMessage } from './resultsViewErrors.js';
 import { cancelTutorConversationDictation } from './resultsViewDictation.js';
 import { postTutorConversationStopState } from './resultsViewStop.js';
@@ -85,7 +86,23 @@ export function liveTranscriptFragment(previous: string, fragment: string): stri
 const TUTOR_LIVE_ECHO_MARGIN_MS = 120;
 
 
+const tutorLiveOpeningAudio = new WeakMap<KrenResultsViewProvider, TutorLiveAudioChunk[]>();
+
+/** Keep native playback idle while the opening turn is requested during the intro pause. */
+export function holdTutorLiveOpeningAudio(view: KrenResultsViewProvider, ready: Promise<boolean>): void {
+    const chunks: TutorLiveAudioChunk[] = [];
+    tutorLiveOpeningAudio.set(view, chunks);
+    void ready.then(released => {
+      if (tutorLiveOpeningAudio.get(view) !== chunks) return;
+      tutorLiveOpeningAudio.delete(view);
+      if (!released || !view.tutorState.conversation.speakerOn) return;
+      try { for (const chunk of chunks) playTutorLiveAudio(view, chunk); }
+      catch (error) { failTutorLiveAudio(view, error); }
+    });
+  }
+
 export function stopTutorLiveAudio(view: KrenResultsViewProvider): void {
+    tutorLiveOpeningAudio.delete(view);
     const wasPlaying = view.tutorLivePlaybackBlockedUntil === Number.POSITIVE_INFINITY;
     view.tutorLiveAudioPlayer?.stop();
     view.tutorLivePlaybackQueuedUntil = 0;
@@ -94,6 +111,8 @@ export function stopTutorLiveAudio(view: KrenResultsViewProvider): void {
   }
 
 export function playTutorLiveAudio(view: KrenResultsViewProvider, chunk: TutorLiveAudioChunk): void {
+    const held = tutorLiveOpeningAudio.get(view);
+    if (held) { held.push({ ...chunk }); return; }
     const player = view.tutorLiveAudioPlayer;
     if (!player) return;
     player.play(chunk);
@@ -117,6 +136,7 @@ export function tutorLivePlaybackProgress(view: KrenResultsViewProvider,
     const releasedAt = Date.now() + TUTOR_LIVE_ECHO_MARGIN_MS;
     view.tutorLivePlaybackQueuedUntil = Date.now();
     view.tutorLivePlaybackBlockedUntil = releasedAt;
+    view.tutorIntroCompletionWait?.playbackComplete();
     view.tutorLiveTurnTiming?.echoGateReleased(releasedAt);
     view.tutorLiveCompletedTiming?.echoGateReleased(releasedAt);
     view.tutorLiveCompletedTiming?.write();
@@ -352,6 +372,7 @@ export function tutorLiveChoiceNote(view: KrenResultsViewProvider): string | und
   }
 
 export function closeTutorLiveSession(view: KrenResultsViewProvider, reconcilePicture = true, preserveCoaching = false): void {
+    if (view.tutorLiveOpeningNarration) cancelTutorIntroCompletion(view);
     cancelTutorLivePendingInputReply(view);
     cancelTutorConversationPicture(view);
     view.tutorLiveResumeController?.abort();
@@ -422,9 +443,9 @@ export async function releaseTutorConversationResources(view: KrenResultsViewPro
     if (clearArchivedAudio) view.tutorLiveConversationAudio.clear();
   }
 
-export function beginTutorLiveReply(view: KrenResultsViewProvider): void {
+export function beginTutorLiveReply(view: KrenResultsViewProvider, afterIntro = false): void {
     // 2026-10-11: A Live reply takes priority over an in-flight Chirp preview or reading.
-    if (view.actions.settings().tutorReadAloudProvider === 'googleChirp') view.actions.stopReadAloud();
+    if (!afterIntro && view.actions.settings().tutorReadAloudProvider === 'googleChirp') view.actions.stopReadAloud();
     stopTutorLiveAudio(view);
     view.tutorLiveReplyText = '';
     view.tutorLiveReplyRawText = '';
@@ -747,6 +768,12 @@ export function cancelTutorLiveSpokenTurn(view: KrenResultsViewProvider): boolea
   }
 
 export function interruptTutorLiveReply(view: KrenResultsViewProvider): void {
+    if (view.tutorLiveOpeningNarration) {
+      view.tutorConversationController?.abort();
+      cancelTutorIntroCompletion(view);
+      stopTutorLiveAudio(view);
+      return;
+    }
     stopTutorLiveAudio(view);
     view.tutorLiveReplyAudio = [];
     view.tutorLiveReplyAudioComplete = false;
@@ -841,6 +868,8 @@ export function failTutorLiveAudio(view: KrenResultsViewProvider, error: unknown
     cancelTutorLiveReplayWait(view);
     view.tutorLivePlaybackQueuedUntil = 0;
     view.tutorLivePlaybackBlockedUntil = 0;
+    // A failed player has no remaining audible buffers to hold the opening forever.
+    view.tutorIntroCompletionWait?.playbackComplete();
     postTutorLiveSpeakerState(view);
     postTutorConversationStopState(view);
   }
@@ -859,7 +888,7 @@ export function postTutorLiveSpeakerState(view: KrenResultsViewProvider): void {
     });
   }
 
-export function disableTutorLive(view: KrenResultsViewProvider, error: TutorLiveSessionError, context: string, missingKey = false): void {
+export function disableTutorLive(view: KrenResultsViewProvider, error: TutorLiveSessionError, context: string, missing?: MissingCredentials): void {
     // V121: view used to drop the reference without closing the socket, so a failed session
     // stayed open and a late fragment from it could land in the next conversation's opening.
     const pendingInputFailed = cancelTutorLivePendingInputReply(view);
@@ -867,9 +896,8 @@ export function disableTutorLive(view: KrenResultsViewProvider, error: TutorLive
     closeTutorLiveSession(view);
     if (!view.tutorLiveFailed) {
       view.actions.log(`[conversation Live fallback: ${context}] ${error.message}.`);
-      view.actions.notify('warning', missingKey
-        ? 'Live replies need a Gemini key. KREN continues with Standard replies.'
-        : 'The Live session stopped. KREN continues with Standard replies.');
+      if (missing) void showMissingCredentialNotice(missing, view, 'KREN continues with Standard replies.');
+      else view.actions.notify('warning', 'The Live session stopped. KREN continues with Standard replies.');
     }
     view.tutorLiveFailed = true;
     postTutorLiveTalkState(view, false);

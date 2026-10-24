@@ -1,5 +1,7 @@
+import { missingCredentialDetails, missingCredentialMessage } from './requestCenter.js';
 import type { SpeechAdapter, SpeechResult, SpeechVoice } from './speech/speechAdapter.js';
 import type { EdgeReadAloudResult } from './windowsEdgeReadAloud.js';
+import { sentencePause, speechSsml, splitSpeechSentences } from './speech/sentencePause.js';
 import { KREN_SECRET_KEYS } from './operations.js';
 
 export const GOOGLE_CHIRP_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
@@ -32,8 +34,9 @@ export interface ChirpPlayback {
   failureCause?(): string | undefined;
 }
 // 2026-10-12: Sentence order is retained, and small fragments share a request.
-export function chirpSentences(text: string): string[] {
-  const sentences = Array.from(new Intl.Segmenter('en', { granularity: 'sentence' }).segment(text), part => part.segment.trim());
+export function chirpSentences(text: string, retainAbbreviations = false): string[] {
+  // 2026-10-21: Preserve the original grouping byte for byte when pauses are disabled.
+  const sentences = splitSpeechSentences(text, retainAbbreviations);
   const chunks: string[] = [];
   let pending = '';
   for (const sentence of sentences) {
@@ -89,7 +92,8 @@ export class GoogleChirpPlayer implements SpeechAdapter {
     this.playback.beginSession?.();
     const current = () => !controller.signal.aborted && this.controller === controller;
     const began = Date.now();
-    const sentences = chirpSentences(text);
+    const pause = options.feature === 'readAloud' ? 0 : sentencePause(options.sentencePauseMilliseconds);
+    const sentences = chirpSentences(text, pause > 0);
     const attempts = sentences.map(() => 0);
     let sentenceIndex = 0;
     let logged = false;
@@ -108,17 +112,25 @@ export class GoogleChirpPlayer implements SpeechAdapter {
         await waitForChirpRetry(controller.signal);
       };
       const synthesize = async (index: number): Promise<string | undefined> => {
+        let useSsml = pause > 0;
+        let plainTextRetry = false;
         while (current()) {
           try {
             this.recordUsage(options.feature ?? 'tutorSpeech', Array.from(sentences[index]!).length);
             const response = await this.fetcher(GOOGLE_CHIRP_ENDPOINT, {
               method: 'POST', signal: controller.signal,
               headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key },
-              body: JSON.stringify({ input: { text: sentences[index] },
+              body: JSON.stringify({ input: useSsml ? { ssml: speechSsml(sentences[index]!, pause, index < sentences.length - 1) } : { text: sentences[index] },
                 voice: { languageCode, name: `${languageCode}-Chirp3-HD-${voice}` },
                 audioConfig: { audioEncoding: 'MP3', speakingRate: chirpSpeakingRate(rate) } })
             });
             if (!current()) return;
+            if (response.status === 400 && useSsml) {
+              useSsml = false;
+              plainTextRetry = true;
+              this.log('[speech] Google Cloud Text-to-Speech rejected SSML (HTTP 400); retrying group once as plain text.');
+              continue;
+            }
             if (!response.ok) throw new ChirpFailure(response.status, false, 'no response',
               googleErrorCodes(await response.json().catch(() => undefined)));
             const value: unknown = await response.json().catch(() => { throw new ChirpFailure(undefined, false, 'unreadable audio'); });
@@ -131,6 +143,7 @@ export class GoogleChirpPlayer implements SpeechAdapter {
             return content;
           } catch (error) {
             if (!current()) return;
+            if (plainTextRetry) throw error;
             await retry(error, index);
           }
         }
@@ -152,6 +165,8 @@ export class GoogleChirpPlayer implements SpeechAdapter {
             if (!next && sentenceIndex + 1 < sentences.length) next = request(sentenceIndex + 1);
           };
           try {
+            if (options.playbackBarrier && !await options.playbackBarrier()) return { status: 'stopped' };
+            if (!current()) return { status: 'stopped' };
             const result = await this.playback.play(content.audio, volume, started)
               .catch(() => { throw new ChirpFailure(undefined, false, 'playback', '', this.playback.failureCause?.()); });
             if (!current() || result === 'stopped') return { status: 'stopped' };
@@ -179,6 +194,7 @@ export class GoogleChirpPlayer implements SpeechAdapter {
         ? `Google Cloud Text-to-Speech audio could not play (native player: ${failure.playbackCause ?? 'unknown'}).`
         : options.feature === 'readAloud' && failure.status === 400
         ? `Google Cloud Text-to-Speech has no ${new Intl.DisplayNames(['en'], { type: 'language' }).of(languageCode.split('-')[0]!)} voice named ${voice}.`
+        : failure.missingKey ? missingCredentialMessage(missingCredentialDetails('googleCloudTextToSpeech'))
         : chirpFailureMessage(failure.status, failure.reason, failure.codes);
       controller.abort();
       return { status: 'failed', cause, message, missingKey: failure.missingKey,

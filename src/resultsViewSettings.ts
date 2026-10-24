@@ -136,7 +136,6 @@ export async function confirmTutorReset(view: KrenResultsViewProvider): Promise<
       view.pendingTutorResetAllDisclosures = choice === 'Reset everything';
       if (choice === 'Reset everything') view.refresh();
       else view.render();
-      view.actions.notify('information', 'AI English Tutor was reset.');
     } finally {
       tutorResetsInProgress.delete(view);
     }
@@ -157,7 +156,6 @@ export async function confirmTutorLessonReset(view: KrenResultsViewProvider): Pr
   view.tutorState = { ...resetTutorGeneratedWork(view.tutorState), conversation };
   view.pendingTutorAnnouncement = 'The lesson and practice were reset.';
   view.render();
-  view.actions.notify('information', 'The lesson and practice were reset.');
 }
 
 export async function updateTutorSetting(view: KrenResultsViewProvider, 
@@ -245,9 +243,8 @@ export async function updateTutorSetting(view: KrenResultsViewProvider,
     if (key === 'tutor.speechProvider' || key === 'tutor.provider' || key === 'tutor.model' || key === 'tutor.hintModel' ||
         key === 'tutor.alternateModel' ||
         key === 'tutor.liveModel' || key === 'tutor.pictureProvider' || key === 'tutor.imageModel' || key === 'tutor.cloudflareImageModel' ||
-        key === 'tutor.thinkingOrEffort' || key === 'tutor.geminiProfile' ||
-        key === 'tutor.fallbackEnabled' || key === 'tutor.fallbackModel' ||
-        key === 'tutor.fallbackThinkingOrEffort' ||
+        key === 'tutor.thinkingOrEffort' || key === 'tutor.geminiProfile' || key === 'tutor.liveGeminiProfile' ||
+        key === 'tutor.fallbackEnabled' || key === 'tutor.hintThinkingOrEffort' ||
         key === 'tutor.conversation.microphoneSensitivity' ||
         key === 'tutor.conversation.pauseBeforeReply' ||
         key === 'tutor.conversation.speechDetection' ||
@@ -325,8 +322,8 @@ export async function updateTutorSetting(view: KrenResultsViewProvider,
     } else if (key === 'tutor.conversation.pauseBeforeReply' && previousState.conversation.status === 'active') {
       if (view.view) void view.view.webview.postMessage({ command: 'tutorConversationPauseBeforeReply', seconds: value });
     } else if (voiceSetting || ['tutor.speechProvider', 'tutor.provider', 'tutor.model', 'tutor.alternateModel', 'tutor.geminiProfile',
-        'tutor.hintModel', 'tutor.liveModel', 'tutor.pictureProvider', 'tutor.imageModel', 'tutor.cloudflareImageModel', 'tutor.fallbackEnabled',
-        'tutor.fallbackModel', 'tutor.fallbackThinkingOrEffort', 'tutor.thinkingOrEffort'].includes(key)) {
+        'tutor.hintModel', 'tutor.liveModel', 'tutor.liveGeminiProfile', 'tutor.pictureProvider', 'tutor.imageModel', 'tutor.cloudflareImageModel', 'tutor.fallbackEnabled',
+        'tutor.hintThinkingOrEffort', 'tutor.thinkingOrEffort'].includes(key)) {
       if (key === 'tutor.speechProvider') view.render(false, true, true);
       else view.render(false, true);
     } else if (previousState.conversation.status !== 'active' || !voiceSetting) view.render();
@@ -439,6 +436,7 @@ export async function previewTutorGeminiVoice(view: KrenResultsViewProvider): Pr
       if (failed) return;
       stage = 'opening the Live session';
       session = new TutorLiveSession({
+        geminiProfile: view.actions.settings().tutorLiveProfile ?? 'standard',
         apiKey,
         model: configuredTutorLiveModel(),
         voiceName: normalizedTutorLiveVoice(view.tutorState.conversation.liveVoice),

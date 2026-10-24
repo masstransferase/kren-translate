@@ -50,7 +50,8 @@ function preferenceProvider(stored?: unknown): {
     readSelectedEditorPassage: vi.fn(), generateTutor: vi.fn(), transcribeTutorAudio: vi.fn(),
     runTutorTool: vi.fn(), updateSetting: vi.fn(), updateTutorVoiceSetting: vi.fn(),
     runCommand: vi.fn(), rerunOperation: vi.fn(), log: vi.fn(),
-    settings: vi.fn(() => ({ ...PANEL_SETTINGS_FIXTURE })),
+    // Changed 2026-10-23 (V304, owner I75): switching tests begin with a stored Live key.
+    settings: vi.fn(() => ({ ...PANEL_SETTINGS_FIXTURE, credentialPresence: { geminiDefault: true } })),
     refreshGeminiModels: vi.fn(), refreshGeminiLiveModels: vi.fn(),
     refreshProModels: vi.fn(), refreshOpenAIModels: vi.fn(),
     refreshAnthropicModels: vi.fn(), refreshReadAloudVoices: vi.fn(),

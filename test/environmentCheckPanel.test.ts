@@ -43,17 +43,30 @@ it('places the keyboard-reachable update command last, after Settings, in every 
     expect(buttons.eq(-2).attr('data-command')).toBe('showSettings');
   });
 });
-it('shows the notice next to Home on Start for required updates, with an ordinary button outside disclosures', () => {
+it('shows the notice below the header buttons on Start for required updates, with an ordinary button outside disclosures', () => {
   const $ = load(html({ systemUpdatesAvailable: systemUpdatesAvailable({ 'edge-tts': 'update' }) }));
   const button = $('#result-screen [data-system-updates]');
   // Changed 2026-10-17: V261, F5 owner canvas edit, the shorter label still names available updates.
   expect(button.text()).toMatch(/updates available/iu);
-  expect(button.prev().attr('data-command')).toBe('showStartPage');
+  // Changed 2026-10-21 (owner, canvas): The notice row is the header's next sibling.
+  expect(button.parent().hasClass('system-updates-row')).toBe(true);
+  expect(button.parent().prev().is('header.intro-header')).toBe(true);
   expect(button.is('button:not([disabled])')).toBe(true);
   expect(button.parents('details, .hidden')).toHaveLength(0);
   expect(button.attr('data-command')).toBe('checkForUpdates');
   const optional = load(html({ systemUpdatesAvailable: systemUpdatesAvailable({ Handy: 'missing' }) }));
   expect(optional('#result-screen [data-system-updates]').hasClass('hidden')).toBe(true);
+});
+// Changed 2026-10-21 (owner, canvas): The update card names the READ ALOUD settings destination.
+it('labels the Read Aloud update fix with the owner capitalization', () => {
+  const $ = load(html({ activeScreen: 'updates', environmentItems: [{
+    name: 'Read Aloud voice', status: 'update', found: 'old', expected: 'available',
+    explanation: 'Choose an available voice.', fixTarget: 'readAloud'
+  }] }));
+  const button = $('#updates-screen [data-update-fix-target="readAloud"]');
+  expect(button.text()).toBe('Open READ ALOUD voice settings');
+  expect(button.is('button:not([disabled])')).toBe(true);
+  expect(button.parents('details, .hidden, [hidden]')).toHaveLength(0);
 });
 it('patches a mounted Start notice on and off without replacing the page', () => {
   const panel = mountedPanel(html(), () => {});

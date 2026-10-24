@@ -1,3 +1,7 @@
+import { CLOUDFLARE_IMAGE_MODEL_DEFAULT } from './tutor/pictureSettings.js';
+import type { WorkspaceConfiguration } from 'vscode';
+import { DEFAULT_GEMINI_MODEL } from './providers/geminiModels.js';
+
 import { TUTOR_DEFAULTS } from './tutor/defaults.js';
 import { isReadAloudChirpVoice } from './readAloudChirp.js';
 import { validProviderOrder } from './languageModelSwitching.js';
@@ -25,7 +29,68 @@ import {
 import { isTutorSentenceBandId } from './tutor/state.js';
 import { EXPLANATION_SAME_AS_SOURCE } from './types.js';
 
+export const GLOBAL_ROUTING_DEFAULTS = {
+  provider: 'gemini', geminiProfile: 'standard', model: DEFAULT_GEMINI_MODEL,
+  alternateModel: 'gemini-3.1-pro-preview', thinkingOrEffort: 'auto',
+  fallbackEnabled: false, fallbackModel: DEFAULT_GEMINI_MODEL, fallbackThinkingOrEffort: 'low'
+} as const;
+export type GlobalRoutingSuffix = keyof typeof GLOBAL_ROUTING_DEFAULTS;
+export const GLOBAL_ROUTING_SUFFIXES = Object.keys(GLOBAL_ROUTING_DEFAULTS) as GlobalRoutingSuffix[];
+
+/** Read only the saved draft, because it has no effect until the owner confirms Apply. */
+export function globalRoutingSettings(config: Pick<WorkspaceConfiguration, 'get'>) {
+  return Object.fromEntries(GLOBAL_ROUTING_SUFFIXES.map(suffix => [suffix,
+    config.get(`global.${suffix}`, GLOBAL_ROUTING_DEFAULTS[suffix])
+  ])) as { [K in GlobalRoutingSuffix]: K extends 'fallbackEnabled' ? boolean : string };
+}
+
+/** Snapshot the exact writes and their preview before opening the single confirmation. */
+export function globalRoutingPlan(config: Pick<WorkspaceConfiguration, 'get' | 'inspect'>,
+  folders: readonly { name: string; config: Pick<WorkspaceConfiguration, 'inspect'> }[] = []) {
+  const draft = globalRoutingSettings(config);
+  const writes: { key: KrenPanelSettingKey; value: string | boolean }[] = [];
+  const sections: string[] = [];
+  const labels: Record<string, string> = { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Anthropic', groq: 'Groq', cloudflare: 'Cloudflare' };
+  const display = (suffix: GlobalRoutingSuffix, value: unknown): string => suffix === 'provider' ? labels[String(value)] ?? String(value)
+    : suffix === 'geminiProfile' ? value === 'pro' ? 'Paid' : 'Free Tier'
+      : typeof value === 'boolean' ? value ? 'On' : 'Off' : String(value);
+  const titles: Record<GlobalRoutingSuffix, string> = { provider: 'Provider', geminiProfile: 'Gemini profile', model: 'Model',
+    alternateModel: 'Paid model', thinkingOrEffort: 'Thinking level', fallbackEnabled: 'Automatic fallback',
+    fallbackModel: 'Fallback model', fallbackThinkingOrEffort: 'Fallback thinking level' };
+  for (const [prefix, feature] of [['translation', 'Translation'], ['userDictionary', 'Grammar and User Dictionary'],
+    ['explanation', 'Explain'], ['rewrite', 'Rewrite']] as const) {
+    if (prefix === 'translation' && !['gemini', 'groq', 'cloudflare'].includes(draft.provider)) {
+      sections.push(`${feature} kept ${labels[String(config.get(`${prefix}.provider`))] ?? config.get(`${prefix}.provider`)} (Translation cannot use ${labels[draft.provider] ?? draft.provider}).`);
+      continue;
+    }
+    const lines: string[] = [];
+    for (const suffix of GLOBAL_ROUTING_SUFFIXES) {
+      const key = `${prefix}.${suffix}` as KrenPanelSettingKey;
+      const value = validatedPanelSetting(`global.${suffix}`, draft[suffix]);
+      if (value === undefined) throw new Error(`Invalid Global LLM setting: ${suffix}.`);
+      const inspected = config.inspect(key);
+      const before = inspected?.globalValue ?? inspected?.defaultValue;
+      if (before !== value) {
+        writes.push({ key, value: value as string | boolean });
+        lines.push(`${titles[suffix]}: ${display(suffix, before)} → ${display(suffix, value)}`);
+      }
+      const overrides: string[] = [];
+      if (inspected?.workspaceValue !== undefined || inspected?.workspaceLanguageValue !== undefined) overrides.push('workspace');
+      if (inspected?.workspaceFolderValue !== undefined || inspected?.workspaceFolderLanguageValue !== undefined) overrides.push('folder');
+      if (inspected?.globalLanguageValue !== undefined) overrides.push('language-specific Global');
+      for (const folder of folders) {
+        const scope = folder.config.inspect(key);
+        if (scope?.workspaceFolderValue !== undefined || scope?.workspaceFolderLanguageValue !== undefined) overrides.push(`folder "${folder.name}"`);
+      }
+      if (overrides.length) lines.push(`${titles[suffix]}: ${overrides.join(', ')} override remains and can mask the Global value.`);
+    }
+    sections.push(`${feature}:\n${lines.length ? lines.join('\n') : 'Already matches. No changes.'}`);
+  }
+  return { writes, preview: `${sections.join('\n\n')}\n\nWrites use Global scope. Translation engine, Smart Grammar on/off, and tutor routing stay unchanged.` };
+}
+
 export type KrenPanelSettingKey =
+  | `global.${GlobalRoutingSuffix}`
   | 'llm.providerSwitch'
   | 'llm.providerOrder'
   | 'results.openAtStartup'
@@ -167,9 +232,9 @@ export type KrenPanelSettingKey =
   | 'tutor.alternateModel'
   | 'tutor.thinkingOrEffort'
   | 'tutor.geminiProfile'
+  | 'tutor.liveGeminiProfile'
   | 'tutor.fallbackEnabled'
-  | 'tutor.fallbackModel'
-  | 'tutor.fallbackThinkingOrEffort'
+  | 'tutor.hintThinkingOrEffort'
   | 'tutor.readAloud.provider'
   | 'tutor.readAloud.edgeLocale'
   | 'tutor.readAloud.edgeVoice'
@@ -177,6 +242,7 @@ export type KrenPanelSettingKey =
   | 'tutor.readAloud.voice'
   | 'tutor.readAloud.rate'
   | 'tutor.readAloud.volume'
+  | 'tutor.readAloud.sentencePauseMilliseconds'
   | 'tutor.conversation.microphoneSensitivity'
   | 'tutor.conversation.pauseBeforeReply'
   | 'tutor.conversation.speechDetection'
@@ -195,6 +261,7 @@ export type KrenPanelSettingKey =
  * validator are two lists of the same keys, so a test compares them.
  */
 export const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
+  ...GLOBAL_ROUTING_SUFFIXES.map(suffix => `global.${suffix}` as const),
   'llm.providerSwitch', 'llm.providerOrder',
   'results.openAtStartup',
   'translationProvider',
@@ -335,9 +402,9 @@ export const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   ,'tutor.alternateModel'
   ,'tutor.thinkingOrEffort'
   ,'tutor.geminiProfile'
+  ,'tutor.liveGeminiProfile'
   ,'tutor.fallbackEnabled'
-  ,'tutor.fallbackModel'
-  ,'tutor.fallbackThinkingOrEffort'
+  ,'tutor.hintThinkingOrEffort'
   ,'tutor.readAloud.provider'
   ,'tutor.readAloud.edgeLocale'
   ,'tutor.readAloud.edgeVoice'
@@ -345,6 +412,7 @@ export const PANEL_SETTING_KEYS = new Set<KrenPanelSettingKey>([
   ,'tutor.readAloud.voice'
   ,'tutor.readAloud.rate'
   ,'tutor.readAloud.volume'
+  ,'tutor.readAloud.sentencePauseMilliseconds'
   ,'tutor.conversation.microphoneSensitivity'
   ,'tutor.conversation.pauseBeforeReply'
   ,'tutor.conversation.speechDetection'
@@ -368,10 +436,10 @@ export const READ_ALOUD_PROVIDER_DEFAULT = 'edgeOnline';
 export const READ_ALOUD_EDGE_VOICE_DEFAULT = 'en-US-ChristopherNeural';
 export const RESULTS_OPEN_AT_STARTUP_DEFAULT = true;
 
-export const CLOUDFLARE_IMAGE_MODEL_DEFAULT = '@cf/black-forest-labs/flux-1-schnell';
+export { CLOUDFLARE_IMAGE_MODEL_DEFAULT };
 export const CLOUDFLARE_IMAGE_MODELS: Array<[string, string]> = [
-  [CLOUDFLARE_IMAGE_MODEL_DEFAULT, 'FLUX.1 schnell'],
-  ['@cf/black-forest-labs/flux-2-klein-4b', 'FLUX.2 klein 4B']
+  ['@cf/black-forest-labs/flux-1-schnell', 'FLUX.1 schnell'],
+  [CLOUDFLARE_IMAGE_MODEL_DEFAULT, 'FLUX.2 klein 4B']
 ];
 
 export const TUTOR_LIVE_MODEL_DEFAULT = TUTOR_DEFAULTS.configuration['tutor.liveModel'];
@@ -444,6 +512,9 @@ export function validatedPanelSetting(
   value: string | number | boolean
 ): string | number | boolean | undefined {
   if (!PANEL_SETTING_KEYS.has(key)) return undefined;
+  if (key.startsWith('global.')) {
+    return validatedPanelSetting(`translation.${key.slice('global.'.length)}` as KrenPanelSettingKey, value);
+  }
   if (key === 'llm.providerSwitch') return typeof value === 'boolean' ? value : undefined;
   if (key === 'llm.providerOrder') {
     try { const order: unknown = typeof value === 'string' ? JSON.parse(value) : undefined;
@@ -514,10 +585,10 @@ export function validatedPanelSetting(
   if (key === 'tutor.thinkingOrEffort') {
     return isLanguageModelRoutingEffort(value) ? value : undefined;
   }
-  if (key === 'tutor.geminiProfile') {
+  if (key === 'tutor.geminiProfile' || key === 'tutor.liveGeminiProfile') {
     return value === 'standard' || value === 'pro' ? value : undefined;
   }
-  if (key === 'tutor.fallbackThinkingOrEffort') {
+  if (key === 'tutor.hintThinkingOrEffort') {
     return isLanguageModelRoutingEffort(value) ? value : undefined;
   }
   if (key === 'tutor.hintModel') {
@@ -530,7 +601,7 @@ export function validatedPanelSetting(
   if (key === 'tutor.pictureProvider') return value === 'gemini' || value === 'cloudflare' ? value : undefined;
   if (key === 'tutor.cloudflareImageModel') return CLOUDFLARE_IMAGE_MODELS.some(([id]) => value === id) ? value : undefined;
   if (key === 'tutor.model' || key === 'tutor.liveModel' || key === 'tutor.alternateModel' ||
-      key === 'tutor.fallbackModel' || key === 'tutor.imageModel') {
+      key === 'tutor.imageModel') {
     return value !== 'nonsense' && isLanguageModelIdentifier(value)
       ? (value as string).trim()
       : undefined;
@@ -557,6 +628,10 @@ export function validatedPanelSetting(
     return boundedInteger(value, -50, 100);
   }
   if (key === 'tutor.readAloud.rate') return boundedInteger(value, -10, 10);
+  if (key === 'tutor.readAloud.sentencePauseMilliseconds') {
+    const numeric = typeof value === 'string' && /^(0|250|500|750|1000)$/u.test(value) ? Number(value) : value;
+    return typeof numeric === 'number' && [0, 250, 500, 750, 1000].includes(numeric) ? numeric : undefined;
+  }
   if (key === 'tutor.readAloud.volume') return boundedInteger(value, 0, 100);
   if (key.startsWith('tutor.axis.')) {
     const axis = key.slice('tutor.axis.'.length);

@@ -56,7 +56,8 @@ it('two malformed gemini-3.8-flash Rewrite attempts show their cause even if pan
   expect(failure).toBeInstanceOf(ProviderError);
   await queue.show('error', (failure as Error).message, 'Retry Now');
   // Changed 2026-10-18: V267, owner item I50, choice questions use VS Code's dialog.
-  expect(fallback).toHaveBeenCalledWith('error', expect.stringMatching(/Gemini.*unsupported rewrite result/u), {}, ['Retry Now']);
+  // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+  expect(fallback).toHaveBeenCalledWith('error', expect.stringMatching(/Gemini.*unsupported rewrite result/u), { modal: true }, ['Retry Now']);
   expect(log.mock.calls.filter(([line]) => line.includes('[provider failure]'))).toHaveLength(2);
 });
 
@@ -92,7 +93,8 @@ it.each(['translate', 'explain'] as const)('the same two-attempt %s validation f
   try { await runKrenOperation(rt, operation, explicitTextSubmission('A short sentence.'), signal()); }
   catch (error) { await queue.show('error', (error as Error).message); }
   expect(fetch).toHaveBeenCalledTimes(2);
-  expect(fallback).toHaveBeenCalledWith('error', expect.stringMatching(/Gemini.*no translation/u), {}, []);
+  // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+  expect(fallback).toHaveBeenCalledWith('error', expect.stringMatching(/Gemini.*no translation/u), { modal: true }, ['OK']);
   expect(log.mock.calls.filter(([line]) => line.includes('unreadable output'))).toHaveLength(2);
 });
 

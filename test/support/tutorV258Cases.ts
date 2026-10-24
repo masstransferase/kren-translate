@@ -32,7 +32,8 @@ function harness(generate: (request: TutorStructuredGenerationRequest, route: Tu
   state.settings.sentenceBand = 'medium'; state.selection = [{ nodeId: target.id, role: 'primary' }];
   const requests: TutorStructuredGenerationRequest[] = [], lines: string[] = [], patches: any[] = [];
   let renders = 0;
-  const view = { tutorState: state, tutorGeneration: 0, tutorConversationTurnGeneration: 0, proModels: [], liveModels: [],
+  // Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
+  const view = { showMissingCredentialError: KrenResultsViewProvider.prototype.showMissingCredentialError, tutorState: state, tutorGeneration: 0, tutorConversationTurnGeneration: 0, proModels: [], liveModels: [],
     tutorReviewControllers: new Map(), tutorHintControllers: new Map(), tutorExampleControllers: new Map(), tutorConversationRawAnswers: new Map(),
     render: () => { renders++; }, view: { webview: { html: 'Retained answer box', postMessage: (patch: unknown) => { patches.push(patch); return Promise.resolve(true); } } },
     actions: { settings: () => ({ ...PANEL_SETTINGS_FIXTURE, tutorConversationTakeHome: true, tutorProfile: 'standard',
@@ -294,7 +295,8 @@ export const cases: Array<{ name: string; run(): void | Promise<void> }> = [
     for (const prefix of ['translation', 'explanation', 'rewrite', 'userDictionary', 'tutor']) {
       const control = rendered(`[data-setting="${prefix}.fallbackEnabled"]`);
       assert.ok(control.length >= 1, prefix); assert.equal(control.closest('[data-gemini-profile-value="pro"]').length, 0, prefix);
-      assert.match(control.closest('label').text(), /fallback/iu);
+      // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+      assert.match(control.closest('label').text(), prefix === 'tutor' ? /Use Fast when Thorough is unavailable/u : /fallback/iu);
     }
     assert.match(rendered('#manual-screen').text(), /fallback supports Free Tier and Paid/u);
   } }

@@ -1,5 +1,7 @@
 import { normalizeGeminiModel } from './providers/geminiModels.js';
 import { classifyGeminiRateLimit } from './providers/gemini.js';
+import { recordObject, count, localDay, identifier, reportedLanguageModelUsage, normalizeUsageRows, addLanguageModelUsage } from '@kren/core/request-decisions';
+export { reportedLanguageModelUsage };
 
 export interface LanguageModelUsage {
   geminiProfile?: 'standard' | 'pro';
@@ -15,21 +17,6 @@ export interface LanguageModelRequest { feature: string; provider: string; model
 interface UsageState { days: Record<string, LanguageModelUsage[]> }
 interface LocalState { get<T>(key: string, fallback: T): T; update(key: string, value: unknown): PromiseLike<void> }
 export const LANGUAGE_MODEL_USAGE_KEY = 'kren.languageModelUsage.v1';
-const recordObject = (value: unknown): Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-const count = (value: unknown): number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
-
-/** Read reported counts only. No prompt, completion, audio, credential, or response is retained. */
-export function reportedLanguageModelUsage(provider: string, envelope: unknown): Pick<LanguageModelUsage, 'input' | 'output' | 'thinking'> {
-  const value = recordObject(envelope);
-  const usage = recordObject(provider === 'gemini' ? value.usageMetadata : value.usage ?? recordObject(value.result).usage);
-  return provider === 'gemini'
-    ? { input: count(usage.promptTokenCount), output: count(usage.candidatesTokenCount ?? usage.responseTokenCount), thinking: count(usage.thoughtsTokenCount) }
-    : { input: count(usage.prompt_tokens ?? usage.input_tokens), output: count(usage.completion_tokens ?? usage.output_tokens), thinking: 0 };
-}
-const localDay = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-const identifier = (value: string): string => /^[A-Za-z0-9@_./:+-]{1,160}$/u.test(value) ? value : 'custom';
-
 /** globalState is local to the extension profile; this key is never registered for sync. */
 export class LanguageModelUsageRecorder {
   private state: UsageState;
@@ -40,11 +27,7 @@ export class LanguageModelUsageRecorder {
     const stored = recordObject(storage.get<unknown>(LANGUAGE_MODEL_USAGE_KEY, undefined));
     for (const [day, rows] of Object.entries(recordObject(stored.days))) {
       if (!/^\d{4}-\d{2}-\d{2}$/u.test(day) || !Array.isArray(rows)) continue;
-      this.state.days[day] = rows.flatMap((row: unknown) => {
-        const r = recordObject(row);
-        return typeof r.provider === 'string' && typeof r.model === 'string'
-          ? [{ provider: identifier(r.provider), model: identifier(r.model), requests: count(r.requests), input: count(r.input), output: count(r.output), thinking: count(r.thinking), ...(r.provider === 'gemini' && (r.geminiProfile === 'pro' || r.geminiProfile === 'standard') ? { geminiProfile: r.geminiProfile } : {}), ...(r.characters !== undefined ? { characters: count(r.characters) } : {}) }] : [];
-      });
+      this.state.days[day] = normalizeUsageRows(rows);
     }
     this.prune();
   }
@@ -64,16 +47,9 @@ export class LanguageModelUsageRecorder {
   }
   public record(request: LanguageModelRequest, envelope?: unknown): void {
     this.prune();
-    const provider = identifier(request.provider);
-    const model = identifier(provider === 'gemini' ? normalizeGeminiModel(request.model).replace(/^models\//u, '') : request.model);
-    const tokens = reportedLanguageModelUsage(provider, envelope);
-    const rows = this.state.days[localDay(this.now())] ??= [];
-    const profile = provider === 'gemini' ? request.geminiProfile ?? 'standard' : undefined;
-    // 2026-10-12: legacy totals with no known profile remain separate from new pool totals.
-    let row = rows.find(r => r.provider === provider && r.model === model && (provider !== 'gemini' || r.geminiProfile === profile));
-    if (!row) { row = { provider, model, ...(profile ? { geminiProfile: profile } : {}), requests: 0, input: 0, output: 0, thinking: 0 }; rows.push(row); }
-    row.requests += 1; row.input += tokens.input; row.output += tokens.output; row.thinking += tokens.thinking;
-    if (provider === 'google-tts') row.characters = (row.characters ?? 0) + count(recordObject(envelope).characters);
+    const day = localDay(this.now());
+    const { rows, provider, model, tokens } = addLanguageModelUsage(this.state.days[day] ?? [], request, envelope);
+    this.state.days[day] = rows;
     this.persist();
     try { this.log(`[usage] ${identifier(request.feature)} ${provider} ${model} in=${tokens.input} out=${tokens.output} think=${tokens.thinking}`); } catch { /* Logging cannot fail a request. */ }
     try { this.changed(); } catch { /* A closed panel cannot fail a request. */ }

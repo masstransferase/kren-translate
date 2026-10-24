@@ -137,14 +137,19 @@ it('runs the requested manual check after an already-running daily check', async
   expect(h.list).toHaveBeenCalled();
   expect(h.checks.items.some(item => item.group === 'Models')).toBe(true);
 });
-it('collects shared grammar routing, every model default, tutor fallback and stored voice names', () => {
+// Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+it('collects shared grammar routing, every model default, tutor Fast and stored voice names', () => {
   const values: Record<string, string> = { 'translation.provider': 'groq', 'translation.model': groqChoice.name,
-    'tutor.fallbackModel': 'gemini-retired', 'readAloud.edgeVoice': 'en-US-StoredNeural', 'readAloud.chirpVoice': 'StoredChirp',
+    'tutor.hintModel': 'gemini-reader-fast', 'tutor.fallbackModel': 'gemini-retired',
+    'readAloud.edgeVoice': 'en-US-StoredNeural', 'readAloud.chirpVoice': 'StoredChirp',
     'groq.customModels': '["qwen/custom-choice"]' };
-  const names = availabilityNames((key, fallback) => values[key] ?? fallback);
+  const read = vi.fn((key: string, fallback: string) => values[key] ?? fallback);
+  const names = availabilityNames(read);
   expect(names.models.groq).toContainEqual(expect.objectContaining({ name: groqChoice.name, fixTarget: 'translation' }));
   expect(names.models.groq).toContainEqual(expect.objectContaining({ name: 'qwen/custom-choice', feature: 'groq custom model list' }));
-  expect(names.models.gemini).toContainEqual(expect.objectContaining({ name: 'gemini-retired', feature: 'Tutor, fallback' }));
+  expect(names.models.gemini).toContainEqual(expect.objectContaining({ name: 'gemini-reader-fast', feature: 'Tutor, Fast model' }));
+  expect(names.models.gemini?.some(model => model.name === 'gemini-retired')).toBe(false);
+  expect(read.mock.calls.some(([key]) => key === 'tutor.fallbackModel' || key === 'tutor.fallbackThinkingOrEffort')).toBe(false);
   expect(names.models.gemini).toContainEqual(expect.objectContaining({ feature: expect.stringContaining('Smart Grammar'), fixTarget: 'grammar' }));
   expect(names.edgeVoices).toContainEqual(expect.objectContaining({ name: 'en-US-StoredNeural', fixTarget: 'readAloud' }));
   expect(names.chirpVoices).toContainEqual(expect.objectContaining({ name: 'en-US-Chirp3-HD-StoredChirp', fixTarget: 'readAloud' }));

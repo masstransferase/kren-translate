@@ -1,3 +1,6 @@
+import { buildAnthropicRequestBody, readAnthropicFeatureResponse, type AnthropicEffort } from '@kren/core/provider-requests';
+export { buildAnthropicRequestBody, type AnthropicEffort };
+import { readCoreOutput } from './gemini.js';
 import { readProviderListedIds } from './geminiModels.js';
 import { requestWithRetry } from '../requestCenter.js';
 import { providerHttpError } from './httpError.js';
@@ -12,7 +15,6 @@ import type {
 import {
   normalizeGeminiResult,
   normalizeGeminiRewriteResult,
-  parseJson,
   rewriteSystemInstruction,
   systemInstruction
 } from './gemini.js';
@@ -22,12 +24,6 @@ import {
   rewriteSchema
 } from './openai.js';
 
-export type AnthropicEffort = 'auto' | 'low' | 'medium' | 'high';
-
-interface AnthropicResponse {
-  content?: Array<{ type?: unknown; text?: unknown }>;
-  error?: { message?: unknown };
-}
 export class AnthropicProvider implements LanguageModelProvider {
   public readonly id = 'anthropic' as const;
 
@@ -91,32 +87,10 @@ export class AnthropicProvider implements LanguageModelProvider {
         : providerHttpError('Anthropic', status), status === 401 || status === 403 ? 'setAnthropicKey' : 'configureAnthropicModel', retryable, status),
       refused: () => new ProviderError('Anthropic returned no usable text output.', undefined, false, undefined, 'refused'),
       decode: envelope => {
-        const payload = (envelope ?? {}) as AnthropicResponse;
-        const raw = payload.content?.find(block => block.type === 'text' && typeof block.text === 'string')?.text;
-        if (typeof raw !== 'string' || !raw.trim()) throw new ProviderError('Anthropic returned no usable text output.', undefined, false, undefined, 'structuredOutput');
-        return parseJson(raw.trim(), 'Anthropic');
+        return readCoreOutput(() => readAnthropicFeatureResponse(envelope));
       }
     });
   }
-}
-
-export function buildAnthropicRequestBody(
-  model: string,
-  system: string,
-  text: string,
-  schema: Record<string, unknown>,
-  effort: AnthropicEffort = 'low'
-): Record<string, unknown> {
-  return {
-    model,
-    max_tokens: 4096,
-    system,
-    messages: [{ role: 'user', content: [{ type: 'text', text }] }],
-    output_config: {
-      format: { type: 'json_schema', schema },
-      ...(effort === 'auto' ? {} : { effort })
-    }
-  };
 }
 
 export async function listAnthropicModels(

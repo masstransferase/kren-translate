@@ -1,14 +1,16 @@
-import { isRetryableLanguageModelStatus, retryDelayMs, waitForRetry } from '@kren/core/retry';
+import { waitForRetry } from '@kren/core/retry';
+import { classifyRequestStatus, requestRetryDelay, responseRefused, safeCodes, safeRoute, identifier, boundedTransportAttempts, centerTransportAttempts, consumeRequestBudget, routeBudgetAvailable, requestBoundary, retryAttempt, shouldFallback, shouldRetryContent, recoveryAfterFailure, failureActions, compatibilityFailureCause, decisionUsageEvent, decisionFailureEvent } from '@kren/core/request-decisions';
+export { classifyRequestStatus, requestRetryDelay };
 import { ProviderError } from './errors.js';
+import { TUTOR_DEFAULTS } from './tutor/defaults.js';
 import { DEFAULT_PROVIDER_ORDER, ProviderExhaustionState, runWithProviderSwitch, providerSwitchMessage,
   isProviderQuotaExhausted, providerSwitchDependencies, type ProviderSwitchDependencies } from './languageModelSwitching.js';
 import { httpFailure, reportedLanguageModelUsage, recordLanguageModelUsage, recordLanguageModelFailure,
   trackLanguageModelAttempt, validateLanguageModelOutput, type LanguageModelRequest } from './languageModelUsage.js';
 import { canEscalateThinking, modeEffort, tutorFastModel, tutorModeModel, TUTOR_THINKING_MODES,
-  runTutorThinking, runAdaptiveThinking, type ThinkingMode } from './tutor/thinkingMode.js';
-import { classifyGeminiRateLimit, type GeminiQuotaCategory } from './providers/gemini.js';
-import { isGeminiOverloaded } from './providers/httpError.js';
-import { isProFallbackError, type KrenRuntime, type TutorLanguageModelRoute } from './operations.js';
+  tutorFastEffort, runTutorThinking, runAdaptiveThinking, type ThinkingMode } from './tutor/thinkingMode.js';
+import type { GeminiQuotaCategory } from './providers/gemini.js';
+import { type KrenRuntime, type TutorLanguageModelRoute } from './operations.js';
 import type { TutorStructuredGenerationRequest } from './tutor/generation.js';
 import type { LanguageModelRoutingProvider, LanguageModelRoutingEffort } from './languageModelRouting.js';
 
@@ -44,42 +46,8 @@ export type ValidationResult<T> =
   | { type: 'acceptedWithWarnings' | 'salvaged'; value: T; warnings: readonly FindingCode[] }
   | { type: 'rejected'; cause: 'unreadableOutput' | 'contentRejected' | 'refused'; codes: readonly FindingCode[] };
 
-/** Named legacy differences from R12 section 2. These are extraction policy, not new settings. */
-export interface RequestPolicy {
-  temporaryServiceSwitch: 'geminiOnly';
-  fallbackProfiles: 'tutorBothProfiles';
-  contentRecovery: 'selectedLessonChecks' | 'singleReviewTerminal' | 'reviewAllItems' | 'localTakeHomeSalvage' | 'featureValidation';
-  switchedAttemptSettings: 'actualProvider' | 'originalProvider';
-  validationLogging: 'trackedFastAndDictionary' | 'deferredPanel';
-  terminalPresentation: 'conversationActions' | 'fixedHint' | 'preservedWork' | 'validatorDetail';
-  fallbackClaims: 'configuredLegacy' | 'attemptHistory';
-  preflightObservation: 'quietLegacy' | 'decisionEvent';
-  modeRouting: 'selectedModel' | 'tutorModels';
-  openingAttemptCap?: 3;
-  /** Smart Grammar historically performs model fallback after adaptive thinking has finished. */
-  fallbackPlacement?: 'afterThinking';
-}
-const ordinaryPolicy: RequestPolicy = {
-  temporaryServiceSwitch: 'geminiOnly', fallbackProfiles: 'tutorBothProfiles',
-  contentRecovery: 'featureValidation', switchedAttemptSettings: 'actualProvider',
-  validationLogging: 'deferredPanel', terminalPresentation: 'validatorDetail', fallbackClaims: 'attemptHistory',
-  preflightObservation: 'decisionEvent', modeRouting: 'selectedModel'
-};
-const tutorPolicy: RequestPolicy = { ...ordinaryPolicy, fallbackProfiles: 'tutorBothProfiles',
-  validationLogging: 'trackedFastAndDictionary', terminalPresentation: 'conversationActions', fallbackClaims: 'attemptHistory',
-  modeRouting: 'tutorModels', openingAttemptCap: 3 };
-export const CURRENT_REQUEST_POLICIES = {
-  ordinary: ordinaryPolicy,
-  tutor: tutorPolicy,
-  userDictionary: { ...ordinaryPolicy,
-    switchedAttemptSettings: 'actualProvider', validationLogging: 'trackedFastAndDictionary' },
-  grammar: { ...ordinaryPolicy, switchedAttemptSettings: 'actualProvider', fallbackPlacement: 'afterThinking' },
-  lesson: { ...tutorPolicy, contentRecovery: 'selectedLessonChecks', validationLogging: 'deferredPanel' },
-  singleReview: { ...tutorPolicy, contentRecovery: 'singleReviewTerminal', validationLogging: 'deferredPanel' },
-  reviewAll: { ...tutorPolicy, contentRecovery: 'reviewAllItems', validationLogging: 'deferredPanel' },
-  takeHome: { ...tutorPolicy, contentRecovery: 'localTakeHomeSalvage', terminalPresentation: 'preservedWork', validationLogging: 'deferredPanel' },
-  hint: { ...tutorPolicy, terminalPresentation: 'fixedHint' }
-} as const satisfies Record<string, RequestPolicy>;
+import { CURRENT_REQUEST_POLICIES, type RequestPolicy } from '@kren/core/request-decisions';
+export { CURRENT_REQUEST_POLICIES, type RequestPolicy };
 
 export interface RequestRecoveryPolicy {
   /** Already resolved host settings, including the retry-enabled toggle. Values are capped at five. */
@@ -135,7 +103,8 @@ export type RequestEvent = EventIdentity & (
 );
 export type RequestOutcome<T> =
   | { type: 'accepted'; value: T; warnings: readonly FindingCode[]; route: RequestRoute; history: AttemptHistory[]; recovery: RecoveryDecision[] }
-  | { type: 'failed'; cause: FailureCause; attemptedRoute?: RequestRoute; actions: readonly ReaderAction[];
+  | { type: 'failed'; cause: FailureCause | 'missingCredentials'; attemptedRoute?: RequestRoute; actions: readonly ReaderAction[];
+      missingCredentials?: MissingCredentials;
       preservation: NonNullable<CenterRequest<T>['preservation']>; history: AttemptHistory[]; recovery: RecoveryDecision[] }
   | { type: 'canceled'; history: AttemptHistory[]; recovery: RecoveryDecision[] };
 
@@ -155,11 +124,6 @@ export interface RequestCenterDependencies {
   usage?: { record: typeof recordLanguageModelUsage; failure: typeof recordLanguageModelFailure };
 }
 
-const findings: readonly FindingCode[] = ['unreadableOutput', 'requiredField', 'wordCount', 'excerpt', 'contentRejected', 'refused'];
-const safeCodes = (codes: readonly FindingCode[]): FindingCode[] => [...new Set(codes.filter(code => findings.includes(code)))];
-const identifier = (value: string): string => /^[A-Za-z0-9@_./:+-]{1,160}$/u.test(value) ? value : 'custom';
-const safeRoute = (route: RequestRoute): RequestRoute => ({ provider: route.provider, model: identifier(route.model),
-  geminiProfile: route.geminiProfile, mode: route.mode, effort: route.effort });
 const ignored = (callback: () => unknown): void => {
   try { const result = callback(); if (result && typeof (result as PromiseLike<unknown>).then === 'function') void Promise.resolve(result).catch(() => {}); }
   catch { /* Presentation and recording cannot change a request outcome. */ }
@@ -172,27 +136,6 @@ class CenterFailure extends ProviderError {
         : cause === 'unreadableOutput' ? 'structuredOutput' : cause === 'refused' ? 'refused' : undefined);
     this.attemptedRoute = route;
   }
-}
-
-/** Every transport and the complete request path use this status classification. */
-export function classifyRequestStatus(provider: LanguageModelRoutingProvider, status: number, envelope?: unknown): {
-  cause: FailureCause; retryable: boolean
-} {
-  const error = (envelope as { error?: { code?: unknown; type?: unknown } } | undefined)?.error;
-  const quota = isProviderQuotaExhausted(provider, status, envelope) || status === 429 &&
-    (error?.code === 'insufficient_quota' || error?.type === 'insufficient_quota');
-  const overloaded = provider === 'gemini' && status !== 404 && isGeminiOverloaded(status, envelope);
-  const cause: FailureCause = quota ? 'quotaExhausted' : overloaded ? 'overloaded'
-    : status === 401 || status === 403 ? 'authenticationRejected' : status === 429 ? 'rateLimit'
-      : status >= 500 ? 'serviceUnavailable' : 'requestRejected';
-  return { cause, retryable: !quota && (overloaded || isRetryableLanguageModelStatus(status)) };
-}
-
-/** Google RetryInfo wins on every retryable Gemini status; all other delays share one rule. */
-export function requestRetryDelay(provider: LanguageModelRoutingProvider, attempt: number, retryAfter?: string | null,
-  envelope?: unknown, now: () => number = Date.now, random?: () => number): number {
-  return (provider === 'gemini' ? classifyGeminiRateLimit(envelope).retryDelayMs : undefined) ??
-    retryDelayMs(attempt, retryAfter ?? null, { parseHttpDate: true, now, random });
 }
 
 export type TransportAttemptEvent = {
@@ -228,19 +171,6 @@ export interface TransportDependencies {
   usage?: { record: typeof recordLanguageModelUsage; failure: typeof recordLanguageModelFailure };
 }
 
-function responseRefused(provider: LanguageModelRoutingProvider, envelope: unknown): boolean {
-  const record = (value: unknown): Record<string, unknown> => value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  const value = record(envelope);
-  if (provider === 'gemini') return ['SAFETY', 'OTHER', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY'].includes(String(record(value.promptFeedback).blockReason)) ||
-    ['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY'].includes(String(record(Array.isArray(value.candidates) ? value.candidates[0] : undefined).finishReason));
-  if (provider === 'anthropic') return value.stop_reason === 'refusal';
-  if (provider === 'openai') return Array.isArray(value.output) && value.output.some(item => {
-    const content = record(item).content;
-    return Array.isArray(content) && content.some(block => record(block).type === 'refusal');
-  });
-  return Array.isArray(value.choices) && Boolean(record(record(value.choices[0]).message).refusal);
-}
-
 /** Run 2 boundary: transport retries and events, while feature recovery remains with its current caller. */
 export async function requestWithRetry<T>(call: TransportRequest<T>, dependencies: TransportDependencies = {}): Promise<T> {
   const now = dependencies.now ?? Date.now, delay = dependencies.delay ?? waitForRetry;
@@ -256,26 +186,29 @@ export async function requestWithRetry<T>(call: TransportRequest<T>, dependencie
       ? { usageMetadata: { promptTokenCount: event.input, candidatesTokenCount: event.output, thoughtsTokenCount: event.thinking } }
       : { usage: { prompt_tokens: event.input, completion_tokens: event.output } }));
   };
-  const attempts = Math.max(1, Math.min(call.opening ? 3 : 5, Number.isFinite(call.maxAttempts) ? Math.floor(call.maxAttempts) : 1));
+  const attempts = boundedTransportAttempts(call.maxAttempts, call.opening);
   for (let index = 0; index < attempts; index += 1) {
     call.signal.throwIfAborted();
     const budget = requestBudgets.get(call.signal);
-    if (budget && budget.remaining <= 0) throw new RequestBudgetError('The request budget is used up.');
+    const budgetDecision = budget ? consumeRequestBudget(budget.remaining) : undefined;
+    if (budgetDecision && !budgetDecision.allowed) throw new RequestBudgetError('The request budget is used up.');
     call.onAttempt?.();
     call.signal.throwIfAborted();
-    if (budget) budget.remaining--;
+    if (budget) budget.remaining = consumeRequestBudget(budget.remaining).remaining;
     let response: Response | undefined, envelope: unknown;
     try {
       response = await call.send();
       envelope = await response.json().catch(() => undefined);
     } catch { /* Exceptions never enter events or reader diagnostics. */ }
-    emit({ type: 'usage', attempt: index + 1, request, ...reportedLanguageModelUsage(request.provider, envelope) });
+    const event = decisionUsageEvent(request.provider, request.model, index + 1, reportedLanguageModelUsage(request.provider, envelope));
+    emit({ type: 'usage', attempt: event.attempt, request, input: event.input, output: event.output, thinking: event.thinking });
     call.signal.throwIfAborted();
     let failed = false;
     const failure = (cause: FailureCause, diagnostic: string) => {
       if (failed) return;
       failed = true;
-      emit({ type: 'failure', attempt: index + 1, request, cause, status: response?.status, diagnostic });
+      const event = decisionFailureEvent(request.provider, request.model, index + 1, response?.status, cause);
+      emit({ type: 'failure', attempt: event.attempt, request, cause, status: response?.status, diagnostic });
     };
     const content = contentAttempts.get(call.signal);
     if (content) content.reject = cause => failure(cause, 'unreadable output');
@@ -291,7 +224,7 @@ export async function requestWithRetry<T>(call: TransportRequest<T>, dependencie
     const classification = response ? classifyRequestStatus(request.provider, response.status, envelope)
       : { cause: 'noResponse' as const, retryable: true };
     failure(classification.cause, response ? httpFailure(request.provider, response.status, envelope) : 'no response');
-    if (!classification.retryable || index === attempts - 1) {
+    if (!retryAttempt(classification.retryable, index, attempts)) {
       const error = call.failure({ ...classification, status: response?.status, envelope, attempts: index + 1 });
       throw new ProviderError(error.message, error.action, classification.retryable, response?.status,
         classification.cause === 'quotaExhausted' ? 'quotaExhausted' : classification.cause === 'overloaded' ? 'overloaded' : error.reason);
@@ -334,20 +267,15 @@ export class RequestCenter {
       } else ignored(() => d.log?.(`[request recovery] ${identity.feature} ${identity.kind} ${value.decision}`));
     };
     const check = () => {
-      if (identity.signal.aborted) throw new DOMException('Canceled.', 'AbortError');
-      if (expired || now() >= budget.deadline) throw new CenterFailure('deadline', route);
+      const boundary = requestBoundary(identity.signal.aborted, expired, now(), budget.deadline);
+      if (boundary === 'canceled') throw new DOMException('Canceled.', 'AbortError');
+      if (boundary === 'deadline') throw new CenterFailure('deadline', route);
       signal.throwIfAborted();
     };
     const fail = (cause: FailureCause, attemptedRoute?: RequestRoute): RequestOutcome<T> => ({ type: 'failed', cause, attemptedRoute,
-      actions: cause === 'authenticationRejected' ? ['setCredential'] : cause === 'quotaExhausted' ? ['checkQuota']
-        : cause === 'requestRejected' ? ['configureProvider'] : cause === 'refused' ? [] : ['retry'],
+      actions: failureActions(cause),
       preservation: request.preservation ?? 'none', history, recovery });
-    const attemptsFor = (selected: RequestRoute) => {
-      const provider = policy.policy.switchedAttemptSettings === 'originalProvider' ? request.route.provider : selected.provider;
-      const configured = policy.transportAttempts[provider];
-      return Math.min(identity.kind === 'conversationOpening' ? policy.policy.openingAttemptCap ?? 5 : 5,
-        Math.max(1, Math.min(5, Math.floor(configured || 1))));
-    };
+    const attemptsFor = (selected: RequestRoute) => centerTransportAttempts(policy.policy, identity.kind, request.route.provider, selected.provider, policy.transportAttempts);
     const asTutorRoute = (selected: RequestRoute): TutorLanguageModelRoute => ({ ...selected, thinkingOrEffort: selected.effort,
       fallbackEnabled: false, fallbackModel: '', fallbackThinkingOrEffort: 'auto' });
     const fromTutorRoute = (selected: TutorLanguageModelRoute): RequestRoute => safeRoute({ ...selected, mode, effort: selected.thinkingOrEffort });
@@ -362,7 +290,7 @@ export class RequestCenter {
       for (let index = 0; index < attempts; index += 1) {
         check();
         const key = JSON.stringify(selected), used = counts.get(key) ?? 0;
-        if (history.length >= budget.totalRequests || used >= budget.perRouteAttempts) throw new CenterFailure('budget', selected);
+        if (!routeBudgetAvailable(history.length, used, budget.totalRequests, budget.perRouteAttempts)) throw new CenterFailure('budget', selected);
         counts.set(key, used + 1);
         const entry: AttemptHistory = { attempt: history.length + 1, route: safeRoute(selected), outcome: 'failed', codes: [] };
         history.push(entry);
@@ -421,7 +349,7 @@ export class RequestCenter {
         ignored(() => usage.failure(localRequest, diagnostic));
         const failure = new CenterFailure(cause, selected, status, retryable, validationEscalation);
         if (cause === 'quotaExhausted') d.exhaustion.mark(selected, failure);
-        if (!retryable || index === attempts - 1) throw failure;
+        if (!retryAttempt(retryable, index, attempts)) throw failure;
         const milliseconds = requestRetryDelay(selected.provider, index, response?.retryAfter, response?.envelope, now, d.random);
         if (now() + milliseconds >= budget.deadline) throw new CenterFailure('deadline', selected);
         await delay(milliseconds, signal);
@@ -466,9 +394,8 @@ export class RequestCenter {
             catch (error) {
               check();
               const fallback = request.route.fallback;
-              if (!(error instanceof CenterFailure) || !isProFallbackError(error) || current.provider !== 'gemini' || !fallback ||
-                  fallback.model.replace(/^models\//u, '') === current.model.replace(/^models\//u, '') ||
-                  error.reason === 'structuredOutput' || policy.providerSwitch && (error.reason === 'quotaExhausted' || error.reason === 'overloaded')) throw error;
+              if (!(error instanceof CenterFailure) || !fallback || !shouldFallback({ providerError: true, status: error.status, reason: error.reason }, current,
+                  { enabled: true, model: fallback.model }, false, policy.providerSwitch)) throw error;
               const next = safeRoute({ ...current, model: fallback.model, effort: fallback.effort });
               decision({ decision: 'fallback', from: current, to: next });
               return perform(next);
@@ -482,15 +409,17 @@ export class RequestCenter {
             return fail('noResponse', history.at(-1)?.route);
           }
           const last = history.at(-1);
-          if (policy.escalation === 'once' && !escalated && thinking.canEscalate(mode, signal.aborted, error.validationEscalation)) {
+          const nextRecovery = recoveryAfterFailure({ mode, aborted: signal.aborted, escalated, escalation: policy.escalation,
+            validationFailure: error.validationEscalation, escalationEligible: thinking.canEscalate(mode, signal.aborted, error.validationEscalation), cause: error.cause,
+            contentRetries, allowance: policy.contentRetry.allowance, codes: last?.codes ?? [], on: policy.contentRetry.on });
+          if (nextRecovery === 'escalation') {
             escalated = true; mode = 'thorough';
             decision({ decision: 'escalation', from: safeRoute(route), to: safeRoute({ ...initial, mode,
               model: policy.policy.modeRouting === 'tutorModels' ? thinking.model(initial.provider, mode, request.route.thoroughModel ?? request.route.model) : initial.model,
               effort: thinking.effort(initial.provider, request.route.thoroughModel ?? initial.model, mode, request.route.thoroughEffort ?? request.route.effort) }) });
             continue;
           }
-          if (error.cause === 'contentRejected' && contentRetries < policy.contentRetry.allowance &&
-              last?.codes.some(code => policy.contentRetry.on.includes(code))) {
+          if (nextRecovery === 'contentRetry' && last) {
             contentRetries += 1; correction = policy.contentRetry.correctiveInstruction;
             decision({ decision: 'contentRetry', route: safeRoute(route), codes: last.codes }); continue;
           }
@@ -505,6 +434,92 @@ export class RequestCenter {
 }
 
 type FailedRequest = Extract<RequestOutcome<never>, { type: 'failed' }>;
+export type CredentialProvider = LanguageModelRoutingProvider | 'googleCloudTranslation' | 'googleCloudTextToSpeech' |
+  'merriamWebsterCollegiate' | 'merriamWebsterMedical' | 'merriamWebsterThesaurus' | 'koreanDictionary';
+export interface MissingCredentials {
+  provider: CredentialProvider;
+  geminiProfile?: 'standard' | 'pro';
+  slots: readonly string[];
+  action: 'openCredentials';
+}
+export const OPEN_CREDENTIALS = 'Open Credentials';
+export function credentialProviderName(provider: CredentialProvider, profile: 'standard' | 'pro' = 'standard'): string {
+  const credentialNames: Record<CredentialProvider, string> = {
+    gemini: 'Gemini', groq: 'Groq', cloudflare: 'Cloudflare', openai: 'OpenAI', anthropic: 'Anthropic',
+    googleCloudTranslation: 'Google Cloud Translation', googleCloudTextToSpeech: 'Google Cloud Text-to-Speech',
+    merriamWebsterCollegiate: 'Merriam-Webster Collegiate', merriamWebsterMedical: 'Merriam-Webster Medical',
+    merriamWebsterThesaurus: 'Merriam-Webster Collegiate Thesaurus', koreanDictionary: 'Korean Basic Dictionary'
+  };
+  return credentialNames[provider] + (provider === 'gemini' ? profile === 'pro' ? ' Paid' : ' Free Tier' : '');
+}
+/** This descriptor contains presence information only, never credential values. */
+export function missingCredentialDetails(provider: CredentialProvider, geminiProfile: 'standard' | 'pro' = 'standard',
+  slots: readonly string[] = provider === 'cloudflare' ? ['account ID', 'API token']
+    : provider === 'googleCloudTextToSpeech' ? ['Google Cloud Text-to-Speech API key', 'Google Cloud Translation API key'] : ['API key']): MissingCredentials {
+  return { provider, ...(provider === 'gemini' ? { geminiProfile } : {}), slots: [...slots], action: 'openCredentials' };
+}
+export interface GeminiCredentialPresence { geminiDefault?: boolean; geminiAlternate?: boolean }
+/** Uses presence only so initial rendering and mounted setting updates share one rule. */
+export function otherGeminiProfileMessage(provider: string, profile: string, presence: GeminiCredentialPresence = {}): string {
+  if (provider !== 'gemini') return '';
+  const selected = profile === 'pro' ? presence.geminiAlternate : presence.geminiDefault;
+  const other = profile === 'pro' ? presence.geminiDefault : presence.geminiAlternate;
+  if (selected || !other) return '';
+  const name = profile === 'pro' ? 'Free Tier' : 'Paid';
+  return ` Gemini ${name} has a key: choose ${name} in this feature's settings to use it.`;
+}
+export function missingCredentialMessage(details: MissingCredentials, presence?: GeminiCredentialPresence): string {
+  const name = credentialProviderName(details.provider, details.geminiProfile);
+  const message = details.provider === 'googleCloudTextToSpeech'
+    ? 'Set your Google Cloud Text-to-Speech API key or Google Cloud Translation API key in KREN menu, Credentials.'
+    : `Set ${details.provider === 'cloudflare' ? 'the' : 'your'} ${name} ${details.slots.join(' and ')} in KREN menu, Credentials.`;
+  return message + otherGeminiProfileMessage(details.provider, details.geminiProfile ?? 'standard', presence);
+}
+export function missingCredentialSelectionMessage(details: MissingCredentials, presence?: GeminiCredentialPresence): string {
+  return `No ${credentialProviderName(details.provider, details.geminiProfile)} ${details.provider === 'cloudflare' ? details.slots.join(' and ') : 'key'} yet.` +
+    otherGeminiProfileMessage(details.provider, details.geminiProfile ?? 'standard', presence);
+}
+export class MissingCredentialError extends ProviderError {
+  constructor(readonly missingCredentials: MissingCredentials) {
+    const actions: Partial<Record<CredentialProvider, ProviderError['action']>> = {
+      googleCloudTranslation: 'setGoogleCloudTranslationKey', merriamWebsterCollegiate: 'setMerriamWebsterCollegiateKey',
+      merriamWebsterMedical: 'setMerriamWebsterMedicalKey', merriamWebsterThesaurus: 'setMerriamWebsterThesaurusKey', koreanDictionary: 'setDictionaryKey'
+    };
+    super(missingCredentialMessage(missingCredentials), actions[missingCredentials.provider] ??
+      (['gemini', 'openai', 'anthropic', 'groq', 'cloudflare'].includes(missingCredentials.provider)
+        ? providerCredentialAction({ provider: missingCredentials.provider as LanguageModelRoutingProvider,
+          geminiProfile: missingCredentials.geminiProfile ?? 'standard' }) : undefined));
+    this.name = 'MissingCredentialError';
+  }
+}
+export function missingCredentialError(provider: CredentialProvider, profile: 'standard' | 'pro' = 'standard',
+  slots?: readonly string[]): MissingCredentialError {
+  const error = new MissingCredentialError(missingCredentialDetails(provider, profile, slots));
+  outcomes.set(error, missingCredentialFailure(error.missingCredentials));
+  return error;
+}
+function missingCredentialFailure(missingCredentials: MissingCredentials, attemptedRoute?: RequestRoute,
+  history: AttemptHistory[] = [], recovery: RecoveryDecision[] = []): FailedRequest {
+  return { type: 'failed', cause: 'missingCredentials', missingCredentials, attemptedRoute,
+    actions: ['setCredential'], preservation: 'none', history, recovery };
+}
+export function missingCredentialsOf(error: unknown): MissingCredentials | undefined {
+  return error instanceof MissingCredentialError ? error.missingCredentials : recordedRequestOutcome(error)?.type === 'failed'
+    ? (recordedRequestOutcome(error) as FailedRequest).missingCredentials : undefined;
+}
+/** Uses the V292 choice boundary, which routes questions to a native modal dialog. */
+export async function showMissingCredentialNotice(details: MissingCredentials,
+  host: { showErrorMessage(message: string, options: { modal: true }, choice: string): PromiseLike<string | undefined>; showCredentials(): PromiseLike<void>;
+    credentialPresence?(): GeminiCredentialPresence | undefined },
+  continuation = '', offerProviderChoice = false, offerOtherGeminiProfile = offerProviderChoice): Promise<void> {
+  // A feature's dictionary lookup may still target a fixed reference work.
+  const chooseAnother = offerProviderChoice &&
+    !['merriamWebsterCollegiate', 'merriamWebsterMedical', 'merriamWebsterThesaurus', 'koreanDictionary'].includes(details.provider);
+  const message = missingCredentialMessage(details, offerOtherGeminiProfile ? host.credentialPresence?.() : undefined) + (chooseAnother ? ' Or press Cancel and choose another provider.' : '') +
+    (continuation ? ` ${continuation}` : '');
+  const selected = await host.showErrorMessage(message, { modal: true }, OPEN_CREDENTIALS);
+  if (selected === OPEN_CREDENTIALS) await host.showCredentials();
+}
 const outcomes = new WeakMap<object, RequestOutcome<unknown>>();
 const terminalErrors = new WeakMap<object, unknown>();
 export function recordedRequestOutcome(value: unknown): RequestOutcome<unknown> | undefined {
@@ -528,18 +543,14 @@ const providerName = (provider?: LanguageModelRoutingProvider): string => provid
 /** Compatibility at host boundaries, where a local error may predate a centered request. */
 export function requestFailure(error: unknown, route: RequestRoute, history: AttemptHistory[] = [],
   recovery: RecoveryDecision[] = []): FailedRequest {
+  const missingCredentials = missingCredentialsOf(error);
+  if (missingCredentials) return missingCredentialFailure(missingCredentials, safeRoute(route), history, recovery);
   const failure = error instanceof ProviderError ? error : undefined;
-  const cause: FailureCause = error instanceof RequestBudgetError ? 'budget'
-    : failure?.reason === 'quotaExhausted' || failure?.status === 429 && !failure.retryable ? 'quotaExhausted'
-    : failure?.reason === 'overloaded' ? 'overloaded'
-    : failure?.reason === 'structuredOutput' || error instanceof SyntaxError ||
-        error instanceof Error && error.name === 'UserDictionaryMalformedOutputError' ? 'unreadableOutput'
-      : failure?.reason === 'refused' ? 'refused'
-        : failure?.action?.startsWith('set') && failure.status === undefined ? 'authenticationRejected'
-          : failure?.status !== undefined ? classifyRequestStatus(route.provider, failure.status).cause : 'noResponse';
+  const cause = compatibilityFailureCause({ providerError: Boolean(failure), budget: error instanceof RequestBudgetError, status: failure?.status, reason: failure?.reason, retryable: failure?.retryable,
+    malformed: error instanceof SyntaxError || error instanceof Error && error.name === 'UserDictionaryMalformedOutputError',
+    credentialAction: Boolean(failure?.action?.startsWith('set')) }, route.provider);
   return { type: 'failed', cause, attemptedRoute: safeRoute(failure?.attemptedRoute ? { ...route, ...failure.attemptedRoute } : route),
-    actions: cause === 'authenticationRejected' ? ['setCredential'] : cause === 'quotaExhausted' ? ['checkQuota']
-      : cause === 'requestRejected' ? ['configureProvider'] : failure?.retryable ? ['retry'] : [],
+    actions: failureActions(cause, Boolean(failure?.retryable), false),
     preservation: 'none', history, recovery };
 }
 
@@ -553,13 +564,16 @@ export function presentRequestFailure(outcome: FailedRequest, context: {
     outcome.history.some(attempt => attempt.route.provider === item.to.provider && attempt.route.model === item.to.model &&
       (attempt.cause === 'overloaded' || attempt.cause === 'rateLimit' || attempt.status === 503)));
   let message: string;
-  if (outcome.cause === 'quotaExhausted') {
+  if (outcome.cause === 'missingCredentials' && outcome.missingCredentials) {
+    message = missingCredentialMessage(outcome.missingCredentials);
+  } else if (outcome.cause === 'quotaExhausted') {
     const window = context.quotaCategory === 'perDay' ? ' daily'
       : context.quotaCategory === 'perMinute' ? ' per-minute'
         : context.quotaCategory === 'perHour' ? ' hourly' : '';
     message = `${name}${window} quota is exhausted; check its limit or billing before retrying.`;
   } else if (outcome.cause === 'authenticationRejected') {
-    message = `Set your ${name}${route?.provider === 'gemini' ? route.geminiProfile === 'pro' ? ' Paid' : ' Free Tier' : ''} API key in KREN menu, Credentials.`;
+    message = route ? missingCredentialMessage(missingCredentialDetails(route.provider, route.geminiProfile))
+      : 'Check your provider credential in KREN menu, Credentials.';
   } else if (outcome.cause === 'overloaded' || outcome.cause === 'rateLimit') {
     message = fallbackBusy ? `${name} is busy right now, and so was the fallback model; try again in a moment.`
       : context.conversation ? `${name} is busy right now; try again, or turn on Automatic fallback in LLM ROUTING.`
@@ -646,8 +660,7 @@ export async function runFeatureRequest<T>(request: FeatureRequest<T>): Promise<
     const prefix = provider === 'gemini' ? 'gemini.retry' : 'languageModel.retry';
     const configured = runtime.getSetting<boolean>(`${prefix}.enabled`, true)
       ? runtime.getSetting<number>(`${prefix}.maxAttempts`, provider === 'gemini' ? request.geminiDefaultAttempts ?? 3 : 3) : 1;
-    const maxAttempts = Math.max(1, Math.min(tutor?.kind === 'conversationOpening' ? policy.openingAttemptCap ?? 5 : 5,
-      Number.isFinite(configured) ? Math.floor(configured) : 1));
+    const maxAttempts = boundedTransportAttempts(configured, tutor?.kind === 'conversationOpening', policy.openingAttemptCap ?? 5);
     try { return await request.execute(route, mode, signal, tutor, maxAttempts); }
     catch (error) {
       if (signal.aborted) {
@@ -663,13 +676,19 @@ export async function runFeatureRequest<T>(request: FeatureRequest<T>): Promise<
     }
   };
   const fallback = async (error: unknown, selected: TutorLanguageModelRoute, mode: ThinkingMode, tutor?: TutorStructuredGenerationRequest): Promise<T> => {
-    const model = selected.fallbackModel.trim();
-    if (signal.aborted || selected.provider !== 'gemini' || !selected.fallbackEnabled || !model ||
-      model.replace(/^models\//u, '') === selected.model.replace(/^models\//u, '') ||
-      !isProFallbackError(error) ||
-      error.reason === 'structuredOutput' || runtime.getSetting('llm.providerSwitch', true) &&
-        (error.reason === 'quotaExhausted' || error.reason === 'overloaded')) throw error;
-    const next = { ...selected, model, thinkingOrEffort: selected.fallbackThinkingOrEffort };
+    const tutorFallback = 'tutor' in request.thinking;
+    if (tutorFallback && mode !== 'thorough') throw error;
+    const model = tutorFallback
+      ? tutorFastModel(selected.provider, request.route.fastModel ?? runtime.getSetting('tutor.hintModel', TUTOR_DEFAULTS.configuration['tutor.hintModel']), request.route.model).trim()
+      : selected.fallbackModel.trim();
+    if (!shouldFallback({ providerError: error instanceof ProviderError, status: error instanceof ProviderError ? error.status : undefined,
+      reason: error instanceof ProviderError ? error.reason : undefined }, selected, { enabled: selected.fallbackEnabled, model },
+      signal.aborted, false) || !shouldFallback({ providerError: error instanceof ProviderError,
+        status: error instanceof ProviderError ? error.status : undefined, reason: error instanceof ProviderError ? error.reason : undefined },
+        selected, { enabled: selected.fallbackEnabled, model }, signal.aborted, runtime.getSetting('llm.providerSwitch', true))) throw error;
+    const next = { ...selected, model, thinkingOrEffort: tutorFallback
+      ? tutorFastEffort(selected.provider, model, request.route.fastThinkingOrEffort ?? runtime.getSetting('tutor.hintThinkingOrEffort', 'auto'))
+      : selected.fallbackThinkingOrEffort };
     recovery.push({ decision: 'fallback', from: safeRoute(active), to: safeRoute({ ...next, mode, effort: next.thinkingOrEffort }) });
     log(`[request recovery] ${'tutor' in request.thinking ? request.thinking.tutor.kind : request.thinking.kind} fallback`);
     return perform(next, mode, tutor);
@@ -804,8 +823,7 @@ export async function runTutorContentRequest<T>(request: TutorContentRequest<T>)
       rejectContent(checked.cause);
       try { validateLanguageModelOutput(validationSource, () => { throw checked.error ?? new Error('Content rejected.'); }); } catch { /* The shared gate records the rejection once. */ }
       if (last) Object.assign(last, { outcome: 'failed', cause: checked.cause, codes });
-      if (checked.cause === 'contentRejected' && attempt < request.contentRetry.allowance &&
-          codes.some(code => (request.contentRetry.on ?? ['contentRejected']).includes(code))) {
+      if (shouldRetryContent(checked.cause, attempt, request.contentRetry.allowance, codes, request.contentRetry.on)) {
         decision({ decision: 'contentRetry', route: active, codes });
         selected = { ...request.request, retry: true, instruction: request.request.instruction +
           (checked.correctiveInstruction ? `\n\n${checked.correctiveInstruction}` : '') };

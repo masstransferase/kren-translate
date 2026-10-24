@@ -190,12 +190,17 @@ describe('V210 tutor review findings', () => {
   it('9: tutor voice and routing labels use Title Case, including repeated summary labels', () => {
     const $ = load(html);
     const titles = $('[data-persist-id="tutor-voice"] .setting-title, [data-llm-routing="tutor"] .setting-title').map((_, node) => $(node).text()).get();
-    for (const title of ['Thorough model', 'Fallback Tutor Model', 'Image Model', 'Fast model', 'Live Model', 'Live Voice', 'Windows Voice', 'Edge TTS Voice']) {
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    for (const title of ['Thorough model', 'Fast thinking level', 'Image Model', 'Fast model', 'Live Model', 'Live Voice', 'Windows Voice', 'Edge TTS Voice']) {
       expect(titles).toContain(title);
     }
     // 2026-10-11: V221 specifies sentence case for the Fast and Thorough model roles.
     for (const title of titles) {
-      if (/^(?:Fast|Thorough) model/u.test(title)) expect(title).toMatch(/^(?:Fast|Thorough) model(?: Identifier)?$/u);
+      // 2026-10-21: V286 specifies the exact sentence-case label for this control.
+      if (/^Sentence pause$/iu.test(title)) expect(title).toBe('Sentence pause');
+      // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+      else if (/^(?:Fast thinking level|Use Fast when Thorough is unavailable)$/u.test(title)) expect(title).toMatch(/^(?:Fast thinking level|Use Fast when Thorough is unavailable)$/u);
+      else if (/^(?:Fast|Thorough) model/u.test(title)) expect(title).toMatch(/^(?:Fast|Thorough) model(?: Identifier)?$/u);
       else expect(title).toBe(title.replace(/\b[a-z]/gu, letter => letter.toUpperCase()));
     }
     const summaries = $('[data-persist-id="tutor-setting"] .rewrite-group-summary').text();

@@ -18,7 +18,9 @@ it('V267 the panel manual explains where questions and status popups appear', ()
   const manual = page('#manual-screen:not(.hidden)').text();
   expect(manual).toMatch(/questions with choices.*VS Code's own dialog/iu);
   expect(manual).toMatch(/Escape cancels/iu);
-  expect(manual).toMatch(/status popups.*busy spinners.*failures.*stay in the KREN panel/iu);
+  // Changed 2026-10-23 (V305, owner I74/D41 A): speech has no busy popup; other activity and failure notices retain their panel location.
+  expect(manual).toMatch(/speech.*no busy popup/iu);
+  expect(manual).toMatch(/busy popups.*failures.*provider-switch notices.*stay in the KREN panel/iu);
 });
 
 it('V267 routes all 23 I49 questions through VS Code once with the original arguments', async () => {
@@ -30,13 +32,15 @@ it.each([true, false])('V267 routes choices and modal-only notices natively with
       const post = vi.fn(); const fallback = vi.fn(async () => 'Answer');
       const queue = new PanelNoticeQueue(() => visible, post, fallback);
       await expect(queue.show(kind, 'Original question', options, 'Answer', 'Cancel')).resolves.toBe('Answer');
-      expect(fallback).toHaveBeenCalledExactlyOnceWith(kind, 'Original question', options, ['Answer', 'Cancel']);
+      // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+      expect(fallback).toHaveBeenCalledExactlyOnceWith(kind, 'Original question', { ...options, modal: true }, ['Answer', 'Cancel']);
       expect(post).not.toHaveBeenCalled(); expect(queue.snapshot()).toEqual([]);
     }
     const post = vi.fn(); const fallback = vi.fn(async () => undefined);
     const queue = new PanelNoticeQueue(() => visible, post, fallback);
     await expect(queue.show(kind, 'Modal only', { modal: true, detail: 'Original detail' })).resolves.toBeUndefined();
-    expect(fallback).toHaveBeenCalledExactlyOnceWith(kind, 'Modal only', { modal: true, detail: 'Original detail' }, []);
+    // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+    expect(fallback).toHaveBeenCalledExactlyOnceWith(kind, 'Modal only', { modal: true, detail: 'Original detail' }, ['OK']);
     expect(post).not.toHaveBeenCalled();
   }
 });

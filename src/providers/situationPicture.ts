@@ -128,7 +128,7 @@ export async function generateSituationPicture(scene: string, apiKey: string, si
     ? validatedPanelSetting('tutor.imageModel', configuredModel) : undefined;
   const model = (typeof validated === 'string'
     ? validated : TUTOR_DEFAULTS.configuration['tutor.imageModel']).replace(/^models\//u, '');
-  const response = await usageTrackedFetch({ feature: 'picture', provider: 'gemini', model })(
+  const response = await usageTrackedFetch({ feature: 'picture', provider: 'gemini', model, geminiProfile: 'pro' })(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
       method: 'POST',

@@ -3,6 +3,7 @@ import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { sentencePause, splitSpeechSentences } from './speech/sentencePause.js';
 import { prepareTextForSpeech } from './windowsReadAloud.js';
 import { EDGE_SPEECH_LOCALES } from '@kren/core/edge-speech';
 
@@ -42,10 +43,12 @@ type RemoveEdgeTemporaryAudio = (audio: EdgeTemporaryAudio) => Promise<void>;
 type VerifyAudio = (file: string) => Promise<boolean>;
 
 export interface EdgeReadAloudOptions {
+  playbackBarrier?: import('./speech/speechAdapter.js').SpeechPlaybackBarrier;
   pythonCommand?: string;
   voice?: string;
   ratePercent?: number;
   volume?: number;
+  sentencePauseMilliseconds?: number;
   playback?: EdgeAudioPlayback;
   onStarted?: () => void;
 }
@@ -55,6 +58,9 @@ export type EdgeReadAloudResult =
   | 'stopped'
   | 'dependencyMissing'
   | 'failed';
+
+export type EdgeSpeechResult = EdgeReadAloudResult |
+  { status: 'failed' | 'dependencyMissing'; remainingText: string };
 
 export interface EdgeAudioPlayback {
   play(file: string): Promise<EdgeReadAloudResult>;
@@ -141,6 +147,7 @@ exit 0
 export class WindowsEdgeReadAloudTransport {
   private active: EdgeActiveSpeech | undefined;
   protected generation = 0;
+  private cancelSilence?: () => void;
 
   public constructor(
     private readonly platform: NodeJS.Platform = process.platform,
@@ -179,12 +186,94 @@ export class WindowsEdgeReadAloudTransport {
   public async speak(
     text: string,
     options: EdgeReadAloudOptions = {}
-  ): Promise<EdgeReadAloudResult> {
+  ): Promise<EdgeSpeechResult> {
     const spokenText = prepareTextForSpeech(text);
     if (this.platform !== 'win32' || !spokenText) return 'failed';
 
     this.stop();
     const generation = ++this.generation;
+    const pause = sentencePause(options.sentencePauseMilliseconds);
+    if (!pause) return this.speakClip(spokenText, options, generation);
+    return this.speakSequence(splitSpeechSentences(spokenText), options, generation, pause);
+  }
+
+  private async speakSequence(sentences: string[], options: EdgeReadAloudOptions, generation: number, pause: number): Promise<EdgeSpeechResult> {
+    const audios: EdgeTemporaryAudio[] = [];
+    let active: EdgeActiveSpeech | undefined;
+    let finishing = false;
+    let completed = 0;
+    const failure = (result: EdgeReadAloudResult): EdgeSpeechResult =>
+      completed > 0 && (result === 'failed' || result === 'dependencyMissing')
+        ? { status: result, remainingText: sentences.slice(completed).join(' ') } : result;
+    const current = () => !finishing && this.generation === generation;
+    type Prepared = { audio?: EdgeTemporaryAudio; result: EdgeReadAloudResult };
+    const prepare = async (index: number): Promise<Prepared> => {
+      try {
+        const audio = await this.createTemporaryAudio();
+        audios.push(audio);
+        if (!current()) return { result: 'stopped' };
+        if (!active) {
+          active = { generation, audio, processes: new Set<ChildProcess>() };
+          this.active = active;
+        }
+        const result = await this.synthesize(sentences[index]!, audio, options, active);
+        if (!current()) return { result: 'stopped' };
+        if (result !== 'completed') return { result };
+        if (!await this.verifyAudio(audio.file)) return { result: 'failed' };
+        return current() ? { audio, result: 'completed' } : { result: 'stopped' };
+      } catch { return { result: current() ? 'failed' : 'stopped' }; }
+    };
+    let prepared = prepare(0);
+    try {
+      for (let index = 0; index < sentences.length; index++) {
+        const clip = await prepared;
+        if (!current()) return 'stopped';
+        if (!clip.audio || !active) return failure(clip.result);
+        active.audio = clip.audio;
+        // 2026-10-21: Prepare one clip ahead while playback and the pause run.
+        const next = index + 1 < sentences.length ? prepare(index + 1) : undefined;
+        if (next) prepared = next;
+        let result: EdgeReadAloudResult;
+        if (options.playbackBarrier && !await options.playbackBarrier()) return 'stopped';
+        if (!current()) return 'stopped';
+        if (options.playback) {
+          active.stopExternal = () => options.playback?.stop() ?? false;
+          result = await this.playExternalAudio(options, clip.audio, active);
+          active.stopExternal = undefined;
+        } else {
+          const playback = this.startAudioPlayback(clip.audio.file, 100, active, options.onStarted);
+          result = playback ? await playback.completion : 'failed';
+        }
+        if (!current()) return 'stopped';
+        if (result !== 'completed') return failure(result);
+        completed++;
+        if (next) await this.silence(pause);
+      }
+      return current() ? 'completed' : 'stopped';
+    } catch { return current() ? failure('failed') : 'stopped'; }
+    finally {
+      finishing = true;
+      for (const process of active?.processes ?? []) process.kill();
+      await prepared;
+      if (this.active === active) this.active = undefined;
+      for (const audio of audios) await this.removeTemporaryAudio(audio).catch(() => undefined);
+    }
+  }
+
+  // 2026-10-21: Stop cancels silence immediately, just as it cancels a playing clip.
+  private silence(milliseconds: number): Promise<void> {
+    return new Promise(resolve => {
+      const finish = () => {
+        clearTimeout(timer);
+        if (this.cancelSilence === finish) this.cancelSilence = undefined;
+        resolve();
+      };
+      const timer = setTimeout(finish, milliseconds);
+      this.cancelSilence = finish;
+    });
+  }
+
+  private async speakClip(spokenText: string, options: EdgeReadAloudOptions, generation: number): Promise<EdgeReadAloudResult> {
     let audio: EdgeTemporaryAudio;
     try {
       audio = await this.createTemporaryAudio();
@@ -199,10 +288,10 @@ export class WindowsEdgeReadAloudTransport {
     const active: EdgeActiveSpeech = { generation, audio, processes: new Set<ChildProcess>() };
     this.active = active;
     const useExternalPlayback = Boolean(options.playback);
-    const playback = useExternalPlayback
+    let playback = useExternalPlayback || options.playbackBarrier
       ? undefined
       : this.startAudioPlayback(audio.file, 100, active, options.onStarted);
-    if (!useExternalPlayback && !playback) {
+    if (!useExternalPlayback && !options.playbackBarrier && !playback) {
         await this.finish(active);
         return 'failed';
     }
@@ -225,6 +314,14 @@ export class WindowsEdgeReadAloudTransport {
     }
 
     let playbackResult: EdgeReadAloudResult;
+    if (options.playbackBarrier) {
+      const released = await options.playbackBarrier();
+      if (!released || this.generation !== generation) {
+        await this.finish(active);
+        return 'stopped';
+      }
+      if (!useExternalPlayback) playback = this.startAudioPlayback(audio.file, 100, active, options.onStarted);
+    }
     if (options.playback) {
       active.stopExternal = () => options.playback?.stop() ?? false;
       playbackResult = await this.playExternalAudio(options, audio, active);
@@ -244,7 +341,8 @@ export class WindowsEdgeReadAloudTransport {
     this.generation += 1;
     const active = this.active;
     this.active = undefined;
-    let stopped = false;
+    let stopped = Boolean(this.cancelSilence);
+    this.cancelSilence?.();
     for (const child of active?.processes ?? []) stopped = child.kill() || stopped;
     stopped = active?.stopExternal?.() || stopped;
     active?.processes.clear();

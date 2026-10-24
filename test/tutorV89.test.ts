@@ -57,6 +57,8 @@ function conversationModeReader(value: ReturnType<typeof state>, remembered: boo
     }),
     HTMLDetailsElement: Details,
     document: {
+      // Changed 2026-10-21 (owner, I56/I57): this disclosure-only adapter has no Conversation entry row.
+      querySelector: () => null,
       querySelectorAll: () => [section],
       addEventListener: (_name: string, handler: typeof onToggle) => { onToggle = handler; }
     }
@@ -282,11 +284,13 @@ describe('V89 conversation controls', () => {
       expect(setup.find('[data-setting="tutor.conversation.liveTranscriptionLanguage"]')).toHaveLength(1);
       expect(setup.find('.setting').filter((_, row) => $(row).find('[data-setting="tutor.conversation.liveTranscriptionLanguage"]').length === 0).find('.setting-title').map((_, element) => $(element).text()).get())
         // Changed 2026-10-02: V186 adds the separate Live pause beside sensitivity.
-        .toEqual(['Source', 'Situation', 'Swap roles', 'Who starts', 'Register', 'Correction', 'Replies', 'Reply length', 'Situation picture', 'Picture style', 'Picture transparency', 'Balloon transparency', 'Microphone sensitivity', 'Pause before reply', 'Speech detection', 'Microphone close wait', 'Press to talk', 'Prepare hints in advance', 'Take-home card']);
+        // Changed 2026-10-24 (V309, owner I80): Replies and Situation picture moved to MODE.
+        .toEqual(['Source', 'Situation', 'Swap roles', 'Who starts', 'Register', 'Correction', 'Replies', 'Situation picture', 'Reply length', 'Picture style', 'Picture transparency', 'Balloon transparency', 'Microphone sensitivity', 'Pause before reply', 'Speech detection', 'Microphone close wait', 'Press to talk', 'Prepare hints in advance', 'Take-home card']);
       const advanced = setup.find('details[data-tutor-conversation-advanced]');
       expect(advanced.find('.setting').filter((_, row) => $(row).find('[data-setting="tutor.conversation.liveTranscriptionLanguage"]').length === 0).find('.setting-title').map((_, element) => $(element).text()).get())
         // Changed 2026-10-02: preserve the required order with the new Live pause.
-        .toEqual(['Replies', 'Reply length', 'Situation picture', 'Picture style', 'Picture transparency', 'Balloon transparency', 'Microphone sensitivity', 'Pause before reply', 'Speech detection', 'Microphone close wait', 'Press to talk', 'Prepare hints in advance', 'Take-home card']);
+        // Changed 2026-10-24 (V309, owner I80): Replies and Situation picture moved to MODE.
+        .toEqual(['Reply length', 'Picture style', 'Picture transparency', 'Balloon transparency', 'Microphone sensitivity', 'Pause before reply', 'Speech detection', 'Microphone close wait', 'Press to talk', 'Prepare hints in advance', 'Take-home card']);
       expect(setup.html()).not.toContain('.tutor-conversation-advanced');
       expect(setup.find('[data-tutor-conversation-from]')).toHaveLength(1);
       expect(setup.find('[data-tutor-conversation-situation]')).toHaveLength(1);
@@ -391,7 +395,9 @@ describe('V89 conversation controls', () => {
     expect(advanced.is('[open]')).toBe(false);
     expect(advanced.hasClass('rewrite-settings-group')).toBe(true);
     expect(advanced.children('summary').find('.rewrite-group-name').text()).toBe('ADVANCED');
-    expect(advanced.prev().find('[data-tutor-conversation-coaching]')).toHaveLength(1);
+    // Changed 2026-10-24 (V309, owner I80): Replies and Situation picture moved to MODE.
+    expect(advanced.prev().find('[data-tutor-conversation-situation-picture]')).toHaveLength(1);
+    expect(mode.find('[data-tutor-conversation-coaching]')).toHaveLength(1);
   });
 
   it('V119 summarizes every Advanced value in default and non-default states', () => {
@@ -405,9 +411,9 @@ describe('V89 conversation controls', () => {
     const defaultSummary = summary(defaultPage);
     expect(defaultSummary).not.toContain('Send:');
     expect(defaultSummary).not.toContain('Reply thinking');
-    for (const part of ['Reply: Live',
-      `Picture: ${defaultPage('[data-tutor-conversation-situation-picture] option[selected]').text()}`,
-      'Microphone: Balanced', // Changed 2026-10-03: summarize the current default wait.
+    // Changed 2026-10-24 (V309, owner I80): Replies and Situation picture moved to MODE.
+    expect(defaultSummary).not.toContain('Reply:');
+    for (const part of [      'Microphone: Balanced', // Changed 2026-10-03: summarize the current default wait.
       `${TUTOR_DEFAULTS.configuration['tutor.conversation.microphoneCloseWait']}sec`, 'Press to talk: Off']) {
       expect(defaultSummary).toContain(part);
     }
@@ -418,10 +424,10 @@ describe('V89 conversation controls', () => {
     });
     const changedPage = load(renderTutorConversation(value));
     const changedSummary = summary(changedPage);
-    for (const part of ['Send: When I stop speaking', 'Reply: Standard',
-      `Picture: ${changedPage('[data-tutor-conversation-situation-picture] option[selected]').text()}`]) {
-      expect(changedSummary).toContain(part);
-    }
+    // Changed 2026-10-24 (V309, owner I80): Replies and Situation picture are summarized under MODE, not ADVANCED.
+    expect(changedSummary).toContain('Send: When I stop speaking');
+    expect(changedSummary).not.toContain('Reply:');
+    expect(changedPage('details[data-persist-id="tutor-conversation-mode"] > summary .rewrite-group-summary').text()).toContain('Reply: Standard');
     value.conversation.liveVoice = 'Kore';
     expect(summary(load(renderTutorConversation(value)))).toBe(changedSummary);
   });
@@ -441,7 +447,8 @@ describe('V89 conversation controls', () => {
       'summary.textContent = tutorConversationAdvancedSummary({'
     );
     expect(patch).not.toContain("replyThinking");
-    expect(patch).toContain("situationPicture: selectedText('[data-tutor-conversation-situation-picture]')");
+    // Changed 2026-10-24 (V309, owner I80): Replies and Situation picture moved to MODE.
+    expect(patch).not.toContain("situationPicture: selectedText('[data-tutor-conversation-situation-picture]')");
   });
 
   it('V124 labels every Gemini voice with its gender and offers no unknown default', () => {
@@ -1092,18 +1099,21 @@ describe('V89 conversation controls', () => {
 
   it('V154 puts Demo between Start and Reset with an unambiguous tooltip', () => {
     const value = state();
-    Object.assign(value.conversation, { status: 'idle', from: 'anything' });
+    // Changed 2026-10-21 (owner, I56/I57): open MODE retains the existing Start, Demo, Reset row.
+    Object.assign(value.conversation, { status: 'idle', from: 'anything', openModeAfterRender: true });
     const $ = page(value);
     const row = $('.tutor-conversation-start > .tutor-conversation-actions');
 
     // Changed 2026-09-25 for V154: Demo occupies the slot V153 deliberately left in the
     // shared flex-wrapped row, between the two controls the owner named.
-    expect(row.children('button').map((_, button) => $(button).attr('data-command')).get())
+    expect(row.children('button:not([hidden])').map((_, button) => $(button).attr('data-command')).get())
       .toEqual(['startTutorConversation', 'startTutorConversationDemo', 'resetTutorConversationDefaults']);
-    expect(row.children('button').map((_, button) => $(button).text()).get())
+    expect(row.children('button:not([hidden])').map((_, button) => $(button).text()).get())
       .toEqual(['Start', 'Demo', 'Reset']);
-    expect(row.children('[data-command="startTutorConversationDemo"]').attr('title'))
-      .toMatch(/Gemini.*key.*Demo/u); // 2026-10-12: Disabled Demo names the missing key.
+    // Changed 2026-10-23 (V306, verification R30): Live Demo stays reachable because its start check offers profile or Standard choices.
+    const demo = row.children('[data-command="startTutorConversationDemo"]');
+    expect(demo.attr('disabled')).toBeUndefined();
+    expect(demo.attr('title')).toMatch(/hear.*example.*conversation/iu);
     expect(row.children('[data-command="resetTutorConversationDefaults"]').attr('title'))
       .toBe('Reset the mode settings to defaults');
     expect(declarations($, '.tutor-conversation-actions')).toMatchObject({
@@ -1262,23 +1272,23 @@ describe('V107 conversation MODE foldable, 2026-09-16', () => {
       .toMatch(/start.*speak.*microphone/iu); // Changed 2026-10-18: V263, owner item I43, the invitation names spoken input.
     expect($('.tutor-conversation-start [data-command="startTutorConversation"]')).toHaveLength(1);
 
-    // Changed 2026-09-18: the sentence names both available Source fixes and one reachable
-    // button performs the situation fix without hiding inside the folded MODE group.
-    const blockedPage = page(createTutorViewState());
+    // Changed 2026-10-21 (owner, I56/I57): select lesson explicitly, show disabled actions and keep Setting available.
+    const blockedState = createTutorViewState();
+    blockedState.conversation.from = 'lesson';
+    const blockedPage = page(blockedState);
     const blocked = blockedPage('.tutor-conversation-start');
     expect(blocked.children('p')).toHaveLength(1);
-    expect(blocked.children('p').text()).toBe(
-      'Finish the lesson and its practice first.'
-    );
-    // Changed 2026-10-05 (owner issue 17): a start reason shows only itself and Source setting;
-    // Start, Demo and Reset are absent until the source is usable.
-    expect(blocked.find('[data-command="startTutorConversation"]')).toHaveLength(0);
-    expect(blocked.find('[data-command="startTutorConversationDemo"]')).toHaveLength(0);
-    expect(blocked.find('[data-command="resetTutorConversationDefaults"]')).toHaveLength(0);
-    expect(blocked.children('[data-command="useTutorSituationSource"]').text()).toBe('Source setting');
+    expect(blocked.children('p').text()).toMatch(/start.*speak.*microphone/iu);
+    expect(blocked.text()).not.toContain('Finish the lesson and its practice first.');
+    for (const command of ['startTutorConversation', 'startTutorConversationDemo']) {
+      expect(blocked.find(`[data-command="${command}"][disabled]`).attr('title'))
+        .toBe('Finish the lesson and its practice first.');
+    }
+    expect(blocked.find('[data-command="resetTutorConversationDefaults"][hidden]')).toHaveLength(1);
+    expect(blocked.find('[data-tutor-open-conversation-settings]:not([disabled])').text()).toBe('Setting');
+    expect(blocked.find('[data-command="useTutorSituationSource"]')).toHaveLength(0);
     expect(blockedPage('details[data-persist-id="tutor-conversation-mode"]').is('[open]')).toBe(false);
-    expect(blockedPage('details[data-persist-id="tutor-conversation-mode"]')
-      .is('[data-force-closed]')).toBe(true);
+    expect(blockedPage('details[data-persist-id="tutor-conversation-mode"]').is('[data-force-closed]')).toBe(false);
   });
 
   it('removes the disclosure sentence in every conversation state', () => {

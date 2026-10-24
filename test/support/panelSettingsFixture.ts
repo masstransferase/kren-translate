@@ -98,6 +98,8 @@ export const PANEL_SETTINGS_FIXTURE: KrenPanelSettings = {
   tutorReadAloudVoice: 'Microsoft David Desktop',
   tutorReadAloudRate: 0,
   tutorReadAloudVolume: 100,
+  // 2026-10-21: V286 adds the tutor sentence pause default.
+  tutorSentencePauseMilliseconds: 0,
   quickMenuRewriteVariant: 'all',
   rewriteDomain: 'general',
   rewriteFormality: 'preserve',

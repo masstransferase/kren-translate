@@ -59,12 +59,14 @@ describe('V125 tutor controls and defaults, 2026-09-20', () => {
     // Changed 2026-10-02: V182 places Balloon transparency immediately below Picture transparency.
     // Changed 2026-10-03: language precedes existing ADVANCED rows; their order stays guarded.
     expect(advanced.find('[data-setting="tutor.conversation.liveTranscriptionLanguage"]')).toHaveLength(1);
-    expect(advanced.find('.setting').first().find('[data-tutor-conversation-replies]')).toHaveLength(1);
+    // Changed 2026-10-24 (V309, owner I80): Replies and Situation picture moved to MODE.
+    expect(advanced.find('[data-tutor-conversation-replies]')).toHaveLength(0);
+    expect(advanced.find('[data-tutor-conversation-reply-length]')).toHaveLength(1);
     expect(advanced.find('.setting').not('[data-model-identifier]').filter((_, row) => $(row).find('[data-setting="tutor.conversation.liveTranscriptionLanguage"]').length === 0).find('.setting-title').map((_, element) => $(element).text()).get())
       // Changed 2026-10-02: V187 inserts Speech detection immediately below Pause before reply.
       // 2026-10-10: V217 adds Take-home card last without moving the existing ADVANCED rows.
       // 2026-10-11: V220 adds Prepare hints in advance immediately before Take-home card.
-      .toEqual(['Replies', 'Reply length', 'Situation picture', 'Picture style', 'Picture transparency', 'Balloon transparency', 'Microphone sensitivity', 'Pause before reply', 'Speech detection', 'Microphone close wait', 'Press to talk', 'Prepare hints in advance', 'Take-home card']);
+      .toEqual(['Reply length', 'Picture style', 'Picture transparency', 'Balloon transparency', 'Microphone sensitivity', 'Pause before reply', 'Speech detection', 'Microphone close wait', 'Press to talk', 'Prepare hints in advance', 'Take-home card']);
 
     const tutorVoice = $('details[data-tutor-child]').filter((_, element) =>
       $(element).find('summary .rewrite-group-name').first().text().trim() === 'TUTOR VOICE'

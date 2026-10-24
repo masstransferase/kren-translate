@@ -14,7 +14,8 @@ describe('AI English Tutor contribution', () => {
   it('contributes and registers the command with no editor context-menu entry', () => {
     expect(manifest.contributes.commands).toContainEqual(expect.objectContaining({
       command: 'kren.openTutor',
-      title: 'Open AI English Tutor',
+      // Changed 2026-10-19: V282 (2.0.1 page text) uses the approved palette title.
+      title: 'Start LLM-based AI English Tutor',
       category: 'KREN'
     }));
     expect(manifest.contributes.menus['editor/context'] ?? [])

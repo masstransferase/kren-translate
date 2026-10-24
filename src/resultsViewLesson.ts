@@ -121,6 +121,7 @@ export async function askTutorQuestion(view: KrenResultsViewProvider, query: str
         : 'The model found no learning-map target for this question. Choose a learning-map target, or turn on "Use question without learning-map targets" to draft from your question.';
     } catch (error) {
       if (controller.signal.aborted) return;
+      view.showMissingCredentialError(error, true);
       view.actions.log(`Tutor target search failed: ${tutorFailureMessage(error)}`);
       sourceMessage = 'The model search failed. Choose a learning-map target, or turn on "Use question without learning-map targets" to draft from your question.';
     } finally {
@@ -199,6 +200,7 @@ export async function diagnoseSelectedEditorPassage(view: KrenResultsViewProvide
       view.render();
     } catch (error) {
       if (controller.signal.aborted) return;
+      view.showMissingCredentialError(error, true);
       view.actions.log(`Tutor passage diagnosis failed: ${tutorFailureMessage(error)}`);
       view.tutorState = {
         ...view.tutorState,
@@ -438,9 +440,7 @@ export async function confirmTutorDiagnosticReportDeletion(view: KrenResultsView
       'Delete this diagnostic report?',
       {
         modal: true,
-        detail: (busy ? '' : `${TUTOR_REPORT_DELETE_AND_RESET} also clears the drafted lesson, the practice set ' +
-          'with your answers and reviews, the conversation transcript, the lesson question, and every ' +
-          'selected target, as Reset does. `) +
+        detail: (busy ? '' : `${TUTOR_REPORT_DELETE_AND_RESET} also clears the drafted lesson, the practice set with your answers and reviews, the conversation transcript, the lesson question, and every selected target, as Reset does. `) +
           `${TUTOR_REPORT_DELETE_ONLY} removes this report and keeps everything else.`
       },
       ...choices
@@ -458,9 +458,6 @@ export async function confirmTutorDiagnosticReportDeletion(view: KrenResultsView
       view.pendingTutorAnnouncement = 'The diagnostic report was deleted and AI English Tutor was reset.';
       view.tutorState = resetTutorSession(view.tutorState);
       view.render();
-      view.actions.notify(
-        'information', 'The diagnostic report was deleted and AI English Tutor was reset.'
-      );
       return;
     }
     if (choice !== TUTOR_REPORT_DELETE_ONLY) return;
@@ -559,7 +556,7 @@ export function startTutorLessonGeneration(view: KrenResultsViewProvider): void 
         ...view.tutorState,
         lessonFailure: tutorFailureMessage(error)
       };
-      view.actions.notify('error', view.tutorState.lessonFailure!);
+      view.showMissingCredentialError(error, true);
       view.render();
       return;
     }
@@ -635,7 +632,7 @@ export function startTutorLessonGeneration(view: KrenResultsViewProvider): void 
         ...view.tutorState,
         lessonFailure: tutorProviderSwitchMessage(response ?? error, route.provider, 'lesson', tutorFailureMessage(error))
       };
-      view.actions.notify('error', view.tutorState.lessonFailure!);
+      view.showMissingCredentialError(error, true);
     }).finally(() => {
       tutorDraftWork.delete(controller);
       if (generation !== view.tutorGeneration) return;
@@ -715,6 +712,7 @@ export function regenerateTutorExample(view: KrenResultsViewProvider, exampleId:
       };
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
+      view.showMissingCredentialError(error, true);
       view.tutorState = {
         ...view.tutorState,
         exampleFailures: {
@@ -757,6 +755,7 @@ export function generateTutorExercises(view: KrenResultsViewProvider): void {
     try {
       recipe = view.tutorState.lesson?.recipe ?? tutorRecipeFromState(view.tutorState);
     } catch (error) {
+      view.showMissingCredentialError(error, true);
       view.tutorState = { ...view.tutorState, exerciseFailure: tutorFailureMessage(error) };
       view.render();
       return;
@@ -816,6 +815,7 @@ export function generateTutorExercises(view: KrenResultsViewProvider): void {
       view.pendingTutorResultFocus = 'exercises';
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
+      view.showMissingCredentialError(error, true);
       view.tutorState = { ...view.tutorState, exerciseFailure: tutorProviderSwitchMessage(response ?? error, route.provider, 'practice set', tutorFailureMessage(error)) };
     }).finally(() => {
       if (view.tutorExerciseController !== controller) return;
@@ -892,6 +892,7 @@ export async function diagnoseTutorConversation(view: KrenResultsViewProvider): 
       };
     } catch (error) {
       if (controller.signal.aborted) return;
+      view.showMissingCredentialError(error, true);
       view.actions.log(`Tutor conversation diagnosis failed: ${tutorFailureMessage(error)}`);
       view.tutorState = {
         ...view.tutorState, askBusy: undefined,

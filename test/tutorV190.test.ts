@@ -82,7 +82,8 @@ describe('V190 tutor voice and model controls', () => {
     { tutorEdgeReadAloudFemaleVoice: 'en-GB-SoniaNeural' }
   ])('patches the catalogs and voice settings summary while retaining disclosures and the answer: %j', (voiceSettings) => {
     const before = load(page({ tutorFallbackEnabled: true, tutorModel: 'old-tutor' }, []));
-    const afterHtml = page({ tutorFallbackEnabled: true, tutorModel: 'new-tutor', tutorFallbackModel: 'new-fallback',
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    const afterHtml = page({ tutorFallbackEnabled: true, tutorModel: 'new-tutor', tutorHintModel: 'new-fast',
       tutorLiveModel: 'new-live', tutorImageModel: 'new-image', ...voiceSettings });
     const selector = 'details[data-persist-id="tutor-setting"]';
     const group = before(selector);
@@ -105,7 +106,9 @@ describe('V190 tutor voice and model controls', () => {
     runInNewContext(script.slice(start, end) + '\npatchTutorVoiceModel(message);', {
       document: { querySelector: () => current }, DOMParser: Parser, message: { html: afterHtml }, applyConditionalSettings
     });
-    for (const key of ['model', 'fallbackModel', 'hintModel']) {
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    expect(group.find('[data-model-preset="tutor.fallbackModel"]')).toHaveLength(0);
+    for (const key of ['model', 'hintModel']) {
       expect(group.find(`[data-model-preset="tutor.${key}"] option[value="ordinary-new"]`)).toHaveLength(1);
     }
     expect(group.attr('open')).toBeDefined();
@@ -115,7 +118,7 @@ describe('V190 tutor voice and model controls', () => {
       .map(part => part.replace(/^Live (voice|female|male):/iu, label => label.toLowerCase()));
     // Changed 2026-10-04: V203 labels Gemini voices beside the Edge block, after all models.
     const after = load(afterHtml);
-    expect(summary).toEqual(['new-tutor', 'new-fallback', 'new-live',
+    expect(summary).toEqual(['new-tutor', 'new-fast', 'new-live',
       'new-image',
       after('[data-setting="tutor.readAloud.provider"] option:selected').text(),
       `Female: ${after('[data-tutor-voice-setting="tutor.readAloud.edgeFemaleVoice"] option:selected').text()}`,
@@ -127,7 +130,7 @@ describe('V190 tutor voice and model controls', () => {
       `live female: ${after('[data-tutor-voice-setting="tutor.liveFemaleVoice"] option:selected').text()}`,
       `live male: ${after('[data-tutor-voice-setting="tutor.liveMaleVoice"] option:selected').text()}`]);
     expect(group.children('summary').find('.rewrite-group-summary').text())
-      .not.toBe(load(page({ tutorFallbackEnabled: true, tutorModel: 'new-tutor', tutorFallbackModel: 'new-fallback',
+      .not.toBe(load(page({ tutorFallbackEnabled: true, tutorModel: 'new-tutor', tutorHintModel: 'new-fast',
         tutorLiveModel: 'new-live', tutorImageModel: 'new-image' }))(`${selector} > summary .rewrite-group-summary`).text());
     expect(group.children('summary').text()).not.toMatch(/Modality|Domain|Formality|Perspective|Rhetorical/);
     expect(answer).toEqual({ value: 'Unsaved answer', selectionStart: 7 });
@@ -148,7 +151,8 @@ describe('V190 tutor voice and model controls', () => {
   });
 
   it.each(['edgeOnline', 'windowsLocal'])('summarizes every displayed voice setting for %s', (provider) => {
-    const $ = load(page({ tutorFallbackEnabled: true, tutorModel: 'ordinary', tutorFallbackModel: 'fallback',
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    const $ = load(page({ tutorFallbackEnabled: true, tutorModel: 'ordinary', tutorHintModel: 'fast',
       tutorLiveModel: 'live', tutorImageModel: 'image', tutorReadAloudProvider: provider,
       tutorEdgeReadAloudRatePercent: 10, tutorReadAloudRate: -4, tutorReadAloudVolume: 75 }));
     // 2026-10-11: Mutually exclusive Edge and Chirp speed controls store the same setting.
@@ -158,7 +162,7 @@ describe('V190 tutor voice and model controls', () => {
       .map(part => part.replace(/^Live (voice|female|male):/iu, label => label.toLowerCase()));
     // Changed 2026-10-04: V203 groups and labels the Gemini voices after the speech block.
     expect(summary).toEqual([
-      'ordinary', 'fallback', 'live', 'image',
+      'ordinary', 'fast', 'live', 'image',
       selected('tutor.readAloud.provider'),
       ...(provider === 'edgeOnline' ? [
         `Female: ${selected('tutor.readAloud.edgeFemaleVoice')}`,

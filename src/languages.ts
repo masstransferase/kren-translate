@@ -1,10 +1,11 @@
 import {
   AUTO_ENGLISH_KOREAN_TARGET,
   KREN_LANGUAGES,
+  localeLanguageName,
+  isSameLanguage as coreIsSameLanguage,
   type KrenLanguage
 } from '@kren/core/languages';
 import { isPlausibleLanguageCode as coreIsPlausibleLanguageCode } from '@kren/core/validation';
-import { EDGE_SPEECH_LOCALES } from '@kren/core/edge-speech';
 
 export {
   AUTO_ENGLISH_KOREAN_TARGET,
@@ -27,16 +28,7 @@ export {
  * collapsing both to Portuguese.
  */
 export function languageName(code: string): string {
-  if (code === 'auto') return 'Auto-detect';
-  if (code === AUTO_ENGLISH_KOREAN_TARGET) return 'Auto: English ↔ Korean';
-  const exact = KREN_LANGUAGES.find((language) => language.code === code)?.name;
-  if (exact) return exact;
-  const locale = EDGE_SPEECH_LOCALES.find(
-    (entry) => entry.id.toLowerCase() === code.trim().toLowerCase()
-  )?.label;
-  if (locale) return locale;
-  const bare = code.split('-')[0];
-  return KREN_LANGUAGES.find((language) => language.code === bare)?.name ?? code;
+  return localeLanguageName(code);
 }
 
 export function isPlausibleLanguageCode(value: string): boolean {
@@ -55,7 +47,5 @@ export function isPlausibleLanguageCode(value: string): boolean {
  * the source and the target agree.
  */
 export function isSameLanguage(left: string, right: string): boolean {
-  if (left === 'auto' || right === 'auto') return false;
-  const base = (code: string): string => code.trim().toLowerCase().split('-')[0] ?? '';
-  return base(left) !== '' && base(left) === base(right);
+  return coreIsSameLanguage(left, right);
 }

@@ -20,10 +20,12 @@ vi.mock('vscode', () => ({
   env: { remoteName: undefined },
   workspace: { getConfiguration: () => ({ get: workspaceGet }) },
   Uri: { joinPath: (...parts: unknown[]) => parts },
-  window: { showWarningMessage }
+  // Changed 2026-10-22 (V294, owner I60/I64): expose the native modal boundary for deferred credential errors.
+  window: { showWarningMessage, showErrorMessage: showWarningMessage }
 }));
 
 import { TUTOR_SITUATIONS } from '@kren/core/tutor';
+import { missingCredentialError } from '../src/requestCenter.js';
 import { ProviderError } from '../src/errors.js';
 import {
   KrenResultsViewProvider,
@@ -42,6 +44,9 @@ import { LiveConversationTurnTiming } from '../src/tutor/conversationTiming.js';
 import { createTutorViewState, type TutorViewState } from '../src/tutor/state.js';
 import { pcmSampleRate } from '../src/windowsWaveOutPlayer.js';
 import { PANEL_SETTINGS_FIXTURE } from './support/panelSettingsFixture.js';
+// Changed 2026-10-23 (V304, owner I75): these transport tests start with both Live keys stored.
+const LIVE_PANEL_SETTINGS_FIXTURE: typeof PANEL_SETTINGS_FIXTURE = { ...PANEL_SETTINGS_FIXTURE, credentialPresence: { geminiDefault: true, geminiAlternate: true } };
+
 
 const TEST_CREDENTIAL = ['unit', 'test', 'credential'].join('-');
 // Added 2026-09-24 for V150: every Live controller fixture now satisfies the same exact
@@ -166,7 +171,7 @@ function liveProvider(socketFactory: (url: string) => TutorLiveSocket, dictation
     readSelectedEditorPassage: vi.fn(), generateTutor, transcribeTutorAudio: vi.fn(),
     runTutorTool: vi.fn(), updateSetting: vi.fn(async (_key: unknown, _value: unknown) => undefined), updateTutorVoiceSetting: vi.fn(),
     runCommand: vi.fn(), rerunOperation: vi.fn(),
-    log: vi.fn(), settings: vi.fn(() => ({ ...PANEL_SETTINGS_FIXTURE })),
+    log: vi.fn(), settings: vi.fn(() => ({ ...LIVE_PANEL_SETTINGS_FIXTURE })),
     refreshGeminiModels: vi.fn(), refreshGeminiLiveModels: vi.fn(),
     refreshProModels: vi.fn(), refreshOpenAIModels: vi.fn(),
     refreshAnthropicModels: vi.fn(), refreshReadAloudVoices: vi.fn()
@@ -206,6 +211,15 @@ function liveProvider(socketFactory: (url: string) => TutorLiveSocket, dictation
     actions as never, {} as never, undefined, dictationRecorder, socketFactory, waveOutPlayer, waveInRecorder
   );
   const internals = provider as unknown as ProviderInternals;
+  // Changed 2026-10-22 (V295): generic completed Standard fallbacks include the intro pause.
+  const handleMessage = internals.handleMessage.bind(internals);
+  internals.handleMessage = async message => {
+    await handleMessage(message);
+    for (let step = 0; step < 16; step += 1) await Promise.resolve();
+    if (!vi.isFakeTimers() && provider.tutorIntroCompletionWait) {
+      await vi.waitFor(() => expect(provider.tutorIntroCompletionWait).toBeUndefined(), { timeout: 2_000 });
+    }
+  };
   internals.view = { webview: {
     html: '', cspSource: 'test', asWebviewUri: () => ({ toString: () => 'test' }), postMessage
   } };
@@ -241,19 +255,36 @@ async function waitForLiveSession(internals: ProviderInternals): Promise<void> {
   await vi.waitFor(() => expect(internals.tutorLiveSession).toBeDefined());
 }
 
+async function finishLiveNarration(socket: FakeSocket): Promise<void> {
+  // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
+  const realTimers = !vi.isFakeTimers();
+  if (realTimers) vi.useFakeTimers();
+  socket.message({ serverContent: { outputTranscription: { text: LIVE_OPENING_RESPONSE.scene }, turnComplete: true } });
+  await vi.advanceTimersByTimeAsync(1_000);
+  await waitForSent(socket, 3);
+  if (realTimers) vi.useRealTimers();
+}
+
 async function openLiveConversation(internals: ProviderInternals, socket: FakeSocket): Promise<void> {
+  // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
+  const realTimers = !vi.isFakeTimers();
+  if (realTimers) vi.useFakeTimers();
   await internals.handleMessage({ command: 'startTutorConversation' });
-  // Changed 2026-09-24 after the owner chose spoken Live opening B: scene casting still
-  // precedes the socket, then Gemini owns the one opening turn and its transcription.
+  // Changed 2026-10-22 (V295, owner D21 A): scene casting precedes the socket,
+  // then Gemini narrates and speaks the opening in separate turns.
   await waitForLiveSession(internals);
   socket.emit('open');
   await waitForSent(socket, 1);
   socket.message({ setupComplete: {} });
   await waitForSent(socket, 2);
+  socket.message({ serverContent: { outputTranscription: { text: LIVE_OPENING_RESPONSE.scene }, turnComplete: true } });
+  await vi.advanceTimersByTimeAsync(1_000);
+  await waitForSent(socket, 3);
   socket.message({ serverContent: { outputTranscription: { text: 'Welcome. ' } } });
   socket.message({ serverContent: { outputTranscription: { text: 'How can I help?' } } });
   socket.message({ serverContent: { turnComplete: true } });
   await vi.waitFor(() => expect(internals.tutorState.conversation.busy).toBe(false));
+  if (realTimers) vi.useRealTimers();
 }
 
 function tutorStopStates(postMessage: ReturnType<typeof vi.fn>): Array<Record<string, unknown>> {
@@ -619,7 +650,7 @@ describe('V120 conversation controller', () => {
     const socketFactory = vi.fn(() => new FakeSocket());
     const { internals, actions, postMessage } = liveProvider(socketFactory, recorder);
     workspaceGet.mockImplementation((key: string, fallback: unknown) => key === 'tutor.speechProvider' ? 'gemini' : fallback);
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, credentialPresence: { geminiDefault: true } });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, credentialPresence: { geminiDefault: true } });
     internals.tutorLiveSession = undefined;
     internals.tutorState.conversation.status = 'active';
     internals.tutorState.conversation.replies = 'liveGemini';
@@ -718,6 +749,7 @@ describe('V120 conversation controller', () => {
   });
 
   it('keeps an untranscribed noise turn from adding a visible or audible Live reply', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     // Changed 2026-10-03: explicitly exercise KREN's manual activity gate.
     const previousGet = workspaceGet.getMockImplementation()!;
     workspaceGet.mockImplementation((key: string, fallback: unknown) =>
@@ -727,7 +759,7 @@ describe('V120 conversation controller', () => {
     await openLiveConversation(internals, socket);
     await internals.handleMessage({ command: 'updateTutorConversationAnswer', answer: 'A real answer.' });
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     socket.message({ serverContent: { outputTranscription: { text: 'The stored reply.' } } });
     socket.message({ serverContent: { turnComplete: true } });
     await vi.waitFor(() => expect(internals.tutorState.conversation.transcript).toHaveLength(1));
@@ -1081,6 +1113,7 @@ describe('V120 conversation controller', () => {
   });
 
   it('asks Gemini for the next question on Skip instead of replaying the last message', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, actions, waveOutSession } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
@@ -1092,8 +1125,8 @@ describe('V120 conversation controller', () => {
     await internals.handleMessage({ command: 'skipTutorConversationTurn' });
     // Changed 2026-09-24 after the owner chose spoken Live opening B: Skip follows the
     // session-owned opening turn.
-    await waitForSent(socket, 3);
-    const skip = JSON.parse(socket.sent[2]!).clientContent;
+    await waitForSent(socket, 4);
+    const skip = JSON.parse(socket.sent[3]!).clientContent;
     expect(skip.turnComplete).toBe(true);
     expect(skip.turns[0].parts.at(-1).text).toContain('the learner skipped your last question');
     expect(waveOutSession.play).not.toHaveBeenCalled();
@@ -1356,25 +1389,26 @@ describe('V120 conversation controller', () => {
     });
     socket.message({ setupComplete: {} });
     await waitForSent(socket, 2);
+    await finishLiveNarration(socket);
     socket.message({ serverContent: { outputTranscription: { text: 'Welcome.' } } });
     socket.message({ serverContent: { turnComplete: true } });
     await vi.waitFor(() => expect(internals.tutorState.conversation.busy).toBe(false));
-    // Changed 2026-09-24 after the owner chose spoken Live opening B: setup and the one
-    // session-owned opening turn finish before Press to talk becomes available.
-    expect(socket.sent).toHaveLength(2);
+    // Changed 2026-10-22 (V295, owner D21 A): setup, narration, and the separate
+    // character opening finish before Press to talk becomes available.
+    expect(socket.sent).toHaveLength(3);
     workspaceGet.mockImplementation((_key: string, fallback: unknown) => fallback);
 
     emitWaveIn(pcmChunk(2_000));
-    expect(socket.sent).toHaveLength(2);
+    expect(socket.sent).toHaveLength(3);
     await internals.handleMessage({ command: 'dictateTutorConversation' });
     expect(waveInRecorder.start).toHaveBeenCalledOnce();
-    expect(JSON.parse(socket.sent[2]!)).toEqual({ realtimeInput: { activityStart: {} } });
+    expect(JSON.parse(socket.sent[3]!)).toEqual({ realtimeInput: { activityStart: {} } });
     for (let index = 0; index < 10; index += 1) emitWaveIn(pcmChunk(100));
     // V143, 2026-09-23: manual activity detection needs no synthetic silence. Quiet chunks
     // suppressed by the gate still produce no socket messages between the two button presses.
-    expect(socket.sent).toHaveLength(3);
+    expect(socket.sent).toHaveLength(4);
     emitWaveIn(pcmChunk(400));
-    expect(socket.sent.slice(3)).toHaveLength(3);
+    expect(socket.sent.slice(4)).toHaveLength(3);
 
     await internals.handleMessage({ command: 'dictateTutorConversation' });
     expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ realtimeInput: { activityEnd: {} } });
@@ -1441,7 +1475,7 @@ describe('V120 conversation controller', () => {
     const socket = new FakeSocket();
     const { internals, actions, postMessage, generateTutor } = liveProvider(() => socket);
     actions.settings.mockReturnValue({
-      ...PANEL_SETTINGS_FIXTURE,
+      ...LIVE_PANEL_SETTINGS_FIXTURE,
       tutorProfile: 'pro',
       tutorModel: 'gemini-default-request-model',
       tutorAlternateModel: 'gemini-alternate-request-model',
@@ -1739,6 +1773,7 @@ describe('V120 conversation controller', () => {
   });
 
   it('keeps typed clientContent working while the Talk microphone stays open', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, waveInSession } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
@@ -1747,14 +1782,15 @@ describe('V120 conversation controller', () => {
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
     // Changed 2026-09-24 after the owner chose spoken Live opening B: the typed turn follows
     // the session-owned opening rather than the structured fallback text.
-    await waitForSent(socket, 3);
-    expect(JSON.parse(socket.sent[2]!)).toEqual({ clientContent: {
+    await waitForSent(socket, 4);
+    expect(JSON.parse(socket.sent[3]!)).toEqual({ clientContent: {
       turns: [{ role: 'user', parts: [{ text: 'A typed answer.' }] }], turnComplete: true
     } });
     expect(waveInSession.stop).not.toHaveBeenCalled();
   });
 
   it('grows the reply fragment by fragment and sends three audio chunks only to the host helper', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, postMessage, waveOutSession } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
@@ -1762,7 +1798,7 @@ describe('V120 conversation controller', () => {
     waveOutSession.play.mockClear();
     await internals.handleMessage({ command: 'updateTutorConversationAnswer', answer: 'I go there yesterday.' });
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
 
     socket.message({ serverContent: { outputTranscription: { text: 'That ' } } });
     expect(internals.tutorLiveReplyText).toBe('That ');
@@ -1918,7 +1954,7 @@ describe('V120 conversation controller', () => {
       key === 'tutor.liveModel' ? 'gemini-v134-live-model' : fallback);
     const socket = new FakeSocket();
     const { internals, actions, generateTutor, postMessage } = liveProvider(() => socket);
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorProfile: 'pro' });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, tutorProfile: 'pro' });
     internals.tutorState.conversation.coaching = 'teaching';
     await internals.handleMessage({ command: 'startTutorConversation' });
     await waitForLiveSession(internals);
@@ -1956,12 +1992,13 @@ describe('V120 conversation controller', () => {
   });
 
   it('falls back after a mid-turn close with the same learner answer and stays Standard', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, generateTutor, actions } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
     await internals.handleMessage({ command: 'updateTutorConversationAnswer', answer: 'Same answer.' });
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     socket.emit('close');
     await vi.waitFor(() => expect(internals.tutorState.conversation.transcript).toHaveLength(1));
 
@@ -1978,7 +2015,7 @@ describe('V120 conversation controller', () => {
     await vi.waitFor(() => expect(internals.tutorState.conversation.transcript).toHaveLength(2));
     // Changed 2026-09-24 after the owner chose spoken Live opening B: setup, Gemini's opening,
     // and the learner turn are the only frames before Standard takes over.
-    expect(socket.sent).toHaveLength(3);
+    expect(socket.sent).toHaveLength(4);
     // 2026-10-11: The next reply is spoken by the Speech Source after Live fails.
     expect(actions.readAloudText).toHaveBeenCalledWith('Structured reply that Live must ignore.', 'en', 'tutor');
     expect(actions.notify).toHaveBeenCalledOnce();
@@ -2142,7 +2179,8 @@ describe('V120 conversation controller', () => {
     await openLiveConversation(internals, first);
     await internals.handleMessage({ command: 'updateTutorConversationAnswer', answer: 'Typed words.' });
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(first, 3);
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
+    await waitForSent(first, 4);
 
     await internals.handleMessage({
       command: 'updateTutorConversationReplies', input: 'standard'
@@ -2322,12 +2360,13 @@ describe('V120 conversation controller', () => {
   });
 
   it('enables Replay after a spoken Live reply stores audio, and replays it without text speech', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, actions, postMessage, waveOutPlayer, waveOutSession } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
     internals.tutorState.conversation.draftAnswer = 'Please replay this reply.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     for (const chunk of [
       { data: 'AQI=', mimeType: 'audio/pcm;rate=24000' },
       { data: 'AwQ=', mimeType: 'audio/pcm;rate=24000' }
@@ -2364,6 +2403,7 @@ describe('V120 conversation controller', () => {
   });
 
   it('keeps text speech silent while Live is active and speaks the fallback after failure', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, actions, waveOutSession } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
@@ -2373,7 +2413,7 @@ describe('V120 conversation controller', () => {
     expect(waveOutSession.play).not.toHaveBeenCalled();
     internals.tutorState.conversation.draftAnswer = 'Use the fallback response.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     socket.emit('close');
     await vi.waitFor(() => expect(internals.tutorState.conversation.transcript).toHaveLength(1));
     // 2026-10-11: The Edge mute applies only while a Live session is active.
@@ -2387,7 +2427,7 @@ describe('V120 conversation controller', () => {
     const { internals, actions, waveOutPlayer, waveOutSession } = liveProvider(() => socket);
     internals.tutorState.conversation.liveVoice = 'Kore';
     const settings = {
-      ...PANEL_SETTINGS_FIXTURE,
+      ...LIVE_PANEL_SETTINGS_FIXTURE,
       tutorReadAloudProvider: 'edgeOnline' as const,
       tutorEdgeReadAloudVoice: 'en-US-AvaNeural'
     };
@@ -2410,6 +2450,7 @@ describe('V120 conversation controller', () => {
     await waitForSent(socket, 1);
     socket.message({ setupComplete: {} });
     await waitForSent(socket, 2);
+    await finishLiveNarration(socket);
     socket.message({ serverContent: { modelTurn: { parts: [{ inlineData: {
       data: 'AQI=', mimeType: 'audio/pcm;rate=24000'
     } }] } } });
@@ -2419,7 +2460,7 @@ describe('V120 conversation controller', () => {
 
     internals.tutorState.conversation.draftAnswer = 'First learner answer.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     socket.message({ serverContent: { modelTurn: { parts: [{ inlineData: {
       data: 'AwQ=', mimeType: 'audio/pcm;rate=24000'
     } }] } } });
@@ -2429,7 +2470,7 @@ describe('V120 conversation controller', () => {
 
     internals.tutorState.conversation.draftAnswer = 'Second learner answer.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 4);
+    await waitForSent(socket, 5);
     socket.message({ serverContent: { modelTurn: { parts: [{ inlineData: {
       data: 'BQY=', mimeType: 'audio/pcm;rate=24000'
     } }] } } });
@@ -2566,6 +2607,7 @@ describe('V120 conversation controller', () => {
   });
 
   it('V131 drops a late Live Hint when the socket advances to its reply', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     // Added 2026-09-20: the provider request can outlive the question even when the same Hint
     // controller still owns the request. This uses a real Live turn, not a full re-render.
     const socket = new FakeSocket();
@@ -2589,7 +2631,7 @@ describe('V120 conversation controller', () => {
     await vi.waitFor(() => expect(internals.tutorState.conversation.hintBusy).toBe(true));
     internals.tutorState.conversation.draftAnswer = 'My answer.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     postMessage.mockClear();
     socket.message({ serverContent: { modelTurn: { parts: [{ inlineData: {
       data: 'AQI=', mimeType: 'audio/pcm;rate=24000'
@@ -2756,6 +2798,7 @@ describe('V120 conversation controller', () => {
   });
 
   it('keeps Live text after the helper fails and leaves this conversation silent', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, actions, failWaveOut, waveOutSession } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
@@ -2767,7 +2810,7 @@ describe('V120 conversation controller', () => {
 
     internals.tutorState.conversation.draftAnswer = 'Keep the text live.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     socket.message({ serverContent: { modelTurn: { parts: [{ inlineData: {
       data: 'AQI=', mimeType: 'audio/pcm;rate=24000'
     } }] } } });
@@ -2791,7 +2834,9 @@ describe('V120 conversation controller', () => {
     expect(actions.readAloudText).not.toHaveBeenCalled();
   });
 
-  it('V152 uses one Gemini turn to narrate the scene and speak the structured opening', async () => {
+  it('V295 uses two Gemini turns to narrate the scene and speak the structured opening', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
+    vi.useFakeTimers();
     // Added 2026-09-24 after the owner chose spoken Live opening B: the structured response
     // casts the scene and remains the fallback, but its opening must never become a Live bubble.
     const socket = new FakeSocket();
@@ -2811,14 +2856,18 @@ describe('V120 conversation controller', () => {
     expect(setupInstruction).toContain('not as the counterpart addressing the learner');
     expect(setupInstruction).not.toContain(LIVE_OPENING_RESPONSE.opening);
     const openingTurn = JSON.parse(socket.sent[1]!).clientContent;
-    expect(openingTurn.turns[0].parts).toEqual([{ text:
-      `Read the established scene aloud as neutral third-person narration. Then switch into character and say exactly this opening: ${JSON.stringify(LIVE_OPENING_RESPONSE.opening)}`
+    expect(openingTurn.turns[0].parts[0].text).toMatch(/third-person narration.*without speaking in character/u);
+    socket.message({ serverContent: { outputTranscription: { text: LIVE_OPENING_RESPONSE.scene }, turnComplete: true } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await waitForSent(socket, 3);
+    expect(JSON.parse(socket.sent[2]!).clientContent.turns[0].parts).toEqual([{ text:
+      `Switch into character and say exactly this opening: ${JSON.stringify(LIVE_OPENING_RESPONSE.opening)}`
     }]);
     socket.message({ serverContent: { outputTranscription: {
       text: 'Which achievement best demonstrates your leadership?'
     } } });
     socket.message({ serverContent: { turnComplete: true } });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(internals.tutorState.conversation.currentQuestion)
       .toBe(LIVE_OPENING_RESPONSE.opening);
@@ -3035,7 +3084,8 @@ describe('V120 conversation controller', () => {
     const { internals, generateTutor, actions } = liveProvider(factory);
     arrange(internals);
     if (reason === 'no Gemini key') generateTutor.mockImplementation(async request => {
-      if (request.kind === 'liveSessionCredential') throw new ProviderError('Missing Gemini key.', 'setGeminiKey');
+      // Changed 2026-10-22 (V294, owner I60/I64): use the shared typed absence rather than the retired Set-action heuristic.
+      if (request.kind === 'liveSessionCredential') throw missingCredentialError('gemini', 'standard');
       return LIVE_OPENING_RESPONSE;
     });
     await internals.handleMessage({ command: 'startTutorConversation' });
@@ -3055,7 +3105,8 @@ describe('V120 conversation controller', () => {
     const { internals, actions, generateTutor } = liveProvider(factory);
     internals.tutorState.settings.routing.provider = 'groq';
     generateTutor.mockImplementation(async request => {
-      if (request.kind === 'liveSessionCredential') throw new ProviderError('Missing Gemini key.', 'setGeminiKey');
+      // Changed 2026-10-22 (V294, owner I60/I64): use the shared typed absence rather than the retired Set-action heuristic.
+      if (request.kind === 'liveSessionCredential') throw missingCredentialError('gemini', 'standard');
       return LIVE_OPENING_RESPONSE;
     });
     await internals.handleMessage({ command: 'startTutorConversation' });
@@ -3066,8 +3117,11 @@ describe('V120 conversation controller', () => {
     expect(actions.readAloudText).toHaveBeenNthCalledWith(1, LIVE_OPENING_RESPONSE.scene, 'en', 'tutor');
     expect(actions.readAloudText).toHaveBeenNthCalledWith(2, LIVE_OPENING_RESPONSE.opening, 'en', 'tutor');
     expect(factory).not.toHaveBeenCalled();
-    expect(actions.notify).toHaveBeenCalledOnce();
-    expect(actions.notify).toHaveBeenCalledWith('warning', 'Live replies need a Gemini key. KREN continues with Standard replies.');
+    // Changed 2026-10-22 (V294, owner I60/I64): one modal Credentials question replaces the generic warning.
+    expect(actions.notify).not.toHaveBeenCalled();
+    // Changed 2026-10-22 (V294, owner I60/I64): a typed Live absence names its attempted profile and offers Credentials.
+    expect(showWarningMessage).toHaveBeenCalledWith(
+      expect.stringMatching(/Gemini Free Tier.*Standard replies/u), { modal: true }, 'Open Credentials');
   });
 
   it('stops an active standard voice as soon as Replies changes to Live', async () => {
@@ -3088,7 +3142,8 @@ describe('V120 conversation controller', () => {
     expect(internals.tutorState.conversation.currentQuestion).toBe('Welcome. How can I help?');
     expect(internals.tutorLiveFailed).toBe(true);
     // Changed 2026-10-01: the opening patch now also refreshes both Reset controls.
-    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+    // Changed 2026-10-22 (V295): fallback opening text follows the intro pause.
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: 'tutorConversationOpeningReady',
       scene: LIVE_OPENING_RESPONSE.scene,
       opening: LIVE_OPENING_RESPONSE.opening,
@@ -3096,7 +3151,7 @@ describe('V120 conversation controller', () => {
       replayAvailable: false,
       pressToTalk: false,
       resetAvailability: expect.objectContaining({ master: true })
-    }));
+    })), { timeout: 2_500 });
     expect(actions.readAloudText).not.toHaveBeenCalledWith(LIVE_OPENING_RESPONSE.opening);
     expect(generateTutor.mock.calls.filter(([request]) => request.kind === 'conversationOpening'))
       .toHaveLength(1);
@@ -3192,6 +3247,7 @@ describe('V120 conversation controller', () => {
   // spoken correction. A change now reaches Gemini at once as a note that asks for no reply,
   // because a spoken Talk turn has no text turn for the note to travel with.
   it('tells the live session about a Register or Correction change at once, without asking for a reply', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
@@ -3200,9 +3256,9 @@ describe('V120 conversation controller', () => {
     await internals.handleMessage({ command: 'updateTutorConversationCoaching', input: 'teaching' });
     // Changed 2026-09-24 after the owner chose spoken Live opening B: these notes follow its
     // session-owned opening turn.
-    await waitForSent(socket, 4);
-    const register = JSON.parse(socket.sent[2]!).clientContent;
-    const teaching = JSON.parse(socket.sent[3]!).clientContent;
+    await waitForSent(socket, 5);
+    const register = JSON.parse(socket.sent[3]!).clientContent;
+    const teaching = JSON.parse(socket.sent[4]!).clientContent;
     expect(register.turnComplete).toBe(false);
     expect(teaching.turnComplete).toBe(false);
     expect(register.turns[0].parts[0].text).toContain('not said by the learner');
@@ -3211,8 +3267,8 @@ describe('V120 conversation controller', () => {
 
     internals.tutorState.conversation.draftAnswer = 'I need a plumber.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 5);
-    const parts = JSON.parse(socket.sent[4]!).clientContent.turns[0].parts as Array<{ text: string }>;
+    await waitForSent(socket, 6);
+    const parts = JSON.parse(socket.sent[5]!).clientContent.turns[0].parts as Array<{ text: string }>;
     expect(parts).toEqual([{ text: 'I need a plumber.' }]);
   });
 
@@ -3688,7 +3744,10 @@ describe('V120 conversation controller', () => {
     const { internals, actions, waveOutSession, postMessage } = liveProvider(() => socket);
     await openLiveConversation(internals, socket);
     internals.tutorState.conversation.transcript = [{ question: 'Missing clip.', learnerAnswer: 'An answer.', correction: '', explanation: '' }];
-    internals.tutorLiveReplyAudio = [{ data: 'AAA=', mimeType: 'audio/pcm;rate=24000' }];
+    // 2026-10-24: a 2-byte clip finished playing before the second press under full parallel
+    // load, so that press started a new replay and the panel kept the old document. Ten seconds
+    // of silence keeps the first replay running until the second press stops it.
+    internals.tutorLiveReplyAudio = [{ data: 'A'.repeat(640000), mimeType: 'audio/pcm;rate=24000' }];
     internals.tutorLiveReplyAudioComplete = true;
     await internals.handleMessage({ command: 'stopTutorConversation' });
     const rendered = load(internals.view!.webview.html);
@@ -3698,7 +3757,9 @@ describe('V120 conversation controller', () => {
     await vi.waitFor(() => expect(waveOutSession.play).toHaveBeenCalled());
     expect(actions.readAloudText).not.toHaveBeenCalled();
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: 'tutorReplayAllState', pressed: true }));
+    expect(internals.tutorState.conversation.replayAllSpeaking).toBe(true);
     await internals.handleMessage({ command: 'replayTutorQuestion' });
+    expect(internals.tutorState.conversation.replayAllSpeaking).toBe(false);
     internals.tutorLiveConversationAudio.clear();
     internals.refresh();
     const unavailable = load(internals.view!.webview.html)('[data-command="replayTutorQuestion"]');
@@ -4547,7 +4608,7 @@ describe('V220 deferred Stop requests', () => {
 
   it('Take-home off sends only deferred corrections', async () => {
     const { internals, generateTutor, actions } = liveProvider(() => new FakeSocket());
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorConversationTakeHome: false });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, tutorConversationTakeHome: false });
     Object.assign(internals.tutorState.conversation, { status: 'active', coaching: 'afterwards', speakerOn: false,
       transcript: [{ question: 'Where did you go?', learnerAnswer: 'I go home.', correction: '', explanation: '', coachingPending: true }] });
     generateTutor.mockImplementation(async () => ({ corrections: [correction] }));
@@ -4586,6 +4647,7 @@ it('V220 records reported Live usage once per response and a failed turn without
 // 2026-10-11: V222 keeps Live as a separate service and replaces only read-only sessions.
 describe('V222 Chirp and independent Live service', () => {
   it('Groq plus Live opens Gemini with its key and routes deferred Stop coaching to Groq', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket();
     const { internals, generateTutor, actions } = liveProvider(() => socket);
     internals.tutorState.settings.routing.provider = 'groq';
@@ -4594,7 +4656,7 @@ describe('V222 Chirp and independent Live service', () => {
     expect(internals.tutorLiveSession).toBeDefined();
     internals.tutorState.conversation.draftAnswer = 'I went home.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     socket.message({ serverContent: { outputTranscription: { text: 'What happened next?' }, turnComplete: true } });
     await vi.waitFor(() => expect(internals.tutorState.conversation.transcript).toHaveLength(1));
     await internals.handleMessage({ command: 'stopTutorConversation' });
@@ -4604,13 +4666,14 @@ describe('V222 Chirp and independent Live service', () => {
     expect(actions.readAloudText).not.toHaveBeenCalled();
   });
   it('Live replies still use Gemini while Chirp is the Speech Source', async () => {
+    // Changed 2026-10-22 (V295, owner D21 A): narration and opening are separate Live turns.
     const socket = new FakeSocket(), factory = vi.fn(() => socket);
     const { internals, actions, waveOutSession } = liveProvider(factory);
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp' });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp' });
     await openLiveConversation(internals, socket);
     internals.tutorState.conversation.draftAnswer = 'My answer.';
     await internals.handleMessage({ command: 'submitTutorConversationTurn' });
-    await waitForSent(socket, 3);
+    await waitForSent(socket, 4);
     expect(actions.stopReadAloud).toHaveBeenCalled();
     socket.message({ serverContent: { modelTurn: { parts: [{ inlineData: { data: 'AQI=', mimeType: 'audio/pcm;rate=24000' } }] } } });
     expect(factory).toHaveBeenCalledOnce(); expect(actions.readAloudText).not.toHaveBeenCalled();
@@ -4620,7 +4683,7 @@ describe('V222 Chirp and independent Live service', () => {
   it('Chirp reads the Live take-home card without requesting a credential or opening a Live session', async () => {
     const factory = vi.fn(() => new FakeSocket());
     const { provider, internals, actions, generateTutor, waveOutPlayer } = liveProvider(factory);
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp' });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp' });
     internals.tutorState.conversation.status = 'stopped';
     internals.tutorState.conversation.liveVoice = 'Enceladus';
     internals.tutorState.conversation.takeHome = { identity: 'test', card: { naturally: [], doneWell: [], tryNext: 'Try a question.' } };
@@ -4633,7 +4696,7 @@ describe('V222 Chirp and independent Live service', () => {
   it('Chirp reads both Demo genders and previews without opening a Live session', async () => {
     const factory = vi.fn(() => new FakeSocket());
     const { provider, internals, actions, generateTutor } = liveProvider(factory);
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp', tutorLiveFemaleVoice: 'Kore', tutorLiveMaleVoice: 'Puck' });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp', tutorLiveFemaleVoice: 'Kore', tutorLiveMaleVoice: 'Puck' });
     await openTutorDemoLiveSessions(provider, provider.tutorDemoGeneration, new AbortController());
     await speakTutorDemoText(provider, 'Female line.', 'female', provider.tutorDemoGeneration);
     await speakTutorDemoText(provider, 'Male line.', 'male', provider.tutorDemoGeneration);
@@ -4647,7 +4710,7 @@ describe('V222 Chirp and independent Live service', () => {
   it('Chirp Replay reads learner lines between retained Gemini clips with no Live session', async () => {
     const factory = vi.fn(() => new FakeSocket());
     const { internals, actions, generateTutor, waveOutSession } = liveProvider(factory);
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp', tutorLiveMaleVoice: 'Puck' });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp', tutorLiveMaleVoice: 'Puck' });
     Object.assign(internals.tutorState.conversation, { status: 'stopped', liveVoice: 'Kore', transcript: [
       { question: 'First?', learnerAnswer: 'First learner.', correction: 'First corrected.', explanation: '', move: 'reaction', reply: 'Last?' }
     ] });
@@ -4673,7 +4736,7 @@ describe('V222 Chirp and independent Live service', () => {
   it.each(['stopTutorConversation', 'confirmTutorReset', 'showStartPage'])('a pending speech is canceled by %s', async command => {
     const { provider, internals, actions } = liveProvider(() => new FakeSocket());
     Object.assign(internals.tutorState.conversation, { status: 'active', replies: 'standard' });
-    actions.settings.mockReturnValue({ ...PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp' });
+    actions.settings.mockReturnValue({ ...LIVE_PANEL_SETTINGS_FIXTURE, tutorReadAloudProvider: 'googleChirp' });
     let finish!: () => void;
     actions.readAloudText.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
     actions.stopReadAloud.mockImplementation(() => { finish?.(); });

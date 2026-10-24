@@ -25,7 +25,8 @@ it.each(['delivered', 'unsettled'] as const)('V266 falls back at 1500 ms for a n
   await vi.advanceTimersByTimeAsync(1);
   expect(h.withdraw).toHaveBeenCalledExactlyOnceWith(1);
   expect(h.queue.snapshot()).toEqual([]);
-  expect(h.fallback).toHaveBeenCalledExactlyOnceWith('warning', notice.message, { modal: true, detail: 'Private detail' }, []);
+  // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+  expect(h.fallback).toHaveBeenCalledExactlyOnceWith('warning', notice.message, { modal: true, detail: 'Private detail' }, ['OK']);
   await expect(result).resolves.toBe('Continue');
   expect(h.log).toHaveBeenCalledExactlyOnceWith('[panel notice] 1 fell back: no acknowledgment in 1.5 s');
 });
@@ -155,7 +156,8 @@ it.each(['visible', 'overlay', 'card'] as const)('V266 spinner from the page ren
       expect(sent).toHaveBeenCalledWith({ command: 'panelNoticeNotShown', id: 1, reason: 'a spinner card present' });
       await vi.advanceTimersByTimeAsync(1500);
       await expect(result).resolves.toBe('Continue');
-      expect(fallback).toHaveBeenCalledExactlyOnceWith('warning', 'The original status', { modal: true }, []);
+      // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+      expect(fallback).toHaveBeenCalledExactlyOnceWith('warning', 'The original status', { modal: true }, ['OK']);
       expect(log).toHaveBeenCalledWith('[panel notice] 1 fell back: no acknowledgment in 1.5 s');
     } else {
       const card = panel.query('[data-kren-notice]')!;

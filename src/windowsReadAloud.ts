@@ -2,6 +2,8 @@ import { execFile, spawn } from 'node:child_process';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { prepareTextForSpeech } from '@kren/core/speech';
 
+import { sentencePause, speechSsml, splitSpeechSentences } from './speech/sentencePause.js';
+
 export { prepareTextForSpeech } from '@kren/core/speech';
 
 type SpawnProcess = (
@@ -14,6 +16,7 @@ export interface ReadAloudOptions {
   voice?: string;
   rate?: number;
   volume?: number;
+  sentencePauseMilliseconds?: number;
   onStarted?: () => void;
 }
 
@@ -37,6 +40,18 @@ try {
 }
 exit 0
 `.trim();
+
+// 2026-10-21: Explicitly retain the selected voice, including its regional culture.
+const WINDOWS_SSML_SPEECH_SCRIPT = WINDOWS_SPEECH_SCRIPT.replace('$speaker.Speak($text)', String.raw`
+  $ssml = [xml]$text
+  $root = $ssml.DocumentElement
+  $root.SetAttribute('xml:lang', $speaker.Voice.Culture.Name)
+  $voice = $ssml.CreateElement('voice', $root.NamespaceURI)
+  $voice.SetAttribute('name', $speaker.Voice.Name)
+  while ($root.HasChildNodes) { [void]$voice.AppendChild($root.FirstChild) }
+  [void]$root.AppendChild($voice)
+  $speaker.SpeakSsml($ssml.OuterXml)
+`.trim());
 
 const WINDOWS_VOICE_LIST_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -65,6 +80,7 @@ export class WindowsReadAloudPlayer {
     const spokenText = prepareTextForSpeech(text);
     if (this.platform !== 'win32' || !spokenText) return false;
 
+    const pause = sentencePause(options.sentencePauseMilliseconds);
     const generation = ++this.generation;
     this.active?.kill();
 
@@ -80,7 +96,7 @@ export class WindowsReadAloudPlayer {
           '-WindowStyle',
           'Hidden',
           '-Command',
-          WINDOWS_SPEECH_SCRIPT
+          pause > 0 ? WINDOWS_SSML_SPEECH_SCRIPT : WINDOWS_SPEECH_SCRIPT
         ],
         {
           shell: false,
@@ -113,7 +129,8 @@ export class WindowsReadAloudPlayer {
         if (this.active === child) this.active = undefined;
         resolve(this.generation === generation ? completed : true);
       };
-      const timeoutMs = Math.min(600_000, Math.max(30_000, spokenText.length * 180));
+      const pauseDuration = pause > 0 ? Math.max(0, splitSpeechSentences(spokenText).length - 1) * pause : 0;
+      const timeoutMs = Math.min(600_000, Math.max(30_000, spokenText.length * 180) + pauseDuration);
       const timeout = setTimeout(() => {
         child.kill();
         finish(false);
@@ -126,7 +143,7 @@ export class WindowsReadAloudPlayer {
         return;
       }
       child.stdin.once('error', () => finish(false));
-      child.stdin.end(spokenText, 'utf8');
+      child.stdin.end(pause > 0 ? speechSsml(spokenText, pause) : spokenText, 'utf8');
     });
   }
 

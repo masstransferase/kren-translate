@@ -4,6 +4,59 @@ This changelog describes KREN for Visual Studio Code.
 
 ## Unreleased
 
+## 2.0.1
+
+The Marketplace page now describes the LLM-based AI English Tutor and the Groq and Cloudflare providers. The tutor's Command Palette entry is now "KREN: Start LLM-based AI English Tutor", because "Open AI English Tutor" read as a company name.
+
+### New in 2.0.1
+
+- **Test on every key.** Each row on the Credentials page has a Test button once its key is stored; Groq's Test also shows the requests left today, and the Gemini and Cloud Translation rows have a Usage button.
+- **Conversation buttons up front.** The Conversation page shows Setting, Start and Demo below the folded MODE summary, Replies and Situation picture sit under MODE instead of ADVANCED, and new conversations start from "A situation".
+- **Sentence pause.** TUTOR VOICE can add 0.25 to 1.0 seconds between sentences in tutor speech with Windows, Edge and Chirp voices; Gemini Live sets its own pauses.
+- **Layout.** The panel header has AI English Tutor and Credentials buttons on every page, Updates available and the result's provider line sit below the header, and the voice section in Settings is called Read Aloud.
+- **Recording consent.** Recordings sent for transcription to Groq or Cloudflare now ask for the same one-time permission as text requests to those providers.
+- **Popups instead of notifications.** Results, statuses and warnings appear as a KREN popup with OK and questions use VS Code's dialog; speech progress shows no popup and uses the status bar when the panel is hidden.
+- **Missing keys.** When a key is missing, KREN names the provider and what is missing and offers Open Credentials; a provider setting without its key shows "No <provider> key yet."
+- **Picture default.** With both Cloudflare credentials stored, situation pictures default to Cloudflare FLUX.2 klein 4B; otherwise Gemini Paid. A provider or model you chose is kept.
+- **Refresh keeps your place.** Refreshing a model list updates it in place without scrolling the panel.
+- **Intro pause.** After the situation intro, KREN pauses one second before the conversation starts; with Live replies, the intro and the opening line are separate turns.
+- **Requests today below your keys.** On Credentials, Requests today sits below Delete all API keys in a box that scrolls past eight rows, and Gemini rows name Free Tier or Paid.
+- **Providers without keys in gray.** Providers and Gemini profiles without a stored key appear in gray but stay selectable. A missing-key popup adds "Or press Cancel and choose another provider." and names the other Gemini profile when only that one has a key.
+- **Global LLM setting.** Settings, Usage has a Global LLM setting with Apply to All, which previews the changes and then sets Translation, Grammar and User Dictionary, Explain and Rewrite at once.
+- **Tutor Fast model covers fallback.** When the Thorough model is unavailable, the tutor retries with the Fast model ("Use Fast when Thorough is unavailable"), which now has its own thinking level; the separate fallback model setting is retired.
+- **Live Gemini Profile.** Live replies have their own Gemini profile, chosen beside Live Model. When its key is missing, KREN asks before starting: use the other profile if it has a key, switch to Standard replies, or stop.
+
+### What's new since 1.3.3
+
+- **LLM-based AI English Tutor.** Build a lesson from a learning map or your own question, read its examples one at a time, and practice with hints and reviewed answers.
+- **Spoken conversation.** Talk in a situation you choose with text-and-voice or Gemini Live replies; afterwards, a take-home card shows better ways to say what you said, and after five turns a diagnostic report suggests your next lesson.
+- **Speak and rephrase.** Say anything in English and get one paragraph of coaching with natural alternatives.
+- **User Dictionary.** Smart Word Capture saves the meaning a word has in your sentence, entries show where they came from and can be edited directly, and a meaning can carry its own pronunciation.
+- **Grammar Check.** Edit the corrected passage before copying or replacing it, use Quick Fix on underlined findings, and choose between Smart Grammar with a model and the offline Harper check alone.
+- **Rewrite.** Minimal and Full Rewrite appear side by side, Full Rewrite can write in another language, and a single rewrite can go straight to the clipboard.
+- **Translate and Explain.** Choose input and output languages and a subject domain; Explain writes in the source language by default.
+- **Five providers.** Gemini (Free Tier and Paid keys), OpenAI, Anthropic, Groq and Cloudflare, chosen per feature, with automatic switching to the next provider you have a key for when a daily allowance runs out.
+- **Credentials page.** Keys have their own page in the KREN menu, and each has an information button saying what it is for and where to get it.
+- **Read Aloud.** Edge Online voices in twenty languages, optional Google Cloud Chirp 3 HD voices, offline Windows voices, and fallback from one to the next.
+- **Navigation.** Home, Back to result, a Settings gear and, from 2.0.1, AI English Tutor and Credentials buttons in the header, questions in VS Code's own dialog, and separate Default Setting and Reset KREN choices.
+- **Check for updates.** The KREN menu checks Python, edge-tts, Handy, VS Code and the model and voice names KREN uses.
+
+### Works differently since 1.3.3
+
+- **Translation** detects the input language and outputs Korean by default, instead of switching between English and Korean; a saved automatic setting becomes Korean.
+- **Explain** no longer offers bilingual English and Korean output; a saved bilingual setting becomes "Same as source".
+- **Rewrite** no longer follows Grammar Check's language: Output language defaults to "Same as source", and "Plain English" is now "Plain Native".
+- **A single rewrite goes to the clipboard by default.** Turn **Copy result to clipboard** off to open the panel instead.
+- **Smart Grammar is on by default** and sends the text to your User Dictionary model; turn it off for a fully offline grammar check.
+- **Read Aloud defaults to Edge Online**, which sends the text to Microsoft and needs Python and edge-tts; choose Local Windows to stay offline.
+- **Smart Word Capture is on by default** and also sends, and saves with the entry, the sentence around a word you add to the User Dictionary.
+- **Provider switching is on by default** and may send the same text to the next provider you have a key for, until local midnight.
+- **A daily update check is on by default** and makes one anonymous request to PyPI for the latest edge-tts version; turn it off with `kren.updates.dailyCheck` in VS Code Settings.
+- **Keys moved** to the KREN menu, **Credentials**. **Reset KREN** also deletes your keys, while **Default Setting** keeps them.
+- **The request timeout is 30 seconds** instead of 45.
+- **VS Code 1.106 or later** is required.
+- **License:** from 2.0.0, PolyForm Noncommercial 1.0.0 (free for personal and other noncommercial use); earlier MIT releases stay MIT.
+
 ## 2.0.0
 
 The first public source release since 1.3.6. The full description of every feature is in the [User Guide](docs/USER_GUIDE.md).

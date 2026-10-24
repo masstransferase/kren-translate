@@ -1,8 +1,10 @@
+import { buildStructuredJsonBody, structuredJsonOutputText } from '@kren/core/provider-requests';
+export { structuredJsonOutputText };
 import { normalizeGeminiModel } from './geminiModels.js';
 import { requestWithRetry } from '../requestCenter.js';
-import { configuredThinkingLevel } from './gemini.js';
+
 import type { LanguageModelRoutingProvider as UserDictionaryProvider } from '../languageModelRouting.js';
-import { compatibleBaseUrl, compatibleRequestInit, compatibleFailure, validatedCompatibleText } from './openAICompatible.js';
+import { compatibleBaseUrl, compatibleFailure, validatedCompatibleText } from './openAICompatible.js';
 import type { UserDictionaryThinkingOrEffort } from '../userDictionary/settings.js';
 import { ProviderError, attributeProviderError } from '../errors.js';
 import { providerHttpError } from './httpError.js';
@@ -83,149 +85,12 @@ export function structuredJsonUrl(provider: UserDictionaryProvider, model: strin
     : 'https://api.anthropic.com/v1/messages';
 }
 
-import { schemaInstruction } from './structuredJsonShape.js';
-
-export function structuredJsonRequestInit(
-  call: StructuredJsonCall,
-  request: StructuredJsonRequest,
-  signal: AbortSignal
-): RequestInit {
-  const { provider, model, thinkingOrEffort, apiKey, schema, schemaName } = call;
-  if (provider === 'groq' || provider === 'cloudflare') return compatibleRequestInit({ ...call, provider }, request.instruction, request.input, signal);
-  if (provider === 'gemini') {
-    const level = thinkingOrEffort === 'none' ? undefined : configuredThinkingLevel(model, thinkingOrEffort);
-    const thinking = level === undefined
-      ? {}
-      : { thinkingConfig: { thinkingLevel: level } };
-    return {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
-        /*
-         * Gemini is told the shape in words, and is sent no schema at all.
-         *
-         * Two attempts have now been made at sending one, and both failed with 400 in the
-         * owner's hands. Gemini's structured-output schema is an OpenAPI subset with two
-         * separate incompatibilities here: it rejects `additionalProperties`, which every
-         * schema sets to false because OpenAI's strict mode requires it, and it accepts
-         * `enum` only on a string, while `schemaVersion` is `{ type: 'number', const: 1 }`
-         * and a const has to become an enum to be expressed at all. Removing the first left
-         * the second, which is what "failed (400)" meant on 2026-09-01.
-         *
-         * The original defect was never the missing schema. It was that the instruction
-         * claimed to state the shape and did not: the tutor's said "matching the KREN
-         * TutorLesson contract" and named no field, so Gemini invented plausible names and
-         * every generation came back as a wall of requiredFieldMissing. `schemaInstruction`
-         * fixes that, is derived from the same schema object so it cannot drift from it, and
-         * cannot be rejected by a provider because it is prose.
-         *
-         * Validation remains the real gate either way. A provider-declared schema is a hint,
-         * and a malformed response still has to be caught locally.
-         */
-        systemInstruction: {
-          parts: [{ text: `${request.instruction}\n\n${schemaInstruction(schema)}` }]
-        },
-        contents: [{ role: 'user', parts: [{ text: request.input }] }],
-        generationConfig: {
-          // 2026-10-10: Google deprecates temperature, top_p and top_k; upcoming models reject them.
-          responseMimeType: 'application/json',
-          ...thinking
-        }
-      }),
-      signal
-    };
-  }
-  if (provider === 'openai') {
-    const effort = thinkingOrEffort === 'minimal' ? 'low' : thinkingOrEffort;
-    return {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        instructions: request.instruction,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: request.input }] }],
-        store: false,
-        max_output_tokens: 4096,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: schemaName,
-            strict: true,
-            schema
-          }
-        },
-        ...(effort === 'auto' ? {} : { reasoning: { effort } })
-      }),
-      signal
-    };
-  }
-  const effort = thinkingOrEffort === 'auto'
-    ? {}
-    : { effort: thinkingOrEffort === 'none' || thinkingOrEffort === 'minimal'
-      ? 'low'
-      : thinkingOrEffort };
-  return {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      system: request.instruction,
-      messages: [{ role: 'user', content: [{ type: 'text', text: request.input }] }],
-      output_config: {
-        format: { type: 'json_schema', schema },
-        ...effort
-      }
-    }),
-    signal
-  };
-}
-
-export function structuredJsonOutputText(
-  provider: UserDictionaryProvider,
-  value: unknown
-): string | undefined {
-  if (!isRecord(value)) return undefined;
-  if (provider === 'groq' || provider === 'cloudflare') {
-    const choices = value.choices;
-    if (!Array.isArray(choices) || !isRecord(choices[0]) || !isRecord(choices[0].message)) return undefined;
-    const content = choices[0].message.content;
-    return typeof content === 'string' ? content : undefined;
-  }
-  if (provider === 'gemini') {
-    const candidates = value.candidates;
-    if (!Array.isArray(candidates)) return undefined;
-    const candidate = candidates[0];
-    if (!isRecord(candidate) || !isRecord(candidate.content) ||
-        !Array.isArray(candidate.content.parts)) return undefined;
-    const text = candidate.content.parts
-      .flatMap((part) => isRecord(part) && typeof part.text === 'string' ? [part.text] : [])
-      .join('')
-      .trim();
-    return text || undefined;
-  }
-  if (provider === 'openai') {
-    if (!Array.isArray(value.output)) return undefined;
-    for (const output of value.output) {
-      if (!isRecord(output) || !Array.isArray(output.content)) continue;
-      for (const content of output.content) {
-        if (isRecord(content) && content.type === 'output_text' &&
-            typeof content.text === 'string' && content.text.trim()) return content.text.trim();
-      }
-    }
-    return undefined;
-  }
-  if (!Array.isArray(value.content)) return undefined;
-  const block = value.content.find((item) =>
-    isRecord(item) && item.type === 'text' && typeof item.text === 'string'
-  );
-  return isRecord(block) && typeof block.text === 'string' && block.text.trim()
-    ? block.text.trim()
-    : undefined;
+export function structuredJsonRequestInit(call: StructuredJsonCall, request: StructuredJsonRequest, signal: AbortSignal): RequestInit {
+ const { provider, model, thinkingOrEffort, schema, schemaName } = call;
+ const headers: Record<string, string> = provider === 'gemini' ? { 'Content-Type': 'application/json', 'x-goog-api-key': call.apiKey }
+  : provider === 'anthropic' ? { 'Content-Type': 'application/json', 'x-api-key': call.apiKey, 'anthropic-version': '2023-06-01' }
+  : { 'Content-Type': 'application/json', Authorization: `Bearer ${call.apiKey}` };
+ return { method: 'POST', headers, body: JSON.stringify(buildStructuredJsonBody({ provider, model, thinkingOrEffort, schema, schemaName }, request)), signal };
 }
 
 export function structuredJsonProviderName(provider: UserDictionaryProvider): string {
@@ -241,8 +106,4 @@ export function structuredJsonConfigureAction(provider: UserDictionaryProvider):
     : provider === 'openai'
       ? 'configureOpenAIModel'
       : 'configureAnthropicModel';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }

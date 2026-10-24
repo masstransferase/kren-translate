@@ -1,7 +1,8 @@
 // Changed 2026-10-18: V263, owner item I43, the in-chat microphone owns state and replaces the lower control.
 // 2026-10-12: Observe the mounted panel and actual host/audio message sequence.
 import { afterEach, expect, it, vi } from 'vitest';
-vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, window: {},
+// Changed 2026-10-23 (V300, verification R28): missing-picture actions now use the shared modal popup.
+vi.mock('vscode', () => ({ commands: { executeCommand: vi.fn() }, window: { showErrorMessage: vi.fn(async () => undefined) },
   Uri: { joinPath: (...parts: unknown[]) => parts },
   workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) } }));
 import { KrenResultsViewProvider } from '../src/resultsView.js';
@@ -82,6 +83,8 @@ it('V226 reproduction: a full render and all opening patches must not finish the
   expect(text(h)).not.toContain(opening.opening); controlsHidden(h);
   expect(h.messages.filter(message => message.command === 'playGeneratedAudio')).toHaveLength(1);
   h.panel().audioEnd(); await flush();
+  // Changed 2026-10-22 (V295): the opening waits one second after native scene completion.
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(text(h)).not.toContain(opening.opening);
   expect(h.panel().query('[data-tutor-typing]')).not.toBeNull();
   h.panel().audioStart(); await flush();

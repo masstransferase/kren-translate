@@ -1,4 +1,6 @@
+// Changed 2026-10-22 (V293, owner I61/D22 A): one missing-key message with Open Credentials.
 import { readFileSync } from 'node:fs';
+import { PanelNoticeQueue, showNativePanelNotice } from '../src/panelNotices.js';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,7 +10,7 @@ import { FileCloudTranslationUsage } from '../src/fileCloudTranslationUsage.js';
 import { routedModel } from '../src/providers/openAICompatible.js';
 import { ProviderError } from '../src/errors.js';
 import { runAdaptiveThinking, modeEffort } from '../src/tutor/thinkingMode.js';
-import { runFeatureRequest, providerCredentialAction, requestFailure, recordedRequestOutcome, centeredProviderError, CURRENT_REQUEST_POLICIES, presentRequestFailure } from '../src/requestCenter.js';
+import { missingCredentialsOf, showMissingCredentialNotice, runFeatureRequest, providerCredentialAction, requestFailure, recordedRequestOutcome, centeredProviderError, CURRENT_REQUEST_POLICIES, presentRequestFailure } from '../src/requestCenter.js';
 import { withProviderSwitch } from '../src/languageModelSwitching.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,7 +19,8 @@ import path from 'node:path';
 /** Execute the actual host functions with VS Code and transport boundaries replaced. */
 function host(names: string[], overrides: Record<string, unknown> = {}) {
   const source = ts.createSourceFile('extension.ts', readFileSync('src/extension.ts', 'utf8'), ts.ScriptTarget.Latest, true);
-  const functions = names.map((name) => {
+  // Changed 2026-10-23 (V301, verification R28): execute the shared progress router with clipboard and grammar callers.
+  const functions = [...new Set([...names, 'withKrenProgress'])].map((name) => {
     const node = source.statements.find((item) => ts.isFunctionDeclaration(item) && item.name?.text === name);
     if (!node && name === 'runGrammarOperation') return ''; // Optional on HEAD, where clipboard skips Smart.
     if (!node) throw new Error(`Missing host function ${name}`);
@@ -58,11 +61,14 @@ function host(names: string[], overrides: Record<string, unknown> = {}) {
     // 2026-10-11: Execute the actual model resolver's new provider dependency in this host harness.
     // 2026-10-11: execute V221's actual host routing helpers in the VM harness.
     validatedPanelSetting, routedModel, ProviderError, runAdaptiveThinking, modeEffort, withProviderSwitch,
-    runFeatureRequest, providerCredentialAction, requestFailure, recordedRequestOutcome, centeredProviderError, CURRENT_REQUEST_POLICIES, presentRequestFailure,
+    missingCredentialsOf, showMissingCredentialNotice, runFeatureRequest, providerCredentialAction, requestFailure, recordedRequestOutcome, centeredProviderError, CURRENT_REQUEST_POLICIES, presentRequestFailure,
     configuredUserDictionaryModel: () => String(values['userDictionary.geminiProfile'] === 'pro' ? values['userDictionary.alternateModel'] : values['userDictionary.model']),
     ...overrides
   };
-  const context = vm.createContext(scope);
+  // Changed 2026-10-22 (V292, owner I59/D20 A): popup instead of notification.
+  const unavailablePanelNotices = new PanelNoticeQueue(() => false, () => undefined,
+    (kind, message, options, choices) => showNativePanelNotice(scope.vscode.window as never, kind, message, options, choices));
+  const context = vm.createContext({ ...scope, unavailablePanelNotices });
   const routingSource = ts.createSourceFile('operations.ts', readFileSync('src/operations.ts', 'utf8'), ts.ScriptTarget.Latest, true);
   const resolver = routingSource.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'featureModel')!.getText(routingSource).replace(/^export /u, '');
   vm.runInContext(ts.transpile(functions + '\n' + resolver, { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None }), context);
@@ -219,13 +225,14 @@ describe('V257 centered lookup actions', () => {
     thinkingOrEffort: 'auto' as const, fallbackEnabled: false, fallbackModel: '', fallbackThinkingOrEffort: 'auto' as const };
   const names = ['showLookupError', 'handleLookupErrorSelection', 'isCredentialSetupAction', 'actionLabel'];
 
-  it('shows the quota action and opens the settings containing Requests today', async () => {
+  // Changed 2026-10-22 (V296, owner I66/I71/I72): the quota action must reach Credentials, which contains the tally.
+  it('shows the quota action and opens Credentials containing Requests today', async () => {
     const popup = vi.fn(async () => 'Check Quota and Billing');
     const runtime = host(names, { showKrenErrorMessage: popup, errorMessage: (error: Error) => error.message });
-    const showSettings = vi.fn(async () => {}); runtime.scope.resultsView.showSettings = showSettings;
+    const showCredentials = vi.fn(async () => {}); runtime.scope.resultsView.showCredentials = showCredentials;
     const error = centeredProviderError(new ProviderError('private diagnostic', 'configureGeminiModel', false, 429, 'quotaExhausted'), route);
     await runtime.scope.showLookupError(error, vi.fn());
-    await vi.waitFor(() => expect(showSettings).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(showCredentials).toHaveBeenCalledOnce());
     expect(popup.mock.calls[0]).toEqual([expect.stringMatching(/quota.*check.*billing/iu), expect.stringMatching(/check.*quota/iu)]);
     expect(popup.mock.calls[0]).not.toContain('Retry Now');
   });

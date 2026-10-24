@@ -108,6 +108,8 @@ const baseSettings: KrenPanelSettings = {
   tutorReadAloudVoice: 'Microsoft David Desktop',
   tutorReadAloudRate: 0,
   tutorReadAloudVolume: 100,
+  // 2026-10-21: V286 requires the tutor sentence pause default.
+  tutorSentencePauseMilliseconds: 0,
   quickMenuRewriteVariant: 'all',
   rewriteModality: 'written',
   rewriteFunction: 'general',
@@ -213,11 +215,21 @@ function renderedActions(html: string): string[] {
     .filter((action): action is string => typeof action === 'string');
 }
 
+// Changed 2026-10-22 (V299, owner I69): this bounded host command stays behind draft saves.
+function dispatchableAction(action: string): boolean {
+  if (action === 'kren.applyGlobalRouting') {
+    expect(readFileSync('src/resultsView.ts', 'utf8')).toContain("await vscode.commands.executeCommand('kren.applyGlobalRouting')");
+    expect(readFileSync('src/extension.ts', 'utf8')).toContain("vscode.commands.registerCommand('kren.applyGlobalRouting'");
+    return true;
+  }
+  return PANEL_COMMANDS.has(action as never);
+}
+
 describe('settings panel command allow list', () => {
   it('can dispatch every action the settings page renders when no key is stored', () => {
     const actions = renderedActions(settingsHtml({}));
     expect(actions.length).toBeGreaterThan(0);
-    const missing = actions.filter((action) => !PANEL_COMMANDS.has(action as never));
+    const missing = actions.filter((action) => !dispatchableAction(action));
     expect(missing).toEqual([]);
   });
 
@@ -237,7 +249,7 @@ describe('settings panel command allow list', () => {
         koreanDictionary: true
       })
     );
-    const missing = actions.filter((action) => !PANEL_COMMANDS.has(action as never));
+    const missing = actions.filter((action) => !dispatchableAction(action));
     expect(missing).toEqual([]);
   });
 
@@ -251,7 +263,7 @@ describe('settings panel command allow list', () => {
     for (const screen of ['start', 'settings', 'manual', 'tutor'] as const) {
       for (const presence of [{}, { merriamWebsterCollegiate: true, merriamWebsterThesaurus: true, merriamWebsterMedical: true }]) {
         const actions = renderedActions(screenHtml(presence, screen));
-        const missing = actions.filter((action) => !PANEL_COMMANDS.has(action as never));
+        const missing = actions.filter((action) => !dispatchableAction(action));
         expect(missing, `${screen} renders only dispatchable actions`).toEqual([]);
       }
     }
@@ -287,6 +299,10 @@ describe('settings panel command allow list', () => {
     const accepted = new Set(
       [...view.matchAll(/command !== '([a-zA-Z]+)'/gu)].map((match) => match[1])
     );
+    // Changed 2026-10-23 (V307, verification R30): Cancel is accepted and handled directly by the receiver before the ordered queue.
+    const receiver = readFileSync('src/resultsView.ts', 'utf8').split('view.webview.onDidReceiveMessage')[1]!.split("if (command === 'panelNoticeResponse')")[0]!;
+    const immediate = [...receiver.matchAll(/if \(command === '([a-zA-Z]+)'\)/gu)].map(match => match[1]);
+    for (const command of immediate) { handled.add(command); accepted.add(command); }
     const priority = new Set(
       [...readFileSync('src/webviewMessagePriority.ts', 'utf8')
         .matchAll(/^\s*\| '([a-zA-Z]+)'/gmu)].map((match) => match[1])
@@ -407,8 +423,8 @@ describe('every panel setting the page can write', () => {
     'userDictionary.fallbackThinkingOrEffort',
     'tutor.geminiProfile',
     'tutor.fallbackEnabled',
-    'tutor.fallbackModel',
-    'tutor.fallbackThinkingOrEffort',
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    'tutor.hintThinkingOrEffort',
     'tutor.provider',
     'tutor.model',
     'tutor.hintModel',
@@ -417,6 +433,15 @@ describe('every panel setting the page can write', () => {
   ] as const satisfies readonly KrenPanelSettingKey[];
 
   const legalValues: Record<KrenPanelSettingKey, string | number | boolean> = {
+    // Changed 2026-10-22 (V299, owner I69): saved global draft uses the same validated route values.
+    'global.provider': 'gemini',
+    'global.geminiProfile': 'standard',
+    'global.model': 'gemini-3.6-flash',
+    'global.alternateModel': 'gemini-3.1-pro-preview',
+    'global.thinkingOrEffort': 'auto',
+    'global.fallbackEnabled': false,
+    'global.fallbackModel': 'gemini-3.6-flash',
+    'global.fallbackThinkingOrEffort': 'low',
     'results.openAtStartup': true,
     // 2026-10-11: V221 validates and stores the provider switch controls.
     'llm.providerSwitch': true,
@@ -579,16 +604,20 @@ describe('every panel setting the page can write', () => {
     'tutor.alternateModel': 'gemini-3.1-pro-preview',
     'tutor.thinkingOrEffort': 'medium',
     'tutor.geminiProfile': 'standard',
+    // Changed 2026-10-23 (V304, owner I75): Live has its own stored profile.
+    'tutor.liveGeminiProfile': 'standard',
     'tutor.fallbackEnabled': false,
-    'tutor.fallbackModel': 'gemini-3.6-flash',
-    'tutor.fallbackThinkingOrEffort': 'low',
+    // Changed 2026-10-22 (V298, owner I70/D33 B): Fast covers fallback.
+    'tutor.hintThinkingOrEffort': 'low',
     'tutor.readAloud.provider': 'edgeOnline',
     'tutor.readAloud.edgeLocale': 'en-US',
     'tutor.readAloud.edgeVoice': 'en-US-ChristopherNeural',
     'tutor.readAloud.edgeRatePercent': 0,
     'tutor.readAloud.voice': 'Microsoft David Desktop',
     'tutor.readAloud.rate': 0,
-    'tutor.readAloud.volume': 100
+    'tutor.readAloud.volume': 100,
+    // 2026-10-21: V286 adds a legal sample without reducing key coverage.
+    'tutor.readAloud.sentencePauseMilliseconds': 500
   };
 
   it('has a legal sample value listed for it', () => {

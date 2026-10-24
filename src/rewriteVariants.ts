@@ -1,3 +1,4 @@
+import { REWRITE_VARIANT_OPERATIONS } from '@kren/core/provider-requests';
 import {
   REWRITE_OUTPUT_RULES,
   REWRITE_VARIANT_IDS,
@@ -17,11 +18,11 @@ export {
 
 const VS_CODE_VARIANT_FIELDS = {
   minimal: {
-    operation: 'rewriteMinimal',
+    operation: REWRITE_VARIANT_OPERATIONS.minimal,
     quickPickIcon: '$(edit)'
   },
   full: {
-    operation: 'rewriteFull',
+    operation: REWRITE_VARIANT_OPERATIONS.full,
     // The same pencil as Minimal Rewrite. A sparkle read as a different kind of action
     // rather than the same action at a different strength, which is what these two are.
     quickPickIcon: '$(edit)'
