@@ -2330,6 +2330,7 @@
   },
   "overrides": {
     "diff": "^8.0.3",
+    "minimatch": "^11.0.4",
     "serialize-javascript": "^7.0.7"
   },
   "devDependencies": {
