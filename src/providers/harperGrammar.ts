@@ -64,7 +64,8 @@ export async function checkGrammarWithHarper(
     targetLanguage: 'en',
     createdAt: new Date().toISOString(),
     dialect,
-    issues
+    issues,
+    ...(run ? {} : { harperSkipped: true })
   };
 }
 

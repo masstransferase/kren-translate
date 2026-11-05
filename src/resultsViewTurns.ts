@@ -1,4 +1,4 @@
-import { tutorConversationRequestControls, tutorConversationHandoff, tutorConversationHandoffInstruction } from './tutor/generation.js';
+import { tutorConversationRequestControls, tutorConversationHandoff, tutorConversationHandoffInstruction, tutorConversationHandoffGreetingTurn } from './tutor/generation.js';
 import { handoffTutorConversationVoices } from './speech/voiceSelection.js';
 import { tutorConversationCoachingRequest, tutorConversationCoaching } from './tutor/generation.js';
 import { missingCredentialsOf } from './requestCenter.js';
@@ -10,7 +10,7 @@ import { cancelTutorTakeHome, reconcileTutorStoppedTakeHome, postTutorTakeHome }
 import { invalidateTutorConversationReport } from './resultsViewLesson.js';
 import type { TutorLiveCoachingResult } from './resultsView.js';
 import type { KrenResultsViewProvider } from './resultsView.js';
-import { TUTOR_CONVERSATION_CONTEXT_TURNS, tutorConversationSetting, finishTutorLiveTurnTiming, closeTutorLiveMicrophone, postTutorLiveTalkState, tutorLiveChoiceNote, closeTutorLiveSession, releaseTutorConversationResources, beginTutorLiveReply, tutorLiveReplayAvailable, completeTutorLiveReply, rememberTutorLiveQuestionAudio, disableTutorLive } from './resultsViewLive.js';
+import { TUTOR_CONVERSATION_CONTEXT_TURNS, tutorConversationSetting, finishTutorLiveTurnTiming, closeTutorLiveMicrophone, postTutorLiveTalkState, tutorLiveChoiceNote, closeTutorLiveSession, tutorLiveLinePlaying, waitForTutorLiveLineEnd, toggleTutorLiveMicrophone, releaseTutorConversationResources, beginTutorLiveReply, tutorLiveReplayAvailable, completeTutorLiveReply, rememberTutorLiveQuestionAudio, disableTutorLive } from './resultsViewLive.js';
 import { postTutorConversationStopState } from './resultsViewStop.js';
 import { safePanelErrorMessage } from './resultsViewErrors.js';
 import { tutorConversationAnswersMatch, tutorConversationCoachHighlights } from './resultViewHtml.js';
@@ -52,13 +52,54 @@ export function applyTutorConversationHandoff(view: KrenResultsViewProvider, val
     index: conversation.transcript.length - 1, note: tutorConversationHandoffNote(handoff.role) });
   if (conversation.replies === 'liveGemini' && !view.tutorLiveFailed) {
     // Reuse the bounded history, cancellation, and microphone gates of Back to chat.
-    closeTutorLiveSession(view, false, true);
+    const wasListening = !view.tutorLivePressToTalk &&
+      (view.tutorLiveMicrophone !== undefined || view.tutorLiveMicrophoneStarting);
+    const waits = tutorLiveLinePlaying(view);
+    if (waits) {
+      // V19: the old session stays open until its line has played out, because closing it stops the queued audio mid-sentence.
+      // The wait is the reopen under way, so Stop, Reset, Start new and a second handoff abandon it as they abandon any reopen.
+      view.tutorLiveResumeController?.abort();
+      const controller = new AbortController();
+      view.tutorLiveResumeController = controller;
+      // The old microphone closes now, so nothing the learner says reaches the old character; Talk is unavailable until the new session opens.
+      closeTutorLiveMicrophone(view);
+      // A press during the wait moves the microphone generation, which cancels the reopen of the microphone (V18).
+      view.tutorLiveMicrophoneListenAt = wasListening ? view.tutorLiveMicrophoneGeneration : undefined;
+      postTutorLiveTalkState(view, false);
+      void reopenAfterHandoffLine(view, controller, handoff.role);
+    } else {
+      closeTutorLiveSession(view, false, true);
+      view.tutorLiveMicrophoneListenAt = wasListening ? view.tutorLiveMicrophoneGeneration : undefined;
+    }
     if (view.view) void view.view.webview.postMessage({ command: 'tutorConversationHandoff',
       reconnecting: true, note: "Connecting the new character's voice..." });
     refreshTutorConversationPicture(view, true);
-    void reopenLiveTutorSession(view);
+    if (!waits) void reopenLiveTutorSession(view, handoff.role);
   } else refreshTutorConversationPicture(view);
   return true;
+}
+
+/**
+ * V19: waits (at most `TUTOR_LIVE_HANDOFF_LINE_WAIT_MS`) for the old character's line to play out, then closes the old session and
+ * reopens with the new voice. V18: when the learner was listening hands-free, the new session opens the microphone by itself.
+ */
+async function reopenAfterHandoffLine(view: KrenResultsViewProvider, controller: AbortController, handoffRole: string): Promise<void> {
+  await waitForTutorLiveLineEnd(view, controller.signal);
+  if (controller.signal.aborted || view.tutorLiveResumeController !== controller ||
+      view.tutorState.conversation.status !== 'active') {
+    // Abandoned. A second handoff owns the message from here; Stop, Reset and Start new leave no reconnecting notice behind.
+    if (!view.tutorLiveResumeController && view.view) {
+      void view.view.webview.postMessage({ command: 'tutorConversationHandoff', reconnecting: false });
+    }
+    return;
+  }
+  view.tutorLiveResumeController = undefined;
+  // Still wanted only if nothing (a press) moved the microphone generation since the handoff began; closing the session moves it again.
+  const listen = view.tutorLiveMicrophoneListenAt !== undefined &&
+    view.tutorLiveMicrophoneListenAt === view.tutorLiveMicrophoneGeneration;
+  closeTutorLiveSession(view, false, true);
+  view.tutorLiveMicrophoneListenAt = listen ? view.tutorLiveMicrophoneGeneration : undefined;
+  void reopenLiveTutorSession(view, handoffRole);
 }
 
 
@@ -1071,7 +1112,41 @@ export function resumeTutorConversation(view: KrenResultsViewProvider): void {
   }
 
 
-export async function reopenLiveTutorSession(view: KrenResultsViewProvider): Promise<void> {
+/**
+ * V19: a session reopened by a handoff is asked for the newcomer's greeting, so the new character speaks first in the new voice.
+ * Its words draw as the newcomer's line as they arrive, and when the turn completes the greeting is the line the learner answers
+ * next. Only `reopenLiveTutorSession` with a handoff role calls this: a reconnect, a Replies switch or Back to chat never greets.
+ */
+async function askTutorLiveHandoffGreeting(view: KrenResultsViewProvider, session: TutorLiveSession, role: string): Promise<void> {
+  const wanted = () => view.tutorLiveSession === session &&
+    view.tutorState.conversation.status === 'active' && view.tutorState.conversation.replies === 'liveGemini';
+  beginTutorLiveReply(view);
+  try {
+    await session.sendTurn(tutorConversationHandoffGreetingTurn(role));
+    const greeting = view.tutorLiveReplyText.trim();
+    if (!greeting) throw new TutorLiveSessionError('protocol');
+    completeTutorLiveReply(view);
+    if (!wanted()) return;
+    const current = view.tutorState.conversation;
+    view.tutorState = { ...view.tutorState, conversation: {
+      ...current,
+      currentQuestion: greeting,
+      currentQuestionTargetMarks: tutorLiveTargetMarks(greeting, 'reply', current.lessonContext),
+      busy: false
+    } };
+    scheduleTutorConversationHintPrefetch(view);
+    view.render();
+  } catch (error) {
+    if (!wanted()) return;
+    disableTutorLive(view,
+      error instanceof TutorLiveSessionError ? error : new TutorLiveSessionError('socketClosed'),
+      'Back to chat'
+    );
+  }
+}
+
+/** `handoffRole` is set only when a handoff caused the reopen; the newcomer then greets in the new voice. */
+export async function reopenLiveTutorSession(view: KrenResultsViewProvider, handoffRole?: string): Promise<void> {
     const openingContext = view.tutorLiveOpeningContext;
     const conversation = view.tutorState.conversation;
     if (!openingContext || view.tutorLiveFailed || view.tutorLiveSession) {
@@ -1104,7 +1179,7 @@ export async function reopenLiveTutorSession(view: KrenResultsViewProvider): Pro
           ? { ...openingContext, register: conversation.register } : openingContext, conversation.coaching === 'teaching') +
           (conversation.from === 'speakAndRephrase'
             ? ` The coached turns so far are learner data: ${JSON.stringify(history)}. Wait for the learner to speak.`
-            : tutorConversationLiveResumeInstruction(history, openingContext.replyLength)),
+            : tutorConversationLiveResumeInstruction(history, openingContext.replyLength, handoffRole)),
         controller.signal,
         isCurrent
       );
@@ -1114,6 +1189,14 @@ export async function reopenLiveTutorSession(view: KrenResultsViewProvider): Pro
         return;
       }
       postTutorLiveTalkState(view, true);
+      if (handoffRole !== undefined && conversation.from !== 'speakAndRephrase') void askTutorLiveHandoffGreeting(view, session, handoffRole);
+      // V18: a handoff whose learner was listening hands-free reopens the microphone by itself, through a press's own path, unless a
+      // press, Stop or another reopen moved the microphone generation since. Press to talk never opens by itself.
+      const listenAt = view.tutorLiveMicrophoneListenAt;
+      view.tutorLiveMicrophoneListenAt = undefined;
+      if (listenAt !== undefined && listenAt === view.tutorLiveMicrophoneGeneration && !view.tutorLivePressToTalk) {
+        void toggleTutorLiveMicrophone(view);
+      }
     } catch (error) {
       if (!isCurrent()) return;
       disableTutorLive(view,

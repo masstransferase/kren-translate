@@ -344,6 +344,8 @@ interface ResultsViewActions {
     edgeVoice?: string
   ): Promise<void>;
   stopReadAloud(): void;
+  /** True while a Read Aloud reading (not tutor speech) is in progress. A second press stops it. */
+  readingAloud?(): boolean;
   clear(): void;
   invalidateResultRequests?(): void;
   loadUserDictionary(): Promise<UserDictionaryEntryV1[]>;
@@ -542,6 +544,13 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
   tutorLiveMicrophoneGate: TutorMicrophoneGate | undefined;
   tutorLiveMicrophoneStarting = false;
   tutorLiveMicrophoneGeneration = 0;
+  /**
+   * V18: set at a handoff when the learner was listening hands-free; the new session opens the microphone by itself only if the
+   * microphone generation is still this number (a press, Stop, Reset or Start new moves it). Never set by any other reopen.
+   */
+  tutorLiveMicrophoneListenAt: number | undefined;
+  /** V19: a handoff waiting for the old character's line to finish playing; `release` ends the wait (playback idle, speaker off). */
+  tutorLiveHandoffWait: { release(): void } | undefined;
   tutorLiveActivityEndTimer: ReturnType<typeof setTimeout> | undefined;
   tutorLiveActivityActive = false;
   /** Snapshotted by Start or Back to chat for the next active conversation. */
@@ -1623,9 +1632,7 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       ...(this.tutorConversationPicture && this.tutorState.conversation.situationPicture !== 'none'
         ? { tutorConversationPicture: this.tutorConversationPicture, tutorConversationPictures: this.tutorConversationPictures, tutorConversationPictureTurns: this.tutorConversationPictureTurns }
         : {}),
-      ...(this.tutorState.conversation.hintBusy
-        ? { tutorConversationHintTurnGeneration: this.tutorConversationTurnGeneration }
-        : {}),
+      tutorConversationHintTurnGeneration: this.tutorConversationTurnGeneration,
       tutorLiveTalkAvailable: this.tutorLiveSession !== undefined && !this.tutorLiveFailed &&
         this.tutorState.conversation.replies === 'liveGemini',
       tutorLiveTalkListening: this.tutorLiveMicrophone !== undefined,
@@ -1835,7 +1842,10 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
     }
     if (message.command === 'readVariant') {
       const text = this.rewriteVariantText(message.variantId);
-      if (text) {
+      if (this.actions.readingAloud?.()) {
+        // A second press of Read Aloud stops the reading instead of starting another.
+        this.actions.stopReadAloud();
+      } else if (text) {
         this.inferredRewriteModality = REWRITE_MODALITIES[1].id;
         this.render();
         const result = this.state?.result;
@@ -1917,6 +1927,10 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
         this.actions.log(`[panel command unavailable] ${action}`);
         this.actions.notify('error', text);
       } else {
+        // Any other KREN action ends a Read Aloud reading. Read Aloud decides for itself (a second
+        // press stops it), and Stop and the voice preview already own speech.
+        if (action !== 'kren.readAloudSelection' && action !== 'kren.stopReadAloud' &&
+            action !== 'kren.previewReadAloud' && this.actions.readingAloud?.()) this.actions.stopReadAloud();
         // A language action takes seconds, and until it lands the panel looks exactly as it
         // did before the press. The overlay names the wait and takes the pointer events, so
         // the reader neither wonders whether the control worked nor starts a second one.
@@ -2597,7 +2611,10 @@ export class KrenResultsViewProvider implements vscode.WebviewViewProvider, vsco
       // different feature nobody asked for. Uses the same Read Aloud settings and the
       // same failure reporting as every other speech path in KREN.
       const entry = this.userDictionaryState.entries.find((item) => item.id === message.entryId);
-      if (entry) {
+      if (this.actions.readingAloud?.()) {
+        // A second press of Read Aloud stops the reading instead of starting another.
+        this.actions.stopReadAloud();
+      } else if (entry) {
         void this.actions.readAloudText(entry.term, entry.language)
           .catch((error: unknown) => {
             this.reportActionFailure('Read Aloud', error, 'user dictionary read aloud failed');

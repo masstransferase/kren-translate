@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { languageName } from './languages.js';
+import { grammarNothingChecked, GRAMMAR_HARPER_SKIPPED_NOTICE } from '@kren/core/grammar-input-language';
+import { resultDetails, grammarDialectLabel } from '@kren/core/result-details';
 import { isEnglishLanguageCode } from '@kren/core/languages';
 import type {
   DictionaryResult,
@@ -140,145 +142,14 @@ export function resultText(result: KrenResult): string {
   return result.entries.map((entry) => entry.meaning).join('; ');
 }
 
-export function resultDetails(result: KrenResult): string {
-  const lines: string[] = [];
-
-  if (result.kind === 'translation') {
-    lines.push('Translation', '-----------', result.translatedText);
-    if (result.modelId) lines.push('', `Model: ${result.modelId}`);
-    if (result.fallbackFromModel) {
-      lines.push(`Fallback: ${result.modelId} used after ${result.fallbackFromModel} could not produce a usable result.`);
-    }
-    if (result.alternatives?.length) {
-      lines.push('', 'Alternatives', '------------', ...result.alternatives.map((item) => `- ${item}`));
-    }
-    if (result.note) lines.push('', 'Note', '----', result.note);
-  } else if (result.kind === 'grammar') {
-    lines.push(
-      'Grammar Check',
-      '-------------',
-      `Dialect: ${grammarDialectLabel(result.dialect)}`,
-      `Issues: ${result.issues.length}`
-    );
-    if (!result.issues.length) {
-      lines.push('', 'No spelling or grammar issues found by Harper.');
-    } else {
-      result.issues.forEach((issue, index) => {
-        lines.push('', `${index + 1}. ${issue.category}: ${issue.original || '(insertion point)'}`);
-        lines.push(`   ${issue.message}`);
-        issue.suggestions.forEach((suggestion) => lines.push(`   - ${suggestion.label}`));
-      });
-    }
-  } else if (result.kind === 'dictionary') {
-    lines.push(formatHeadword(result), '');
-    if (result.sections?.length) {
-      result.sections.forEach((section, sectionIndex) => {
-        const position = result.sections!.length > 1
-          ? ` (${sectionIndex + 1} of ${result.sections!.length})`
-          : '';
-        const partOfSpeech = section.partOfSpeech ? ` — ${section.partOfSpeech}` : '';
-        lines.push(`${section.headword}${position}${partOfSpeech}`);
-        if (section.pronunciation) lines.push(`Pronunciation: ${section.pronunciation}`);
-        if (section.inflections?.length) lines.push(`Forms: ${section.inflections.join('; ')}`);
-        section.entries.forEach((entry, entryIndex) => {
-          const label = entry.grammaticalLabel ? ` [${entry.grammaticalLabel}]` : '';
-          lines.push(`${entry.senseNumber ?? entryIndex + 1}. ${entry.meaning}${label}`);
-          entry.examples?.forEach((example) => lines.push(`   Example: ${example}`));
-        });
-        section.synonymDiscussions?.forEach((discussion) => {
-          lines.push('', synonymDiscussionTitle(section.headword, discussion.label));
-          lines.push('Merriam-Webster editorial comparison for this sense; not a translation.');
-          if (discussion.blocks?.length) {
-            discussion.blocks.forEach((block) => lines.push(
-              block.kind === 'example' ? `   Example: ${block.text}` : block.text
-            ));
-          } else {
-            lines.push(discussion.text);
-            discussion.examples?.forEach((example) => lines.push(`   Example: ${example}`));
-          }
-          if (discussion.seeAlso?.length) {
-            lines.push(`   See also: ${discussion.seeAlso.join(', ')}`);
-          }
-        });
-        lines.push('');
-      });
-    } else {
-      result.entries.forEach((entry, index) => {
-        const pos = entry.partOfSpeech ? ` (${entry.partOfSpeech})` : '';
-        lines.push(`${index + 1}. ${entry.meaning}${pos}`);
-        if (entry.definition) lines.push(`   ${entry.definition}`);
-        entry.examples?.forEach((example) => lines.push(`   Example: ${example}`));
-      });
-    }
-    if (result.note) lines.push('', 'Note', '----', result.note);
-  } else if (result.kind === 'thesaurus') {
-    lines.push(result.headword, '');
-    result.sections.forEach((section, sectionIndex) => {
-      const partOfSpeech = section.partOfSpeech ? ` — ${section.partOfSpeech}` : '';
-      lines.push(`${section.headword}${partOfSpeech}`);
-      if (section.pronunciation) lines.push(`Pronunciation: ${section.pronunciation}`);
-      section.senses.forEach((sense, senseIndex) => {
-        const number = sense.senseNumber ?? String(senseIndex + 1);
-        if (sense.definition) lines.push(`${number}. ${sense.definition}`);
-        appendThesaurusLine(lines, 'Synonyms', sense.synonyms);
-        appendThesaurusLine(lines, 'Near synonyms', sense.nearSynonyms);
-        appendThesaurusLine(lines, 'Related words', sense.relatedWords);
-        appendThesaurusLine(lines, 'Synonymous phrases', sense.synonymousPhrases);
-        appendThesaurusLine(lines, 'Antonyms', sense.antonyms);
-        appendThesaurusLine(lines, 'Near antonyms', sense.nearAntonyms);
-      });
-      if (sectionIndex < result.sections.length - 1) lines.push('');
-    });
-    if (result.note) lines.push('', 'Note', '----', result.note);
-  } else {
-    if (result.modelId) lines.push(`Model: ${result.modelId}`);
-    if (result.fallbackFromModel) {
-      lines.push(`Fallback: ${result.modelId} used after ${result.fallbackFromModel} could not produce a usable result.`);
-    }
-    if (result.modelId || result.fallbackFromModel) lines.push('');
-    lines.push(`Language: ${languageName(result.sourceLanguage)}`);
-    if (isEnglishLanguageCode(result.sourceLanguage)) {
-      lines.push(`English: ${rewriteEnglishVarietyLabel(result.englishVariety)}`);
-    }
-    lines.push(`Modality: ${rewriteAxisLabel(REWRITE_MODALITIES, result.modality)}`);
-    lines.push(`Function: ${rewriteAxisLabel(REWRITE_FUNCTIONS, result.function)}`);
-    lines.push(`Domain: ${rewriteDomainLabel(result.domain)}`);
-    lines.push(`Formality: ${rewriteAxisLabel(REWRITE_FORMALITIES, result.formality)}`);
-    lines.push(`Voice: ${rewriteAxisLabel(REWRITE_VOICES, result.voice)}`);
-    lines.push(`Stance: ${rewriteAxisLabel(REWRITE_STANCES, result.stance)}`);
-    lines.push(`Length: ${rewriteAxisLabel(REWRITE_LENGTHS, result.length)}`);
-    lines.push(`Perspective: ${rewriteAxisLabel(REWRITE_PERSPECTIVES, result.perspective)}`);
-    lines.push(`Intent: ${rewriteRhetoricalModeLabel(result.rhetoricalMode)}`, '');
-    result.variants.forEach((variant, index) => {
-      if (index > 0) lines.push('');
-      lines.push(variant.label, '-'.repeat(variant.label.length), variant.text);
-      if (variant.changeNote) lines.push('', `What changed: ${variant.changeNote}`);
-    });
-  }
-  lines.push(
-    '',
-    '==============',
-    `Direction: ${languageName(result.sourceLanguage)} -> ${languageName(result.targetLanguage)}`,
-    `Provider: ${providerName(result.providerId)}`
-  );
-  if (result.providerId === 'googleCloudTranslation') {
-    lines.push(
-      'Powered by Google Translate: https://translate.google.com',
-      'This service may contain translations powered by Google. Google disclaims warranties related to the translations, including accuracy and reliability.'
-    );
-  } else if (result.providerId === 'koreanBasicDictionary') {
-    lines.push(
-      'Source: Basic Korean Dictionary, National Institute of Korean Language (https://krdict.korean.go.kr/eng/). Text is provided under CC BY-SA.'
-    );
-  }
-  lines.push('----------');
-  return lines.join('\n');
-}
+export { resultDetails };
 
 function renderGrammarMarkdown(markdown: vscode.MarkdownString, result: GrammarResult): void {
   markdown.appendMarkdown(`### Grammar Check · ${escapeMarkdown(grammarDialectLabel(result.dialect))}\n\n`);
   if (!result.issues.length) {
-    markdown.appendMarkdown('No spelling or grammar issues found by Harper.\n\n');
+    markdown.appendMarkdown(grammarNothingChecked(result)
+      ? `${escapeMarkdown(GRAMMAR_HARPER_SKIPPED_NOTICE)}\n\n`
+      : 'No spelling or grammar issues found by Harper.\n\n');
     return;
   }
   result.issues.forEach((issue, index) => {
@@ -287,14 +158,6 @@ function renderGrammarMarkdown(markdown: vscode.MarkdownString, result: GrammarR
     issue.suggestions.forEach((suggestion) => markdown.appendMarkdown(`- ${escapeMarkdown(suggestion.label)}\n`));
     markdown.appendMarkdown('\n');
   });
-}
-
-function grammarDialectLabel(dialect: GrammarResult['dialect']): string {
-  if (dialect === 'british') return 'British English';
-  if (dialect === 'australian') return 'Australian English';
-  if (dialect === 'canadian') return 'Canadian English';
-  if (dialect === 'indian') return 'Indian English';
-  return 'American English';
 }
 
 function renderRewriteMarkdown(markdown: vscode.MarkdownString, result: RewriteResult): void {
@@ -381,19 +244,6 @@ function appendThesaurusMarkdown(
 function formatThesaurusWordMarkdown(word: ThesaurusWord): string {
   const labels = word.labels?.length ? ` _(${word.labels.map(escapeMarkdown).join(', ')})_` : '';
   return `${escapeMarkdown(word.word)}${labels}`;
-}
-
-function appendThesaurusLine(
-  lines: string[],
-  label: string,
-  words: ThesaurusWord[] | undefined
-): void {
-  if (!words?.length) return;
-  lines.push(`   ${label}: ${words.map(formatThesaurusWordText).join(', ')}`);
-}
-
-function formatThesaurusWordText(word: ThesaurusWord): string {
-  return word.labels?.length ? `${word.word} (${word.labels.join(', ')})` : word.word;
 }
 
 function uniqueThesaurusWords(result: ThesaurusResult): string[] {

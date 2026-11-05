@@ -34,7 +34,10 @@ export function cancelTutorTakeHome(view: KrenResultsViewProvider, mode: 'discar
   const prior = view.tutorState.conversation.takeHome;
   view.tutorState = { ...view.tutorState, conversation: { ...view.tutorState.conversation,
     takeHome: mode === 'discard' || (mode === 'retain' && !prior?.card) ? undefined : prior ? {
-      ...prior, busy: false, hidden: mode === 'retain' ? prior.hidden : true,
+      // 2026-11-04 (V14, VS4TUTOR): Cancel pressed while the card is being prepared keeps the section drawn, so the
+      // sentence stored below ("The take-home card was canceled. Try again.") and Retry are visible. Every other
+      // mode, and a Cancel on a finished card, still hides it.
+      ...prior, busy: false, hidden: mode === 'retain' ? prior.hidden : !(mode === 'cancel' && prior.busy),
       canceled: mode === 'cancel' || prior.canceled,
       ...(prior.busy ? { failure: 'The take-home card was canceled. Try again.' } : {})
     } : undefined } };

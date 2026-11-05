@@ -403,7 +403,7 @@ describe('Gemini Live session protocol', () => {
         // Changed 2026-09-24 for V148: English is the default, and mode remains omitted so
         // the transcriber cannot tidy away the learner's disfluencies or self-corrections.
         inputAudioTranscription: { languageCodes: ['en-US'] },
-        outputAudioTranscription: {},
+        outputAudioTranscription: { languageCodes: ['en-US'] },
         // Changed 2026-09-23: V141 asks Google for a session resumption handle so a goAway
         // warning can be answered with a replacement session instead of falling back to
         // Standard. An empty object opts in without resuming a previous session.
@@ -455,8 +455,11 @@ describe('Gemini Live session protocol', () => {
     socket.emit('open');
     const setup = JSON.parse(socket.sent[0]!) as { setup: {
       inputAudioTranscription: Record<string, unknown>;
+      outputAudioTranscription: Record<string, unknown>;
     } };
     expect(setup.setup.inputAudioTranscription).toEqual({});
+    // The learner's automatic switch never reaches the character's transcription, which stays English.
+    expect(setup.setup.outputAudioTranscription).toEqual({ languageCodes: ['en-US'] });
     expect(setup.setup.inputAudioTranscription).not.toHaveProperty('mode');
     socket.message({ setupComplete: {} });
     await connected;
@@ -1976,7 +1979,7 @@ describe('V120 conversation controller', () => {
       model: 'models/gemini-v134-live-model',
       generationConfig: { responseModalities: ['AUDIO'] },
       inputAudioTranscription: { languageCodes: ['en-US'] },
-      outputAudioTranscription: {}
+      outputAudioTranscription: { languageCodes: ['en-US'] }
     });
     expect(setup.setup.inputAudioTranscription).not.toHaveProperty('mode');
     expect(instruction).toContain(TUTOR_SITUATIONS[0]!.setting);

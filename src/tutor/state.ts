@@ -17,9 +17,9 @@ import {
   type RewriteVoice
 } from '@kren/core/rewrite-axes';
 import {
-  TUTOR_EXERCISE_CODES,
-  TUTOR_LESSON_CODES,
   TUTOR_SELECTION_CODES,
+  tutorFindingMessage,
+  type TutorFindingMessageContext,
   assessTutorCompatibility,
   buildTutorRecipe,
   findTrainingMapNode,
@@ -44,6 +44,8 @@ import type {
 import type { KrenResult } from '../types.js';
 import { TUTOR_DEFAULTS } from './defaults.js';
 import type { TutorLessonConversationContext, TutorTargetMark } from './lessonConversation.js';
+import type { TutorPracticeExercise, TutorAskAnswer, TutorConversationTurn, TutorHint, TutorConversationDemoCast,
+  TutorConversationDemoLine } from '@kren/core/tutor';
 
 export const TUTOR_ROUTING_DEFAULTS = {
   provider: TUTOR_DEFAULTS.configuration['tutor.provider'],
@@ -104,39 +106,15 @@ export interface TutorSessionSettings {
   };
 }
 
-function axisLabels<T extends string>(options: readonly { id: T; label: string }[]): Record<T, string> {
-  return Object.fromEntries(options.map(({ id, label }) => [id, label])) as Record<T, string>;
-}
-
-/** One label source for the writing constraints in lesson and diagnosis requests. */
-export const TUTOR_WRITING_CONSTRAINT_LABELS = {
-  domain: axisLabels(REWRITE_DOMAINS),
-  function: axisLabels(REWRITE_FUNCTIONS),
-  modality: axisLabels(REWRITE_MODALITIES),
-  formality: axisLabels(REWRITE_FORMALITIES),
-  learnerLevel: {
-    A1: 'Beginner', A2: 'Elementary', B1: 'Intermediate',
-    B2: 'Upper-intermediate', C1: 'Advanced', C2: 'Proficient'
-  } satisfies Record<Exclude<TutorOutputSettings['learnerLevel'], 'auto'>, string>
-};
-
-export type TutorWritingSettings = {
-  axes: Pick<TutorSessionSettings['axes'], 'domain' | 'function' | 'modality' | 'formality'>;
-  learnerLevel: TutorSessionSettings['learnerLevel'];
-};
-
-/** Select only the five writing constraints, omitting each no-preference value. */
-export function tutorWritingConstraints(settings: TutorWritingSettings) {
-  const { axes, learnerLevel } = settings;
-  const labels = TUTOR_WRITING_CONSTRAINT_LABELS;
-  return {
-    ...(axes.domain === 'general' ? {} : { domain: labels.domain[axes.domain] }),
-    ...(axes.function === 'general' ? {} : { function: labels.function[axes.function] }),
-    modality: labels.modality[axes.modality],
-    ...(axes.formality === 'preserve' ? {} : { formality: labels.formality[axes.formality] }),
-    ...(learnerLevel === 'auto' ? {} : { learnerLevel: labels.learnerLevel[learnerLevel] })
-  };
-}
+/*
+ * The writing-constraint labels, the excerpt check, the dialogue sanitizer and the shared
+ * answer types moved into core 0.42.0 with the tutor request builders (V312). Re-exported
+ * here so every existing importer keeps working and the move reads as a move.
+ */
+export { TUTOR_WRITING_CONSTRAINT_LABELS, tutorWritingConstraints, TUTOR_EXCERPT_SENTENCE_LIMIT, tutorExcerptShowsPattern,
+  sanitizeTutorConversationText } from '@kren/core/tutor';
+export type { TutorWritingSettings, TutorPracticeExercise, TutorAskAnswer, TutorConversationTurn, TutorHint,
+  TutorConversationDemoSpeaker, TutorConversationDemoCharacter, TutorConversationDemoLine, TutorConversationDemoCast } from '@kren/core/tutor';
 
 export interface TutorLessonState {
   /** The objective submitted for this draft, kept with its owned practice. */
@@ -146,14 +124,6 @@ export interface TutorLessonState {
   findings: TutorFinding[];
 }
 
-/** Shared by lesson quality checks and the reader's highlighting. */
-export const TUTOR_EXCERPT_SENTENCE_LIMIT = 0.9;
-export function tutorExcerptShowsPattern(sentence: string, excerpt: string): boolean {
-  return excerpt.length > 0 && excerpt.length < sentence.length * TUTOR_EXCERPT_SENTENCE_LIMIT;
-}
-
-/** KREN's optional practice metadata leaves the core exercise contract unchanged. */
-export type TutorPracticeExercise = TrainingExercise & { taskLine?: string };
 export type TutorPracticeSet = Omit<TutorExerciseSet, 'exercises'> & { exercises: TutorPracticeExercise[] };
 
 /** KREN's optional presentation hint, outside the shared review contract. */
@@ -166,88 +136,9 @@ export function tutorConversationReviewProgress(conversation: TutorViewState['co
   return { answered, remaining: Math.max(0, TUTOR_CONVERSATION_DIAGNOSTIC_MIN_ANSWERS - answered) };
 }
 
-export interface TutorAskAnswer {
-  directAnswer: string;
-  explanation?: string;
-  examples?: string[];
-}
-
 export function tutorConversationHandoffNote(role: string): string {
   const label = role.trim().replace(/[,.]+$/u, '');
   return `${label}${label.includes(',') ? ',' : ''} joins the conversation.`;
-}
-
-export interface TutorConversationTurn {
-  /** Display-only punctuation from the structured spoken-turn check. */
-  spokenPunctuated?: string;
-  handoff?: { role: string; gender: 'female' | 'male' };
-  /** Only the cleaned English text is retained when speech contains a misheard segment. */
-  partiallyHeard?: true;
-  targetMarks?: TutorTargetMark[];
-  questionTargetMarks?: TutorTargetMark[];
-  /** Retained transcript text whose learner balloon and check are withheld. */
-  learnerNotShown?: true;
-  /** Session-only owner used to attach late Live coaching after the reader has moved on. */
-  generation?: number;
-  /** Skipped entries are display history only, never diagnostic evidence. */
-  skipped?: boolean;
-  /** The Live reply completed, but its separate structured correction request failed. */
-  coachingFailed?: true;
-  /** The Live turn is waiting for the one whole-conversation check at Stop. */
-  coachingPending?: true;
-  /** Direct Live microphone input always uses speech-recognition correction tolerance. */
-  spoken?: boolean;
-  question: string;
-  learnerAnswer: string;
-  /** Optional in session state for legacy responses and skipped entries. Required in new requests. */
-  move?: 'clarification' | 'recast' | 'reaction' | 'silence';
-  reply?: string;
-  /** Exact model-named span of reply that restates the correction, or empty when none does. */
-  replyQuote?: string;
-  correction: string;
-  targetId?: string;
-  explanation: string;
-  /** A natural answer fitted to the KREN message in question, whether or not correction was needed. */
-  rephrase?: string;
-  /** Why the rephrase fits, or a plain statement that the reader's answer was already natural. */
-  rephraseWhy?: string;
-  /** Other spoken ways to express the same meaning in Speak and rephrase. */
-  alternatives?: Array<{ text: string; why: string }>;
-  /** The reader chose the rephrasing, which replaces correction feedback without a way back. */
-  rephraseShown?: true;
-  nextQuestion?: string;
-}
-
-export interface TutorHint {
-  explanation: string;
-  example: string;
-}
-
-export type TutorConversationDemoSpeaker = 'male' | 'female';
-
-export interface TutorConversationDemoCharacter {
-  name: string;
-  role: string;
-  description: string;
-}
-
-export interface TutorConversationDemoLine {
-  speaker: TutorConversationDemoSpeaker;
-  text: string;
-}
-
-export interface TutorConversationDemoCast {
-  scene: string;
-  male: TutorConversationDemoCharacter;
-  female: TutorConversationDemoCharacter;
-}
-
-/** Clean provider dialogue before it becomes shared display, speech, and quote-matching state. */
-export function sanitizeTutorConversationText(text: string): string {
-  return text
-    .replace(/^[ \t]*(?:[*\-_=#~][ \t]*){3,}(?:\r\n|[\r\n]|$)/gmu, '')
-    .replace(/(?<![\p{L}\p{N}_*])(\*\*|__|\*|_)([^\s*_](?:[^\r\n]*?[^\s*_])?)\1(?![\p{L}\p{N}_*])/gu, '$2')
-    .trim();
 }
 
 /** Unknown or legacy moves keep their assessment as a readable fallback. */
@@ -270,30 +161,9 @@ export type TutorConversationStarts = typeof TUTOR_CONVERSATION_STARTS[number];
  * rather than leaving the voice to an unknown server default, so replay can choose the other
  * gender deterministically.
  */
-export const TUTOR_LIVE_VOICES = [
-  ['Zephyr', 'Bright', 'female'], ['Puck', 'Upbeat', 'male'],
-  ['Charon', 'Informative', 'male'], ['Kore', 'Firm', 'female'],
-  ['Fenrir', 'Excitable', 'male'], ['Leda', 'Youthful', 'female'],
-  ['Orus', 'Firm', 'male'], ['Aoede', 'Breezy', 'female'],
-  ['Callirrhoe', 'Easy-going', 'female'], ['Autonoe', 'Bright', 'female'],
-  ['Enceladus', 'Breathy', 'male'], ['Iapetus', 'Clear', 'male'],
-  ['Umbriel', 'Easy-going', 'male'], ['Algieba', 'Smooth', 'male'],
-  ['Despina', 'Smooth', 'female'], ['Erinome', 'Clear', 'female'],
-  ['Algenib', 'Gravelly', 'male'], ['Rasalgethi', 'Informative', 'male'],
-  ['Laomedeia', 'Upbeat', 'female'], ['Achernar', 'Soft', 'female'],
-  ['Alnilam', 'Firm', 'male'], ['Schedar', 'Even', 'male'],
-  ['Gacrux', 'Mature', 'female'], ['Pulcherrima', 'Forward', 'female'],
-  ['Achird', 'Friendly', 'male'], ['Zubenelgenubi', 'Casual', 'male'],
-  ['Vindemiatrix', 'Gentle', 'female'], ['Sadachbia', 'Lively', 'male'],
-  ['Sadaltager', 'Knowledgeable', 'male'], ['Sulafat', 'Warm', 'female']
-] as const;
+import { TUTOR_LIVE_VOICES, isTutorLiveVoice, normalizedTutorLiveVoice } from '@kren/core/speech-rules';
+export { TUTOR_LIVE_VOICES, isTutorLiveVoice, normalizedTutorLiveVoice };
 export type TutorLiveVoiceGender = typeof TUTOR_LIVE_VOICES[number][2];
-export function isTutorLiveVoice(value: string): boolean {
-  return value === '' || TUTOR_LIVE_VOICES.some(([name]) => name === value);
-}
-export function normalizedTutorLiveVoice(value: string): string {
-  return TUTOR_LIVE_VOICES.some(([name]) => name === value) ? value : 'Kore';
-}
 export const TUTOR_CONVERSATION_REPLY_LENGTHS = ['brief', 'short', 'medium', 'long'] as const;
 export type TutorConversationReplyLength = typeof TUTOR_CONVERSATION_REPLY_LENGTHS[number];
 
@@ -517,6 +387,8 @@ export interface TutorViewState {
   lessonStale: boolean;
   lessonBusy: boolean;
   lessonFailure?: string;
+  /** The check sentences behind a rejected lesson, kept apart from the calm sentence and shown under "Show reasons". */
+  lessonFailureReasons?: string;
   exampleBusyIds: string[];
   /** Practice items whose answer-free question explanation is being written. */
   exerciseHintBusyIds: string[];
@@ -530,6 +402,8 @@ export interface TutorViewState {
   practiceExamples?: Record<string, { exampleIndex: number; sentence: string }>;
   exerciseBusy: boolean;
   exerciseFailure?: string;
+  /** The check sentences behind a rejected practice set, shown under "Show reasons" beneath the calm sentence. */
+  exerciseFailureReasons?: string;
   answers: Record<string, string>;
   reviews: Record<string, TutorPracticeReview>;
   currentExerciseIndex: number;
@@ -706,12 +580,14 @@ export function resetTutorGeneratedWork(state: TutorViewState): TutorViewState {
     lessonStale: reset.lessonStale,
     lessonBusy: reset.lessonBusy,
     lessonFailure: undefined,
+    lessonFailureReasons: undefined,
     exampleBusyIds: reset.exampleBusyIds,
     exampleFailures: reset.exampleFailures,
     exerciseSet: undefined,
     practiceExamples: undefined,
     exerciseBusy: reset.exerciseBusy,
     exerciseFailure: undefined,
+    exerciseFailureReasons: undefined,
     exerciseHintBusyIds: reset.exerciseHintBusyIds,
     exerciseHints: reset.exerciseHints,
     exerciseHintFailures: reset.exerciseHintFailures,
@@ -1020,122 +896,8 @@ export function changeTutorTarget(
     : { selection: candidate };
 }
 
-export interface TutorFindingMessageContext {
-  minimumWords?: number;
-  maximumWords?: number;
-  log?: (line: string) => void;
-}
-
-export function tutorFindingMessage(finding: TutorFinding | undefined, context: TutorFindingMessageContext = {}): string {
-  if (finding?.code === 'lesson.wordCountWarning' && typeof finding.detail?.message === 'string') return finding.detail.message;
-  if (finding?.code === TUTOR_LESSON_CODES.wordCountBelowMinimum || finding?.code === TUTOR_LESSON_CODES.wordCountAboveMaximum) {
-    const minimum = context.minimumWords ?? finding.detail?.minimumWords;
-    const maximum = context.maximumWords ?? finding.detail?.maximumWords;
-    const band = minimum !== undefined && maximum !== undefined ? ` (${minimum} to ${maximum} words)` : '';
-    return `Some examples were ${finding.code === TUTOR_LESSON_CODES.wordCountBelowMinimum ? 'shorter' : 'longer'} than your setting${band}.`;
-  }
-  const message = knownTutorFindingMessage(finding);
-  if (message) return finding && /^(lesson|exercise|review)\./u.test(finding.code) && !/[.!?]$/u.test(message) ? `${message}.` : message;
-  (context.log ?? console.warn)(`[tutor finding] unknown code: ${finding?.code}`);
-  const subject = finding?.code.startsWith('exercise.') ? 'practice set' : finding?.code.startsWith('review.') ? 'review' : 'lesson';
-  return `The ${subject} did not meet KREN's checks.`;
-}
-
-function knownTutorFindingMessage(finding: TutorFinding | undefined): string | undefined {
-  if (finding?.code === 'lesson.excerptsTooLong') return 'The provider returned whole-sentence excerpts again. This example has no short span to highlight.';
-  if (!finding) return 'Selection incomplete';
-  if (finding.code === TUTOR_SELECTION_CODES.missingPrimary) return 'Choose one Primary target';
-  if (finding.code === TUTOR_SELECTION_CODES.tooManyPrimaries) return 'Choose no more than three Primary targets';
-  if (finding.code === TUTOR_SELECTION_CODES.tooManySupports) return 'Choose no more than three Support targets';
-  if (finding.code === TUTOR_SELECTION_CODES.duplicateTarget) return 'A target can be selected only once';
-  if (finding.code === TUTOR_SELECTION_CODES.ancestorDescendant) return 'Choose an exact target, not both it and an ancestor';
-  if (finding.code === TUTOR_SELECTION_CODES.unknownTarget) return 'KREN could not find that target in the learning map';
-  if (finding.code.startsWith('compatibility.')) return 'The selected targets have a compatibility conflict';
-  if (finding.code.startsWith('recipe.')) return 'A lesson setting is outside Core\'s allowed range';
-  if (finding.code === TUTOR_LESSON_CODES.requiredFieldMissing) {
-    return `The lesson omitted ${String(finding.detail?.field ?? 'a required field').replace(/[._]/gu, ' ')}`;
-  }
-  if (finding.code === TUTOR_LESSON_CODES.schemaVersionMismatch) {
-    return 'The lesson used an unsupported schema version';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.mapVersionMismatch) {
-    return 'The lesson used a different learning-map version';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.rulesMissing) {
-    return 'The lesson omitted its rules and tendencies';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.exampleCountMismatch) {
-    return `The lesson returned ${String(finding.detail?.actual)} example${finding.detail?.actual === 1 ? '' : 's'} instead of ${String(finding.detail?.requested)}`;
-  }
-  if (finding.code === TUTOR_LESSON_CODES.examplePhraseRepeated) return 'Several examples repeated the same phrase instead of teaching the pattern';
-  if (finding.code === TUTOR_LESSON_CODES.patternStatementMissing) return 'The lesson did not explain the pattern its examples teach';
-  if (finding.code === TUTOR_LESSON_CODES.primaryTargetMissing) {
-    return 'A lesson example did not contain the Primary target it claimed to teach';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.supportTargetUnderused) {
-    return 'The lesson did not use a Support target in two examples';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.annotationExcerptMissing) {
-    return 'A lesson annotation named text that was not in its example';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.answerKeyMissing) {
-    return 'The lesson omitted the requested answer key';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.exploreChoiceMissing) {
-    return 'The lesson did not name the target it chose for Explore';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.exploreChoiceOutsideParent) {
-    return 'The lesson chose an Explore target outside the selected branch';
-  }
-  if (finding.code === TUTOR_LESSON_CODES.exploreChoiceUnexpected) {
-    return 'The lesson claimed an Explore choice for an exact target';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.schemaVersionMismatch) {
-    return 'The practice set used an unsupported schema version';
-  }
-  if (finding.code === 'exercise.exampleIndexInvalid') {
-    return 'A practice item omitted its lesson example index or named an example outside the lesson';
-  }
-  if (finding.code === 'exercise.expectedAnswerInvalid') {
-    return 'A practice item omitted its expected answer or returned an unreadable answer';
-  }
-  if (finding.code === 'exercise.taskLineInvalid') {
-    return 'A practice item did not explain what to write';
-  }
-  if (finding.code === 'exercise.exampleCopied') {
-    return 'A practice prompt or expected answer copied five consecutive words from a lesson example';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.mapVersionMismatch) {
-    return 'The practice set used a different learning-map version';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.countMismatch) {
-    return `The practice set returned ${String(finding.detail?.actual)} items instead of ${String(finding.detail?.requested)}`;
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.setChannelMismatch ||
-      finding.code === TUTOR_EXERCISE_CODES.exerciseChannelMismatch) {
-    return 'The practice set used a different exercise channel';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.duplicateIdentifier) {
-    return 'The practice set reused an exercise identifier';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.unknownAnswerExercise) {
-    return 'The practice answer key named an exercise that was not returned';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.spokenTurnsMissing) {
-    return 'A spoken exercise omitted its dialogue turns';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.writtenTurnsPresent) {
-    return 'A written exercise unexpectedly included spoken dialogue turns';
-  }
-  if (finding.code === TUTOR_EXERCISE_CODES.answerKeyMissing) {
-    return 'The practice set omitted the requested answer key';
-  }
-  if (finding.code === 'review.excerptMissing') return 'The review did not mark an exact span of the answer';
-  if (finding.code === 'review.noSpans') return 'The review did not include any marked answer spans';
-  if (finding.code === 'review.invalidCorrectedText') return 'The review included unreadable corrected text';
-  if (finding.code === 'review.invalidCategory') return 'The review used an unsupported correction category';
-  return undefined;
-}
+export { tutorFindingMessage };
+export type { TutorFindingMessageContext };
 
 export function activeTutorTargetIds(state: TutorViewState): string[] {
   return state.settings.questionOnly

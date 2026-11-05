@@ -1,6 +1,6 @@
 # KREN User Guide
 
-This guide applies to KREN 2.0.1.
+This guide applies to KREN 2.0.3.
 
 API means application programming interface; LLM means large language model. Bold names in the steps are control labels or Command Palette commands; speaker, pencil, and trash icons are identified by their position when their accessible labels include the current term.
 
@@ -112,7 +112,7 @@ Hear a cleaned speech copy without changing the source.
 1. On a local Windows extension host, open **Settings**, **Read Aloud**.
 2. Set **Speech source** to **Local Windows (offline)**, **Microsoft Edge Online**, or **Google Cloud Chirp 3 HD**. For Edge, install `edge-tts` with `python -m pip install edge-tts` and set **Python command** if needed. For Chirp, set the Google Cloud Text-to-Speech key in **KREN menu**, **Credentials**. If that slot is empty, KREN uses the Cloud Translation key. Enable the Text-to-Speech API and billing in that key's Google Cloud project.
 3. Choose **Language/Region**, voice, speed, and **Volume**. The default Edge voice is en-US-ChristopherNeural; Language/Region stays Auto-detect. Chirp uses **Chirp voice**, default Callirrhoe, and **Reading speed**, where zero percent maps to the natural rate, 1.0, limited to 0.25 through 2.0. Auto-detect resolves the language in the same way as Edge Online. A voice may be unavailable for a particular locale. Use the voice preview speaker to test the selected source.
-4. Select text and run **KREN: Read Aloud**. Accept Edge's first-use disclosure if prompted. Run **KREN: Stop Read Aloud** to stop. Any panel navigation (the KREN menu, Home, Settings, AI English Tutor, User Dictionary, User Manual, Back to result) also stops it.
+4. Select text and run **KREN: Read Aloud**. Accept Edge's first-use disclosure if prompted. Run **KREN: Stop Read Aloud** to stop, or run **KREN: Read Aloud** (or press a speaker icon) a second time while it is reading. Starting any other KREN action also stops it. Any panel navigation (the KREN menu, Home, Settings, AI English Tutor, User Dictionary, User Manual, Back to result) also stops it.
 
 KREN removes common Markdown and citation artifacts from the speech copy. Editor reading needs local Windows; dictionary pronunciation can use the panel player on other hosts.
 
@@ -167,7 +167,7 @@ The list shows matching entries and counts. Search, filters, and selection make 
 
 Back up entries or restore a reviewed file.
 
-1. In **Settings**, **User Dictionary**, choose **Export JSON** for a lossless backup or **Export Markdown** for a readable, lossy file. In the list, select entries for **Export selected JSON** or **Export selected Markdown**.
+1. In **Settings**, **User Dictionary**, choose **Export JSON** for a lossless backup or **Export Markdown** for a readable, lossy file. In the User Dictionary list, select entries and choose **Export JSON** or **Export Markdown** there to export only the selected entries.
 2. Choose **Import**, select the file, and read **Import preview**, including duplicates and invalid records.
 3. Choose **Merge, keep existing**, **Merge, replace duplicates**, or **Replace all** after reviewing the proposed changes; choose **Cancel** to keep the dictionary as it is.
 
@@ -289,7 +289,7 @@ Choose the reset covering your intended work or settings.
 
 Master Reset clears targets, question, lesson, practice, conversation, report, and prompt; returns all four learning-map dropdowns to Select an option; and folds LESSON SETTING, MODE, and VOICE & MODEL. Lesson Reset keeps targets, question, prompt, and conversation. Reset confirmation is also announced to screen readers.
 
-Questions with choices and modal confirmations appear in VS Code's own dialog. Escape cancels a confirmation. Speech has no busy popup. Other busy popups, failures, and provider-switch notices stay in the KREN panel. Tutor and lesson resets and Delete & Reset announce their results in the panel. Lesson drafting failures appear beside the actions; missing-key failures still open a popup. If a panel warning or error notice cannot be displayed, KREN shows it in VS Code within 1.5 seconds. Find leaves the panel available while a choice is pending. Reset, a newer search, or a map selection retires the old Find choices.
+Questions with choices and modal confirmations appear in VS Code's own dialog. Escape cancels a confirmation. Speech has no busy popup. Other busy popups, failures, and provider-switch notices stay in the KREN panel. Tutor and lesson resets and Delete & Reset announce their results in the panel. Lesson drafting failures appear beside the actions; missing-key failures still open a popup. A lesson that fails KREN's checks shows "KREN could not prepare this lesson. Please try again." with a collapsed **Show reasons** control that lists why, because some reasons point to a setting you can change, such as the example count. A practice set that fails the checks works the same way: "KREN could not prepare this practice set. Please try again." with its own collapsed **Show reasons** control. If a panel warning or error notice cannot be displayed, KREN shows it in VS Code within 1.5 seconds. Find leaves the panel available while a choice is pending. Reset, a newer search, or a map selection retires the old Find choices.
 
 ## Troubleshooting
 

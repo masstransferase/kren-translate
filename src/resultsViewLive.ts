@@ -107,7 +107,37 @@ export function stopTutorLiveAudio(view: KrenResultsViewProvider): void {
     view.tutorLiveAudioPlayer?.stop();
     view.tutorLivePlaybackQueuedUntil = 0;
     view.tutorLivePlaybackBlockedUntil = 0;
+    // V19: a handoff waiting for the line ends when the audio is stopped (speaker off, Stop, a new session).
+    view.tutorLiveHandoffWait?.release();
     if (wasPlaying) postTutorConversationStopState(view);
+  }
+
+/** V19: the longest a handoff waits for the old character's line to finish before the session closes anyway (Office: HANDOFF_LINE_WAIT_MS). */
+export const TUTOR_LIVE_HANDOFF_LINE_WAIT_MS = 8000;
+
+/** V19: a line of the current character is still playing through the speaker, so closing the session now would cut it off. */
+export function tutorLiveLinePlaying(view: KrenResultsViewProvider): boolean {
+    return view.tutorLiveSession !== undefined && view.tutorState.conversation.speakerOn &&
+      view.tutorLivePlaybackBlockedUntil === Number.POSITIVE_INFINITY;
+  }
+
+/**
+ * V19: resolves when the playing line ends (the player reports idle, or the audio is stopped), after
+ * `TUTOR_LIVE_HANDOFF_LINE_WAIT_MS`, or when `signal` aborts (Stop, Reset, Start new or a second handoff).
+ */
+export function waitForTutorLiveLineEnd(view: KrenResultsViewProvider, signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const wait = { release: () => done() };
+      const done = (): void => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        if (view.tutorLiveHandoffWait === wait) view.tutorLiveHandoffWait = undefined;
+        resolve();
+      };
+      const timer = setTimeout(done, TUTOR_LIVE_HANDOFF_LINE_WAIT_MS);
+      view.tutorLiveHandoffWait = wait;
+      if (signal.aborted) done(); else signal.addEventListener('abort', done, { once: true });
+    });
   }
 
 export function playTutorLiveAudio(view: KrenResultsViewProvider, chunk: TutorLiveAudioChunk): void {
@@ -136,6 +166,7 @@ export function tutorLivePlaybackProgress(view: KrenResultsViewProvider,
     const releasedAt = Date.now() + TUTOR_LIVE_ECHO_MARGIN_MS;
     view.tutorLivePlaybackQueuedUntil = Date.now();
     view.tutorLivePlaybackBlockedUntil = releasedAt;
+    view.tutorLiveHandoffWait?.release();
     view.tutorIntroCompletionWait?.playbackComplete();
     view.tutorLiveTurnTiming?.echoGateReleased(releasedAt);
     view.tutorLiveCompletedTiming?.echoGateReleased(releasedAt);
@@ -235,6 +266,12 @@ export async function toggleTutorLiveMicrophone(view: KrenResultsViewProvider): 
       view.actions.log(`[conversation Live microphone refused: ${condition}]`);
       postTutorLiveTalkState(view, false);
     };
+    // V18/V19: a press while a handoff is connecting (or waiting for the old line) cancels the microphone that would open by itself,
+    // and Talk is not available until the new session is open.
+    if (view.tutorLiveResumeController) {
+      view.tutorLiveMicrophoneGeneration += 1;
+      if (view.tutorLiveHandoffWait) return;
+    }
     if (!session) {
       refuse('no session');
       return;
@@ -377,8 +414,11 @@ export function closeTutorLiveSession(view: KrenResultsViewProvider, reconcilePi
     cancelTutorConversationPicture(view);
     view.tutorLiveResumeController?.abort();
     view.tutorLiveResumeController = undefined;
+    view.tutorLiveHandoffWait?.release();
     view.tutorLiveOpeningNarration = false;
     closeTutorLiveMicrophone(view);
+    // V18: closing the session ends any microphone reopen a handoff was holding for the new one.
+    view.tutorLiveMicrophoneListenAt = undefined;
     view.tutorLiveSession?.close();
     view.tutorLiveSession = undefined;
     if (!preserveCoaching) view.tutorLiveSpokenTurn?.controller.abort();

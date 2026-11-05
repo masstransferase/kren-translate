@@ -318,7 +318,9 @@ export class TutorLiveSession {
         inputAudioTranscription: this.options.transcriptionLanguage === 'automatic'
           ? {}
           : { languageCodes: ['en-US'] },
-        outputAudioTranscription: {},
+        // The character always speaks English, so its on-screen transcription is pinned to English;
+        // with no language the transcriber could write a word in another script that was never said.
+        outputAudioTranscription: { languageCodes: ['en-US'] },
         sessionResumption: resumptionHandle ? { handle: resumptionHandle } : {}
       }
     };

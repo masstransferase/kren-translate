@@ -4,12 +4,14 @@ import { tutorLearnerTurnNotShown } from './learnerLanguage.js';
 import type { TutorLanguageModelRoute } from '../operations.js';
 import { ProviderError } from '../errors.js';
 import { validateLanguageModelOutput } from '../languageModelUsage.js';
-import type { LanguageModelRoutingEffort, LanguageModelRoutingProvider } from '../languageModelRouting.js';
 import { TUTOR_MODELS, tutorModeModel, type ThinkingMode } from './models.js';
 export { TUTOR_MODELS, tutorModeModel, type ThinkingMode } from './models.js';
 
 import { canEscalateThinking, TUTOR_THINKING_MODES, tutorFastModel, modeEffort, wordCount, adaptiveEffort, selectAdaptiveThinking, selectTutorThinking } from '@kren/core/request-decisions';
 export { canEscalateThinking, TUTOR_THINKING_MODES, tutorFastModel, modeEffort, wordCount, adaptiveEffort };
+// The Fast thinking setting for Fast requests and tutor fallback moved into core 0.42.0 with the B9 rule (V312).
+import { tutorFastEffort } from '@kren/core/tutor';
+export { tutorFastEffort };
 
 function requestData(request: TutorStructuredGenerationRequest): Record<string, any> {
   try { const data = JSON.parse(request.input); return data && typeof data === 'object' ? data : {}; } catch { return {}; }
@@ -47,11 +49,6 @@ export async function runAdaptiveThinking<T>(kind: string, text: string, signal:
 
 class TutorValidationError extends Error {}
 
-/** Auto preserves the lowest supported Fast level; an explicit choice uses normal model normalization. */
-export function tutorFastEffort(provider: LanguageModelRoutingProvider, model: string,
-  configured: LanguageModelRoutingEffort = 'auto'): LanguageModelRoutingEffort {
-  return modeEffort(provider, model, configured === 'auto' ? 'fast' : 'thorough', configured);
-}
 
 /** Host-only mode metadata prevents nested panel/transport boundaries from escalating twice. */
 export async function runTutorThinking(request: TutorStructuredGenerationRequest, route: TutorLanguageModelRoute,

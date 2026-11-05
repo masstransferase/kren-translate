@@ -1,4 +1,5 @@
 import { missingCredentialError } from '../requestCenter.js';
+import { buildGroqDictationRequest } from '@kren/core/dictation';
 import { buildCompatibleRequestBody, strictSchema, validatedCompatibleText as readCompatibleText, ProviderResponseError } from '@kren/core/provider-requests';
 export { strictSchema };
 import { usageTrackedFetch } from '../languageModelUsage.js';
@@ -107,12 +108,12 @@ export async function listGroqModelsUnfiltered(apiKey: string, signal: AbortSign
 
 export async function transcribeGroqAudio(apiKey: string, audio: Uint8Array, signal: AbortSignal): Promise<string> {
   if (!apiKey) throw missingCredentialError('groq');
+  const request = buildGroqDictationRequest(audio);
   const form = new FormData();
-  form.append('file', new Blob([new Uint8Array(audio)], { type: 'audio/wav' }), 'dictation.wav');
-  form.append('model', 'whisper-large-v3-turbo');
-  form.append('response_format', 'json');
+  form.append(request.file.fieldName, new Blob([request.file.bytes], { type: request.file.type }), request.file.fileName);
+  for (const [name, value] of request.fields) form.append(name, value);
   let response: Response;
-  try { response = await usageTrackedFetch({ feature: 'dictation', provider: 'groq', model: 'whisper-large-v3-turbo' })(`${compatibleBaseUrl('groq')}/audio/transcriptions`, {
+  try { response = await usageTrackedFetch({ feature: 'dictation', provider: 'groq', model: request.model })(`${compatibleBaseUrl('groq')}/audio/transcriptions`, {
     method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal
   }); } catch { throw new ProviderError('Groq dictation service could not be reached.'); }
   if (!response.ok) throw new ProviderError(providerHttpError('Groq', response.status), 'setGroqKey', false, response.status);

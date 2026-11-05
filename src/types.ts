@@ -186,6 +186,10 @@ export interface GrammarResult extends BaseResult {
   kind: 'grammar';
   dialect: GrammarDialect;
   issues: GrammarIssue[];
+  // True when the offline English checker did not run because the text is not English, so an
+  // empty `issues` means nothing was checked rather than nothing was found. Smart Grammar
+  // Check can still add findings to such a result.
+  harperSkipped?: boolean;
   // Present only when the Smart Grammar pass completed. `providerId` stays `harper`,
   // because the local check always runs and always produces the findings this result is
   // built from; this names the model that added to them.

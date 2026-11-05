@@ -199,6 +199,7 @@ it('does not soften or retry a lesson with another validation failure', async ()
   const generate = vi.fn(async () => bad); view.actions.generateTutor = generate;
   startTutorLessonGeneration(view); await settle(view);
   expect(generate).toHaveBeenCalledTimes(1);
-  expect(view.tutorState.lessonFailure).toMatch(/rules|pattern/u);
+  // Changed 2026-11-04: V22 (owner decision F3), the validation reasons are carried apart from the calm sentence.
+  expect(view.tutorState.lessonFailureReasons).toMatch(/rules|pattern/u);
   expect(view.tutorState.lesson?.lesson).toBe(lesson);
 });
