@@ -149,6 +149,7 @@ import {
   resolveEdgeSpeechVoice
 } from '@kren/core/edge-speech';
 import type { GrammarIssue } from '@kren/core/contracts';
+import { GRAMMAR_HARPER_SKIPPED_NOTICE, grammarNothingChecked } from '@kren/core/grammar-input-language';
 import { TUTOR_ROUTING_DEFAULTS } from './tutor/state.js';
 import {
   sentenceAroundSelection,
@@ -390,6 +391,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     manageGrammarIssue: (issueId, action) => managePanelGrammarIssue(context, issueId, action),
     readAloudText: panelReadAloudText,
     stopReadAloud: () => { stopReadAloud(false); },
+    readingAloud: () => speechCenter.sharedSpeaking(),
     clear: () => {
       lastResult = undefined;
       hoverStore.clear();
@@ -1790,6 +1792,11 @@ export function readSelectedEditorPassage(): string | undefined {
 }
 
 async function executeReadAloudSelection(context: vscode.ExtensionContext): Promise<void> {
+  // A second press of Read Aloud while it is reading stops it, through the same stop path as the stop icon.
+  if (speechCenter.sharedSpeaking()) {
+    stopReadAloud(true);
+    return;
+  }
   if (process.platform !== 'win32' || vscode.env.remoteName) {
     notify('information',
       'KREN Read Aloud currently requires a local Windows VS Code session.'
@@ -1845,6 +1852,11 @@ function stopReadAloud(showStatus: boolean): boolean {
   return stopped;
 }
 
+/** Another KREN action ends a Read Aloud reading, through the one stop path. Tutor speech keeps its own rules. */
+function stopSharedReadAloud(): void {
+  if (speechCenter.sharedSpeaking()) stopReadAloud(false);
+}
+
 async function ensureEdgeTtsConsent(context: vscode.ExtensionContext): Promise<boolean> {
   if (context.globalState.get<boolean>(EDGE_TTS_CONSENT, false)) return true;
   const choice = await showKrenWarningMessage(
@@ -1858,6 +1870,7 @@ async function ensureEdgeTtsConsent(context: vscode.ExtensionContext): Promise<b
 }
 
 async function executeGrammarCheck(context: vscode.ExtensionContext): Promise<void> {
+  stopSharedReadAloud(); // Another KREN action stops Read Aloud.
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     notify('information', 'Open an editor and select English text first.');
@@ -2064,7 +2077,10 @@ async function checkGrammarRange(
     // clean-result notice stays, because nothing else on screen changes when a check finds
     // nothing, and silence there is indistinguishable from a check that never ran.
     if (announce && !result.issues.length) {
-      notify('information', 'KREN: Harper found no spelling or grammar issues.');
+      // When the offline check was skipped and no model ran, nothing was checked: say that, as the panel does.
+      notify('information', grammarNothingChecked(result)
+        ? `KREN: ${GRAMMAR_HARPER_SKIPPED_NOTICE}`
+        : 'KREN: Harper found no spelling or grammar issues.');
     }
     return state;
   } catch (error) {
@@ -2292,6 +2308,7 @@ async function executeLookup(
   hoverStore: HoverStore,
   operation: KrenOperation
 ): Promise<void> {
+  stopSharedReadAloud(); // Another KREN action stops Read Aloud.
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     notify('information', 'Open an editor and select text first.');
@@ -2496,6 +2513,7 @@ async function rerunOperation(
 }
 
 async function executeAddToUserDictionary(context: vscode.ExtensionContext): Promise<void> {
+  stopSharedReadAloud(); // Another KREN action stops Read Aloud.
   if (!vscode.workspace.getConfiguration('kren').get<boolean>('userDictionary.enabled', false)) {
     notify('information',
       'Enable User Dictionary in KREN Settings before adding an entry.'
@@ -2698,7 +2716,7 @@ async function deleteUserDictionaryEntries(
 ): Promise<UserDictionaryEntryV1[] | undefined> {
   if (ids.length === 0) return userDictionaryService.list();
   const confirmed = await showKrenWarningMessage(
-    `Delete the ${ids.length} selected User Dictionary entries?`,
+    (ids.length === 1 ? 'Delete the selected User Dictionary entry?' : `Delete the ${ids.length} selected User Dictionary entries?`),
     { modal: true },
     'Delete selected entries'
   );
@@ -2798,6 +2816,7 @@ async function exportUserDictionary(
 const GRAMMAR_SMART_DEFAULT = true;
 
 async function executeClipboardLookup(context: vscode.ExtensionContext): Promise<void> {
+  stopSharedReadAloud(); // Another KREN action stops Read Aloud.
   const rawText = await vscode.env.clipboard.readText();
   const config = vscode.workspace.getConfiguration('kren');
   const maxCharacters = config.get<number>('translation.maxCharacters', 5000);

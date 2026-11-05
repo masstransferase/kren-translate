@@ -47,7 +47,7 @@ function host(names: string[], overrides: Record<string, unknown> = {}) {
     runOperationWithProgress: vi.fn(async () => result('initial')),
     runKrenOperation: vi.fn(async () => result('initial')),
     extensionRuntime: () => ({ getSecret: async () => 'test-key', getSetting: config.get }), explicitTextSubmission: (text: string) => ({ text }),
-    notify: vi.fn(), reportAbort: () => false, showLookupError: vi.fn(),
+    notify: vi.fn(), reportAbort: () => false, showLookupError: vi.fn(), stopSharedReadAloud: vi.fn(),
     shouldCopyRewriteToClipboard: () => false, describeClipboardDecision: () => 'decision',
     outputChannel: { appendLine: vi.fn() }, progressTitle: () => 'KREN',
     clipboardPreview: (text: string) => text, ALL_REWRITE_VARIANTS_ID: 'all', REWRITE_VARIANT_LIST: [],

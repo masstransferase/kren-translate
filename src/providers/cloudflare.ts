@@ -1,6 +1,7 @@
 import { missingCredentialError, missingCredentialDetails, missingCredentialMessage } from '../requestCenter.js';
 import { usageTrackedFetch } from '../languageModelUsage.js';
 import { ProviderError } from '../errors.js';
+import { buildCloudflareDictationRequest } from '@kren/core/dictation';
 
 /** Presence flags name only absent slots and never carry credential values. */
 export function cloudflareMissingCredentialError(accountIdPresent: boolean, tokenPresent: boolean) {
@@ -89,8 +90,9 @@ export async function runCloudflareAi(
 
 export async function transcribeCloudflareAudio(accountId: string, token: string, audio: Uint8Array, signal: AbortSignal): Promise<string> {
   const metadata: CloudflareAiResponseMetadata = {};
-  const result = await runCloudflareAi(accountId, token, '@cf/openai/whisper-large-v3-turbo',
-    { audio: Buffer.from(audio).toString('base64') }, signal, 'dictation', metadata) as { text?: unknown } | undefined;
+  const request = buildCloudflareDictationRequest(audio);
+  const result = await runCloudflareAi(accountId, token, request.model,
+    request.body, signal, 'dictation', metadata) as { text?: unknown } | undefined;
   if (typeof result?.text !== 'string' || !result.text.trim()) throw new CloudflareAiError('Cloudflare returned an empty transcript.', false, false, metadata.status, metadata.codes);
   return result.text.trim();
 }

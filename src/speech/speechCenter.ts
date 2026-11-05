@@ -15,6 +15,7 @@ import { normalizedReadAloudChirpVoice, resolveReadAloudChirpLocale } from '../r
 import { prepareTextForSpeech } from '../windowsReadAloud.js';
 import { type EdgeAudioPlayback, type EdgeReadAloudResult } from '../windowsEdgeReadAloud.js';
 import { EDGE_SPEECH_AUTO_LOCALE, resolveEdgeSpeechLocale, resolveEdgeSpeechVoice } from '@kren/core/edge-speech';
+import { speechSourceOrder, speechStartingSource, remainingSpeechText } from '@kren/core/speech-rules';
 import { edgeSpeechFailureMessage, edgeSpeechRetryNotice } from '../edgeSpeechMessages.js';
 import type { SpeechAdapter, SpeechProvider, SpeechResult, SpeechVoice, SpeechPlaybackBarrier } from './speechAdapter.js';
 
@@ -158,17 +159,18 @@ interface SpeechSettings {
   chirpVoice: string; female: string; male: string; edgeFemale: string; edgeMale: string;
 }
 
-// 2026-10-14: This is the only provider order, shared by the two features.
-const FALLBACK_ORDER: readonly SpeechProvider[] = ['edgeOnline', 'windowsLocal'];
-
 export class SpeechCenter {
   private generation = 0;
   constructor(private readonly tutor: GoogleChirpSpeech, private readonly shared: GoogleChirpSpeech,
     private readonly edge: SpeechAdapter, private readonly windows: SpeechAdapter, private readonly host: SpeechHost) {
     this.tutor.playbackStarted(() => this.host.started());
   }
+  // The session of the shared (Read Aloud) reading in progress, or 0. A second press of Read Aloud asks this.
+  private sharedSession = 0;
+  public sharedSpeaking(): boolean { return this.sharedSession !== 0; }
   public stop(): boolean {
     this.generation++;
+    this.sharedSession = 0;
     const tutor = this.tutor.stop(), shared = this.shared.stop(), edge = this.edge.stop(), windows = this.windows.stop();
     return tutor || shared || edge || windows;
   }
@@ -185,12 +187,10 @@ export class SpeechCenter {
     const cancellation = speechNotice.cancellationGeneration();
     const current = () => session === this.generation && cancellation === speechNotice.cancellationGeneration();
     const barrier = settingsSource === 'tutor' && playbackBarrier ? async () => await playbackBarrier() && current() : undefined;
-    const provider = edgeVoice && settings.provider !== 'googleChirp' ? 'edgeOnline' : settings.provider;
+    const provider = speechStartingSource(settings.provider, edgeVoice);
     const chirpReadAloud = settingsSource === 'shared' && settings.provider === 'googleChirp';
     const voices = settingsSource === 'tutor' ? tutorChirpVoices(edgeVoice, settings) : undefined;
-    const order = [provider, ...FALLBACK_ORDER.filter(candidate => candidate !== provider)];
-    // A selected Windows voice only falls through for the tutor, as before V234.
-    if (provider === 'windowsLocal' && settingsSource === 'shared') order.splice(1);
+    const order = speechSourceOrder(provider, settingsSource);
     let remaining = chirpReadAloud ? prepareTextForSpeech(text) : text;
     if (chirpReadAloud && !remaining) return;
     const releaseSpeech = settingsSource === 'tutor' || chirpReadAloud ? this.host.hold() : undefined;
@@ -198,6 +198,7 @@ export class SpeechCenter {
     let message: string | undefined, edgeCause: string | undefined;
     let missingCredentials: MissingCredentials | undefined;
     let used: TutorSpeechFallback | undefined;
+    if (settingsSource === 'shared') this.sharedSession = session;
     try {
       for (const source of order) {
         if (!current()) return;
@@ -238,7 +239,7 @@ export class SpeechCenter {
           if (message) speechNotice.reportFallback(message, provider === 'edgeOnline' && used ? { ...used, edgeUnavailable: false } : used, missingCredentials);
           return used;
         }
-        remaining = outcome.remainingText ?? remaining;
+        remaining = remainingSpeechText(outcome, remaining);
         if (source === 'googleChirp') {
           message = chirpNotice(outcome);
           missingCredentials = outcome.missingKey ? missingCredentialDetails('googleCloudTextToSpeech') : undefined;
@@ -283,6 +284,7 @@ export class SpeechCenter {
       }
     } finally {
       releaseSpeech?.(); status?.dispose();
+      if (this.sharedSession === session) this.sharedSession = 0;
       if (current()) await this.host.active(false);
     }
   }

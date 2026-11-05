@@ -11,7 +11,7 @@ import {
 } from '@kren/core/validation';
 import { ProviderError } from './errors.js';
 import { isPlausibleLanguageCode } from './languages.js';
-import { isProbablyEnglish } from '@kren/core/languages';
+import { planGrammarHarper } from '@kren/core/grammar-input-language';
 import {
   configuredThinkingLevel,
   GeminiProvider,
@@ -417,23 +417,14 @@ export function resolveRewriteOutputLanguage(
  * Only an explicit dialect can trigger this. Auto-detect makes no claim about the language,
  * so there is nothing for the text to contradict.
  */
-function assertGrammarInputLanguageMatches(runtime: KrenRuntime, text: string): void {
-  const configured = runtime.getSetting<GrammarDialect | 'auto'>('grammar.dialect', 'auto');
-  if (configured === 'auto' || isProbablyEnglish(text)) return;
-  throw new Error(
-    'Grammar Check is set to check English, and this text does not look like English. ' +
-    'Set the Grammar Check input language to Auto-detect to check it, which skips the ' +
-    'offline English checker and uses Smart Grammar Check instead.'
-  );
-}
-
-function resolvedGrammarDialect(
+function planGrammarHarperForRuntime(
   runtime: KrenRuntime,
   text: string
 ): GrammarDialect | undefined {
   const configured = runtime.getSetting<GrammarDialect | 'auto'>('grammar.dialect', 'auto');
-  if (configured !== 'auto') return configured;
-  return isProbablyEnglish(text) ? 'american' : undefined;
+  const plan = planGrammarHarper(configured, text);
+  if ('refusal' in plan) throw new Error(plan.refusal);
+  return plan.dialect;
 }
 
 export async function runKrenOperation(
@@ -495,8 +486,7 @@ async function runKrenOperationOnce(runtime: KrenRuntime, operation: KrenOperati
   }
 
   if (operation === 'grammar') {
-    assertGrammarInputLanguageMatches(runtime, input.text);
-    const dialect = resolvedGrammarDialect(runtime, input.text);
+    const dialect = planGrammarHarperForRuntime(runtime, input.text);
     return checkGrammarWithHarper(input.text, dialect ?? 'american', signal, dialect !== undefined);
   }
 

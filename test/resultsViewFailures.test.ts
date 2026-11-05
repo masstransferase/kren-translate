@@ -1369,6 +1369,9 @@ describe('what a finished grammar check announces', () => {
 
     expect(announce).not.toBe('');
     expect(announce).toContain('Harper found no spelling or grammar issues.');
+    // 2.0.3: when nothing was checked, the notice says so instead, as the panel does.
+    expect(announce).toContain('grammarNothingChecked(result)');
+    expect(announce).toContain('GRAMMAR_HARPER_SKIPPED_NOTICE');
     expect(announce).not.toMatch(/possible issue/u);
     expect(announce).not.toMatch(/Quick Fix/u);
   });

@@ -106,8 +106,11 @@ describe('V242 conversation instructions', () => {
     expect(text).toMatch(/name the brands, explain the options, or give the directions/u);
     expect(text).toContain('never say "let me show you"');
     expect(text).toMatch(/manager, a supervisor, a colleague, or anyone else who could help/u);
-    expect(text).toContain('hands over in one short line');
-    expect(text).toContain('reply continues as the new character');
+    // 2.0.2: in Live the current character only brings the newcomer over, and the newcomer greets after the
+    // reopen in the new voice; Standard replies keep continuing as the new character in the same reply.
+    const live = _mode.includes('Live');
+    expect(text).toContain(live ? 'one short line that brings the new character over' : 'hands over in one short line');
+    if (!live) expect(text).toContain('reply continues as the new character');
     expect(text).toContain('stays for the rest of the conversation');
     expect(text).toContain('consistent with the scene');
     expect(text).toContain('overrides the initial character assignment');

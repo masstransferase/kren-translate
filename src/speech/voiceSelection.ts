@@ -28,6 +28,8 @@ interface TutorConversationVoicePlan {
   current: TutorCharacterVoices;
   learner: TutorCharacterVoices;
   handoffs: Array<{ turn: number; voices: TutorCharacterVoices }>;
+  /** The Live voice the session started with (V17); a newcomer never takes it, even when it is not the gender's default. */
+  firstLiveVoice?: string;
 }
 const conversationVoices = new WeakMap<object, TutorConversationVoicePlan>();
 
@@ -85,14 +87,26 @@ export function tutorConversationVoicePlan(view: TutorVoiceContext, initialize =
     learner.liveVoice = tutorLearnerLiveVoice(settings, conversation.liveVoice);
   }
   const plan: TutorConversationVoicePlan = { tutorGender, learnerGender, initial, current: initial,
-    learner, handoffs: [] };
+    learner, handoffs: [], firstLiveVoice: knownLiveVoice(conversation.liveVoice) };
   if (identity && initialize) conversationVoices.set(identity, plan);
   return plan;
 }
 
+/** The name when it is a Live voice in the table, otherwise undefined (an empty or unknown value names no voice in use). */
+function knownLiveVoice(name: string | undefined): string | undefined {
+  return TUTOR_LIVE_VOICES.some(([voice]) => voice === name) ? name : undefined;
+}
+
+/**
+ * V17: a newcomer never sounds like the voice in use, the session's first voice or the learner's, so a
+ * same-gender newcomer is a different voice even when the session started on a voice that is not the gender's default.
+ */
 export function handoffTutorConversationVoices(view: TutorVoiceContext, gender: Gender): TutorCharacterVoices {
   const plan = tutorConversationVoicePlan(view);
-  const voices = tutorHandoffVoices(view.actions.settings(), gender, [plan.current, plan.learner, plan.initial]);
+  const used = [knownLiveVoice(view.tutorState.conversation.liveVoice), plan.firstLiveVoice]
+    .filter((voice): voice is string => voice !== undefined)
+    .map((liveVoice): TutorCharacterVoices => ({ ...plan.initial, liveVoice }));
+  const voices = tutorHandoffVoices(view.actions.settings(), gender, [plan.current, plan.learner, plan.initial, ...used]);
   plan.current = voices;
   plan.tutorGender = gender;
   plan.handoffs.push({ turn: view.tutorState.conversation.transcript.length - 1, voices });

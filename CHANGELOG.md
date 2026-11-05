@@ -4,6 +4,42 @@ This changelog describes KREN for Visual Studio Code.
 
 ## Unreleased
 
+## 2.0.3
+
+Fixes from testing 2.0.2.
+
+### New in 2.0.3
+
+- **Live text stays in English.** The text of what the Live character says is now transcribed as English, so a bubble no longer shows a word in another script, such as Chinese characters, that the voice never said.
+- **Rejected practice sets.** When a practice set fails KREN's checks, the tutor says "KREN could not prepare this practice set. Please try again." and a Show reasons control opens the reasons, as for lessons.
+- **Grammar Check notice.** When the text does not look like English and Smart Grammar Check is off, the result and the pop-up notice both say "This text does not look like English. Turn on Smart Grammar Check in Settings to check it.", instead of the pop-up saying "Harper found no spelling or grammar issues."
+- **Conversation buttons.** The Stop square and the other icons below the conversation sit centered in their buttons; they were 2 px to the right.
+- **User Dictionary export.** The list's export buttons are now called Export JSON and Export Markdown.
+
+## 2.0.2
+
+Fixes and polish for the AI English Tutor, Live conversations, Grammar Check, Read Aloud and the Start page.
+
+### New in 2.0.2
+
+- **Grammar Check says when nothing was checked.** When the text does not look like English and Smart Grammar Check is off, the offline checker skips it, and the result now says that nothing was checked instead of "No spelling or grammar issues found."
+- **Read Aloud stops on a second press.** Pressing Read Aloud again while it is reading stops it, and starting another KREN action such as Grammar Check or a dictionary lookup stops it too.
+- **Clearer Google Cloud voice errors.** When Google refuses a speech request with 401, the message points to the Google Cloud key in Credentials; with 403, it says the project may need the Text-to-Speech API turned on or the key may not allow it.
+- **Live character changes.** A new character never sounds like the voice in use, the session's first voice or the learner's voice. The old character's line now plays out (up to 8 seconds) before the new voice connects, and if you were listening hands-free, the microphone opens again by itself.
+- **Take-home card.** If you cancel while the card is being prepared, the section stays visible with "The take-home card was canceled. Try again." and Retry.
+- **Prepared hints.** A hint that was prepared in advance now appears reliably for the current turn.
+- **Situation pictures.** A Gemini picture request that takes longer than 120 seconds now stops and says it timed out.
+- **Practice spacing.** There is 10 px of space under Practice now and Practice again.
+- **Learning map.** When a limit hides the Primary or Support button, the reason appears under the buttons, and on panels 360 px wide or narrower each map level's dropdown sits under its label so a long option name shows whole.
+- **Rejected lessons.** When a lesson fails KREN's checks, the tutor says "KREN could not prepare this lesson. Please try again." and a Show reasons control opens the reasons.
+- **Start page.** The long description sentence appears only on the first run, when no key is saved and no result is held. Later visits open on "Choose a KREN action" with the buttons first and the three steps below them.
+- **User Dictionary.** Entry details show "Updated" with the date only, without the time.
+- **Learning Tools drawer.** The input, output language and button rows have even spacing, and the "Restore sentence" button is now called Restore.
+- **Delete prompt.** Deleting one User Dictionary entry asks "Delete the selected User Dictionary entry?" instead of using the plural.
+- **Merriam-Webster names.** The Dictionary settings name the Merriam-Webster products in full, for example Merriam-Webster's Collegiate Dictionary.
+- **Header.** The KREN logo carries the name; the text "KREN" remains for screen readers only.
+- **Shared code.** Shared text and rules now also live in kren-core.
+
 ## 2.0.1
 
 The Marketplace page now describes the LLM-based AI English Tutor and the Groq and Cloudflare providers. The tutor's Command Palette entry is now "KREN: Start LLM-based AI English Tutor", because "Open AI English Tutor" read as a company name.

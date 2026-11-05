@@ -1,7 +1,6 @@
+import { userDictionaryCaptureFilterOptions } from '@kren/core/user-dictionary';
 import {
-  USER_DICTIONARY_CAPTURE_MODES,
   USER_DICTIONARY_PROVIDERS,
-  type UserDictionaryCaptureMode,
   type UserDictionaryProviderCaptureMode
 } from './providerContract.js';
 import type { LanguageModelRoutingProvider as UserDictionaryProvider } from '../languageModelRouting.js';
@@ -112,17 +111,7 @@ export function userDictionaryCaptureModeOptions(): Array<[
   ]);
 }
 
-export function userDictionaryCaptureFilterOptions(): Array<[
-  UserDictionaryCaptureMode,
-  string
-]> {
-  return USER_DICTIONARY_CAPTURE_MODES.map((id) => [
-    id,
-    id === 'llmOnly'
-      ? 'LLM Only'
-      : id === 'merriamWebsterAndLlm' ? 'Merriam-Webster + LLM' : 'Manual or imported'
-  ]);
-}
+export { userDictionaryCaptureFilterOptions };
 
 export function userDictionaryProviderOptions(): Array<[UserDictionaryProvider, string]> {
   return languageModelRoutingProviderOptions();

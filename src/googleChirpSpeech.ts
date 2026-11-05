@@ -25,7 +25,8 @@ function googleErrorCodes(value: unknown): string {
 }
 export function chirpFailureMessage(status?: number, reason = 'no response', codes = ''): string {
   return `Google Cloud Text-to-Speech failed (${status ? `HTTP ${status}${codes ? ` ${codes}` : ''}` : reason}).` +
-    (status === 403 ? ' Enable the Text-to-Speech API and billing in your Google Cloud project, and allow this key to use it.' : '');
+    (status === 401 ? ' Google refused the speech request: check the Google Cloud key in KREN menu, Credentials.' :
+      status === 403 ? ' Google refused the speech request. The Google Cloud project for this key may need the Text-to-Speech API turned on, or the key may not allow it.' : '');
 }
 export interface ChirpPlayback {
   beginSession?(): void;

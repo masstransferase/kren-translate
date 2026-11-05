@@ -154,7 +154,7 @@ it.each([403, 429])('HTTP %s falls back per utterance with one notice and no Goo
   expect(f.fallback).toHaveBeenCalledTimes(2); expect(f.notify).toHaveBeenCalledOnce();
   const notice = f.notify.mock.calls[0]![0];
   expect(notice).toContain(`HTTP ${status}`); expect(notice).toMatch(/using the Edge voice/u);
-  if (status === 403) expect(notice).toMatch(/Enable.*Text-to-Speech API/u);
+  if (status === 403) expect(notice).toMatch(/Text-to-Speech API turned on/u);
   expect(notice).not.toContain('Google error detail'); expect(notice).not.toContain(credential);
 });
 it('a network exception falls back without exposing its message', async () => {
@@ -321,7 +321,7 @@ it.each([403, 429])('Credentials Test reports HTTP %s and never substitutes Edge
   const f = fixture(vi.fn(async () => new Response(credential, { status })));
   const message = await f.speech.test({ ...options, voice: 'Callirrhoe' });
   expect(message).toContain(`Google Cloud Text-to-Speech failed (HTTP ${status}).`);
-  if (status === 403) expect(message).toContain('Enable the Text-to-Speech API and billing in your Google Cloud project, and allow this key to use it.');
+  if (status === 403) expect(message).toContain('The Google Cloud project for this key may need the Text-to-Speech API turned on, or the key may not allow it.');
   expect(message).not.toContain(credential); expect(f.fallback).not.toHaveBeenCalled();
   expect(f.player.play).not.toHaveBeenCalled(); expect(f.notify).not.toHaveBeenCalled();
 });

@@ -1958,7 +1958,9 @@ Follow the visible lesson recipe for level B2, 6 examples of 11 to 18 words, and
 
     expect(rows).toHaveLength(4);
     expect(output).toMatch(/\.setting \{ display: grid; grid-template-columns: minmax\(0, 1fr\) minmax\(120px, 42%\); align-items: center; gap: 12px;/u);
-    expect(output).not.toMatch(/\.tutor-map-level \{[^}]*grid-template-columns/u);
+    // F9 (V11) adds one deliberate exception: at 360 px and narrower each dropdown stacks under its label.
+    // The guard is about the base layout, so that single media line is set aside before it looks.
+    expect(output.replace(/ *@media \(max-width: 360px\) \{ \.tutor-map-level \{[^\n]*\n/u, '')).not.toMatch(/\.tutor-map-level \{[^}]*grid-template-columns/u);
     for (const row of rows) {
       expect(row.indexOf('class="setting-title"')).toBeLessThan(row.indexOf('class="setting-description"'));
       expect(row.indexOf('class="setting-description"')).toBeLessThan(row.indexOf('<select'));
@@ -3361,7 +3363,7 @@ Follow the visible lesson recipe for level B2, 6 examples of 11 to 18 words, and
     expect(drawer, 'the box holds the sentence to pick from').toContain(drafted.sentence);
     expect(drawer).toContain('Highlight a word with the mouse, then Look up.');
     expect(drawer).toMatch(
-      /data-command="submitTutorTool"[^>]*>Look up<\/button><button[^>]*data-command="restoreTutorDictionaryContext"[^>]*>Restore sentence<\/button>/u
+      /data-command="submitTutorTool"[^>]*>Look up<\/button><button[^>]*data-command="restoreTutorDictionaryContext"[^>]*>Restore<\/button>/u
     );
     expect(output).toContain('.tutor-drawer-result { margin-top: 12px; }');
   });

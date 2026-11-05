@@ -256,7 +256,8 @@ describe('V206 example-based practice host flow', () => {
     await internals.handleMessage({ command: 'generateTutorExercises' });
     await vi.waitFor(() => expect(internals.tutorState.exerciseBusy).toBe(false));
     expect(internals.tutorState.exerciseSet).toBeUndefined();
-    expect(internals.tutorState.exerciseFailure).toMatch(kind.startsWith('copied') ? /copied five consecutive words/ : /lesson example index/);
+    expect(internals.tutorState.exerciseFailure).toBe('KREN could not prepare this practice set. Please try again.');
+    expect(internals.tutorState.exerciseFailureReasons).toMatch(kind.startsWith('copied') ? /copied five consecutive words/ : /lesson example index/);
   });
 });
 
@@ -3721,8 +3722,9 @@ describe('AI English Tutor controller', () => {
     await internals.handleMessage({ command: 'generateTutorLesson' });
     await vi.waitFor(() => expect(internals.tutorState.lessonBusy).toBe(false));
     // Changed 2026-10-15: V245, owner item I23, findings are sentences; preserve cause and count without pinning punctuation.
-    expect(internals.tutorState.lessonFailure).toMatch(/example.*Primary target.*12 findings/u);
-    expect(internals.tutorState.lessonFailure?.includes('rules and tendencies')).toBe(distinct);
+    // Changed 2026-11-04: V22 (owner decision F3), the reasons sit behind "Show reasons" and the message is one calm sentence.
+    expect(internals.tutorState.lessonFailureReasons).toMatch(/example.*Primary target.*12 findings/u);
+    expect(internals.tutorState.lessonFailureReasons?.includes('rules and tendencies')).toBe(distinct);
     expect(internals.tutorState.lesson).toBeUndefined();
   });
 
@@ -3736,7 +3738,9 @@ describe('AI English Tutor controller', () => {
 
     expect(internals.tutorState.lesson).toBeUndefined();
     // Changed 2026-10-15: V245, owner item I23, messages are full sentences with correct plurals.
-    expect(internals.tutorState.lessonFailure).toBe(
+    // Changed 2026-11-04: V22 (owner decision F3), the cause moved to lessonFailureReasons.
+    expect(internals.tutorState.lessonFailure).toBe('KREN could not prepare this lesson. Please try again.');
+    expect(internals.tutorState.lessonFailureReasons).toBe(
       'The lesson returned 1 example instead of 6.'
     );
   });

@@ -1,6 +1,10 @@
 import { waitForRetry } from '@kren/core/retry';
 import { classifyRequestStatus, requestRetryDelay, responseRefused, safeCodes, safeRoute, identifier, boundedTransportAttempts, centerTransportAttempts, consumeRequestBudget, routeBudgetAvailable, requestBoundary, retryAttempt, shouldFallback, shouldRetryContent, recoveryAfterFailure, failureActions, compatibilityFailureCause, decisionUsageEvent, decisionFailureEvent } from '@kren/core/request-decisions';
 export { classifyRequestStatus, requestRetryDelay };
+import { credentialProviderName, otherGeminiProfileMessage, missingCredentialMessage,
+  type CredentialProvider, type GeminiCredentialPresence } from '@kren/core/missing-credential';
+export { credentialProviderName, otherGeminiProfileMessage, missingCredentialMessage };
+export type { CredentialProvider, GeminiCredentialPresence };
 import { ProviderError } from './errors.js';
 import { TUTOR_DEFAULTS } from './tutor/defaults.js';
 import { DEFAULT_PROVIDER_ORDER, ProviderExhaustionState, runWithProviderSwitch, providerSwitchMessage,
@@ -434,8 +438,6 @@ export class RequestCenter {
 }
 
 type FailedRequest = Extract<RequestOutcome<never>, { type: 'failed' }>;
-export type CredentialProvider = LanguageModelRoutingProvider | 'googleCloudTranslation' | 'googleCloudTextToSpeech' |
-  'merriamWebsterCollegiate' | 'merriamWebsterMedical' | 'merriamWebsterThesaurus' | 'koreanDictionary';
 export interface MissingCredentials {
   provider: CredentialProvider;
   geminiProfile?: 'standard' | 'pro';
@@ -443,37 +445,11 @@ export interface MissingCredentials {
   action: 'openCredentials';
 }
 export const OPEN_CREDENTIALS = 'Open Credentials';
-export function credentialProviderName(provider: CredentialProvider, profile: 'standard' | 'pro' = 'standard'): string {
-  const credentialNames: Record<CredentialProvider, string> = {
-    gemini: 'Gemini', groq: 'Groq', cloudflare: 'Cloudflare', openai: 'OpenAI', anthropic: 'Anthropic',
-    googleCloudTranslation: 'Google Cloud Translation', googleCloudTextToSpeech: 'Google Cloud Text-to-Speech',
-    merriamWebsterCollegiate: 'Merriam-Webster Collegiate', merriamWebsterMedical: 'Merriam-Webster Medical',
-    merriamWebsterThesaurus: 'Merriam-Webster Collegiate Thesaurus', koreanDictionary: 'Korean Basic Dictionary'
-  };
-  return credentialNames[provider] + (provider === 'gemini' ? profile === 'pro' ? ' Paid' : ' Free Tier' : '');
-}
 /** This descriptor contains presence information only, never credential values. */
 export function missingCredentialDetails(provider: CredentialProvider, geminiProfile: 'standard' | 'pro' = 'standard',
   slots: readonly string[] = provider === 'cloudflare' ? ['account ID', 'API token']
     : provider === 'googleCloudTextToSpeech' ? ['Google Cloud Text-to-Speech API key', 'Google Cloud Translation API key'] : ['API key']): MissingCredentials {
   return { provider, ...(provider === 'gemini' ? { geminiProfile } : {}), slots: [...slots], action: 'openCredentials' };
-}
-export interface GeminiCredentialPresence { geminiDefault?: boolean; geminiAlternate?: boolean }
-/** Uses presence only so initial rendering and mounted setting updates share one rule. */
-export function otherGeminiProfileMessage(provider: string, profile: string, presence: GeminiCredentialPresence = {}): string {
-  if (provider !== 'gemini') return '';
-  const selected = profile === 'pro' ? presence.geminiAlternate : presence.geminiDefault;
-  const other = profile === 'pro' ? presence.geminiDefault : presence.geminiAlternate;
-  if (selected || !other) return '';
-  const name = profile === 'pro' ? 'Free Tier' : 'Paid';
-  return ` Gemini ${name} has a key: choose ${name} in this feature's settings to use it.`;
-}
-export function missingCredentialMessage(details: MissingCredentials, presence?: GeminiCredentialPresence): string {
-  const name = credentialProviderName(details.provider, details.geminiProfile);
-  const message = details.provider === 'googleCloudTextToSpeech'
-    ? 'Set your Google Cloud Text-to-Speech API key or Google Cloud Translation API key in KREN menu, Credentials.'
-    : `Set ${details.provider === 'cloudflare' ? 'the' : 'your'} ${name} ${details.slots.join(' and ')} in KREN menu, Credentials.`;
-  return message + otherGeminiProfileMessage(details.provider, details.geminiProfile ?? 'standard', presence);
 }
 export function missingCredentialSelectionMessage(details: MissingCredentials, presence?: GeminiCredentialPresence): string {
   return `No ${credentialProviderName(details.provider, details.geminiProfile)} ${details.provider === 'cloudflare' ? details.slots.join(' and ') : 'key'} yet.` +

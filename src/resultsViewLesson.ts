@@ -19,7 +19,7 @@ import * as vscode from 'vscode';
 import { tutorConversationDiagnosisRequest, tutorExerciseGenerationRequest, validateTutorExamplePracticeSet, type TutorExamplePracticeRequest, type TutorExamplePracticeSet, tutorLessonGenerationRequest, tutorPassageDiagnosisRequest, tutorDiagnosticReport, tutorTailoredPromptRequest, tutorWrittenPrompt, tutorTargetSearchSelection, tutorTargetSearchRequest, TUTOR_PASSAGE_ANALYSIS_CHOICES } from './tutor/generation.js';
 import { findTutorTargets as rankTutorTargets } from './tutor/search.js';
 import { changeTutorTarget, replaceTutorExample, replaceTutorExerciseSet, resetTutorGeneratedWork, resetTutorSession, tutorAllExamplesViewed, tutorHasLessonInput, tutorPracticeResults, tutorFindingMessage, tutorPreparedPrompt, tutorTailoredPrompt, tutorQuestionOnlySelection, tutorRecipeFromState, tutorSelectionReadiness, tutorTargetPathLabel, type TutorViewState } from './tutor/state.js';
-import { findTrainingMapNode, validateTutorLesson, tutorLessonIsValid, type TrainingTargetRole, type TrainingTargetSelection, type TutorLesson } from '@kren/core/tutor';
+import { PREPARED_PROMPT_SENTENCE, findTrainingMapNode, validateTutorLesson, tutorLessonIsValid, type TrainingTargetRole, type TrainingTargetSelection, type TutorLesson } from '@kren/core/tutor';
 
 function generateCheckedTutor(view: KrenResultsViewProvider, request: TutorStructuredGenerationRequest,
   route: TutorLanguageModelRoute, signal: AbortSignal, check: (value: unknown) => void): Promise<unknown> {
@@ -59,7 +59,7 @@ function requestWithPreparedPrompt(
   if (state.preparedPrompt === undefined) return request;
   return {
     ...request,
-    instruction: `${request.instruction}\n\nThe reader reviewed and may have edited the prepared prompt below. The prepared prompt states what to teach about; the current recipe states which targets to teach it through. Generate lesson examples and practice to meet the prompt's objective subject to the selected targets and settings. A changed selection changes the constraints, never the objective. Keep the structured-output and privacy requirements above.\n\n${state.preparedPrompt}`
+    instruction: `${request.instruction}\n\n${PREPARED_PROMPT_SENTENCE}\n\n${state.preparedPrompt}`
   };
 }
 
@@ -470,6 +470,31 @@ export async function confirmTutorDiagnosticReportDeletion(view: KrenResultsView
   }
 
 
+/** The calm sentence a rejected lesson shows; the check reasons sit behind "Show reasons". */
+export const TUTOR_LESSON_REJECTED_MESSAGE = 'KREN could not prepare this lesson. Please try again.';
+
+/** The calm sentence a rejected practice set shows; the check reasons sit behind "Show reasons". */
+export const TUTOR_PRACTICE_REJECTED_MESSAGE = 'KREN could not prepare this practice set. Please try again.';
+
+/**
+ * A drawn lesson that failed KREN's checks. The reasons travel as a field rather than being parsed back
+ * out of the message, which stays the full text so the single-example path reads as before.
+ */
+export class TutorLessonRejection extends Error {
+  constructor(message: string, readonly reasons: string, readonly source: unknown) {
+    super(message);
+    this.name = 'TutorLessonRejection';
+  }
+}
+
+/** A drawn practice set that failed KREN's checks; the reasons travel as a field, as for a lesson. */
+export class TutorPracticeRejection extends TutorLessonRejection {
+  constructor(reasons: string, source: unknown) {
+    super(reasons, reasons, source);
+    this.name = 'TutorPracticeRejection';
+  }
+}
+
 const wordCountFinding = (finding: TutorFinding) =>
   finding.code === 'lesson.wordCountBelowMinimum' || finding.code === 'lesson.wordCountAboveMaximum';
 
@@ -509,8 +534,9 @@ async function generateTutorLessonWithQualityRetry(
           const message = tutorFindingMessage(finding, { ...checkedRecipe.output.sentenceLength, log: line => view.actions.log(line) });
           messages.set(message, (messages.get(message) ?? 0) + 1);
         }
-        throw new Error(tutorProviderSwitchMessage(value, route.provider, 'lesson', [...messages].map(([message, count]) =>
-          count === 1 ? message : `${message} (${count} findings)`).join(' ')));
+        const reasons = [...messages].map(([message, count]) =>
+          count === 1 ? message : `${message} (${count} findings)`).join(' ');
+        throw new TutorLessonRejection(tutorProviderSwitchMessage(value, route.provider, 'lesson', reasons), reasons, value);
       }
       return wordCounts || excerpts ? { type: 'acceptedWithWarnings', value, warnings: [wordCounts ? 'wordCount' : 'excerpt'] }
         : { type: 'accepted', value };
@@ -554,7 +580,8 @@ export function startTutorLessonGeneration(view: KrenResultsViewProvider): void 
     } catch (error) {
       view.tutorState = {
         ...view.tutorState,
-        lessonFailure: tutorFailureMessage(error)
+        lessonFailure: tutorFailureMessage(error),
+        lessonFailureReasons: undefined
       };
       view.showMissingCredentialError(error, true);
       view.render();
@@ -577,7 +604,8 @@ export function startTutorLessonGeneration(view: KrenResultsViewProvider): void 
       lessonRevision: (view.tutorState.lessonRevision ?? 0) + 1,
       practiceLessonRevision: undefined,
       viewedExampleIds: [],
-      lessonFailure: undefined
+      lessonFailure: undefined,
+      lessonFailureReasons: undefined
     };
     view.render();
     const route = tutorLanguageModelRoute(view);
@@ -609,9 +637,10 @@ export function startTutorLessonGeneration(view: KrenResultsViewProvider): void 
           const message = tutorFindingMessage(finding, { ...recipe.output.sentenceLength, log: line => view.actions.log(line) });
           messageCounts.set(message, (messageCounts.get(message) ?? 0) + 1);
         }
-        throw new Error([...messageCounts].map(([message, count]) =>
+        const reasons = [...messageCounts].map(([message, count]) =>
             count === 1 ? message : `${message} (${count} findings)`
-          ).join(' '));
+          ).join(' ');
+        throw new TutorLessonRejection(reasons, reasons, value);
       }
       findings.push(...tutorLessonExcerptFindings(lesson.examples));
       view.tutorState = {
@@ -622,15 +651,19 @@ export function startTutorLessonGeneration(view: KrenResultsViewProvider): void 
         currentExampleIndex: 0,
         viewedExampleIds: [],
         lessonStale: !tutorRecipeMatchesState(recipe, view.tutorState),
-        lessonFailure: undefined
+        lessonFailure: undefined,
+        lessonFailureReasons: undefined
       };
       view.pendingTutorResultFocus = 'lesson';
     }).catch((error: unknown) => {
       if (controller.signal.aborted || generation !== view.tutorGeneration) return;
       restoreTutorDraftWork(view, controller);
+      const rejected = error instanceof TutorLessonRejection ? error : undefined;
       view.tutorState = {
         ...view.tutorState,
-        lessonFailure: tutorProviderSwitchMessage(response ?? error, route.provider, 'lesson', tutorFailureMessage(error))
+        lessonFailure: tutorProviderSwitchMessage(response ?? rejected?.source ?? error, route.provider, 'lesson',
+          rejected ? TUTOR_LESSON_REJECTED_MESSAGE : tutorFailureMessage(error)),
+        lessonFailureReasons: rejected?.reasons
       };
       view.showMissingCredentialError(error, true);
     }).finally(() => {
@@ -650,7 +683,8 @@ export function cancelTutorLesson(view: KrenResultsViewProvider): void {
     view.tutorState = {
       ...view.tutorState,
       lessonBusy: false,
-      lessonFailure: 'Lesson drafting was canceled.'
+      lessonFailure: 'Lesson drafting was canceled.',
+      lessonFailureReasons: undefined
     };
     view.render();
   }
@@ -756,7 +790,7 @@ export function generateTutorExercises(view: KrenResultsViewProvider): void {
       recipe = view.tutorState.lesson?.recipe ?? tutorRecipeFromState(view.tutorState);
     } catch (error) {
       view.showMissingCredentialError(error, true);
-      view.tutorState = { ...view.tutorState, exerciseFailure: tutorFailureMessage(error) };
+      view.tutorState = { ...view.tutorState, exerciseFailure: tutorFailureMessage(error), exerciseFailureReasons: undefined };
       view.render();
       return;
     }
@@ -772,10 +806,12 @@ export function generateTutorExercises(view: KrenResultsViewProvider): void {
     };
     const controller = new AbortController();
     view.tutorExerciseController = controller;
-    view.tutorState = { ...view.tutorState, exerciseBusy: true, practiceLessonRevision: undefined, exerciseFailure: undefined };
+    view.tutorState = { ...view.tutorState, exerciseBusy: true, practiceLessonRevision: undefined, exerciseFailure: undefined, exerciseFailureReasons: undefined };
     view.render();
     const route = tutorLanguageModelRoute(view);
     let response: unknown;
+    const practiceRejection = (findings: TutorFinding[], source: unknown) => new TutorPracticeRejection([...new Set(findings.map(finding =>
+      tutorFindingMessage(finding, { ...recipe.output.sentenceLength, log: line => view.actions.log(line) })))].join(' '), source);
     void generateCheckedTutor(view,
       requestWithPreparedPrompt(tutorExerciseGenerationRequest(request), view.tutorState.lesson
         ? { ...view.tutorState, preparedPrompt: view.tutorState.lesson.preparedPrompt } : view.tutorState),
@@ -783,8 +819,7 @@ export function generateTutorExercises(view: KrenResultsViewProvider): void {
       controller.signal, value => {
         response = value;
         const findings = validateTutorExamplePracticeSet(value as TutorExamplePracticeSet, request);
-        if (findings.length > 0) throw new Error([...new Set(findings.map(finding =>
-          tutorFindingMessage(finding, { ...recipe.output.sentenceLength, log: line => view.actions.log(line) })))].join(' '));
+        if (findings.length > 0) throw practiceRejection(findings, value);
       }
     ).then((value) => {
       response = value;
@@ -798,7 +833,7 @@ export function generateTutorExercises(view: KrenResultsViewProvider): void {
         view.actions.log(`Tutor exercise validation threw: ${detail}`);
         throw new Error(`AI English Tutor could not read the practice set it received. ${detail}`);
       }
-      if (findings.length > 0) throw new Error([...new Set(findings.map(finding => tutorFindingMessage(finding, { ...recipe.output.sentenceLength, log: line => view.actions.log(line) })))].join(' '));
+      if (findings.length > 0) throw practiceRejection(findings, exerciseSet);
       invalidateTutorPracticeReport(view);
       for (const hint of view.tutorHintControllers.values()) hint.abort();
       view.tutorHintControllers.clear();
@@ -810,13 +845,18 @@ export function generateTutorExercises(view: KrenResultsViewProvider): void {
         practiceExamples: Object.fromEntries(exerciseSet.exercises.map((exercise) => [exercise.id, {
           exampleIndex: exercise.exampleIndex!, sentence: request.examples[exercise.exampleIndex!]!.sentence
         }])),
-        exerciseFailure: undefined
+        exerciseFailure: undefined,
+        exerciseFailureReasons: undefined
       };
       view.pendingTutorResultFocus = 'exercises';
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
       view.showMissingCredentialError(error, true);
-      view.tutorState = { ...view.tutorState, exerciseFailure: tutorProviderSwitchMessage(response ?? error, route.provider, 'practice set', tutorFailureMessage(error)) };
+      const rejected = error instanceof TutorPracticeRejection ? error : undefined;
+      view.tutorState = { ...view.tutorState,
+        exerciseFailure: tutorProviderSwitchMessage(response ?? rejected?.source ?? error, route.provider, 'practice set',
+          rejected ? TUTOR_PRACTICE_REJECTED_MESSAGE : tutorFailureMessage(error)),
+        exerciseFailureReasons: rejected?.reasons };
     }).finally(() => {
       if (view.tutorExerciseController !== controller) return;
       view.tutorExerciseController = undefined;
@@ -831,7 +871,8 @@ export function cancelTutorExercises(view: KrenResultsViewProvider): void {
     view.tutorState = {
       ...view.tutorState,
       exerciseBusy: false,
-      exerciseFailure: 'The practice request was canceled.'
+      exerciseFailure: 'The practice request was canceled.',
+      exerciseFailureReasons: undefined
     };
     view.render();
   }

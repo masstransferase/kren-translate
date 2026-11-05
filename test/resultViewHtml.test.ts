@@ -900,8 +900,9 @@ describe('KREN rich result view', () => {
     }
     expect(html).toContain('Search term, aliases, meanings, tags, and collections');
     expect(html).toContain('Delete selected (1)');
-    expect(html).toContain('Export selected JSON');
-    expect(html).toContain('Export selected Markdown');
+    expect(html).toContain('>Export JSON</button>');
+    expect(html).toContain('>Export Markdown</button>');
+    expect(html).not.toContain('Export selected');
     expect(html).toContain('2 records:</strong> 1 valid, 1 duplicates, 1 invalid');
     expect(html).toContain('Import cannot be applied');
     expect(html).toContain('Proposed changes:');
@@ -2146,7 +2147,9 @@ describe('KREN rich result view', () => {
       proModels
     });
 
-    expect(html).toContain('KREN is a privacy-conscious language copilot');
+    // Changed 2026-11-04 (F5B, V3): a later visit, here with a held result, drops the lead sentence.
+    expect(html).not.toContain('KREN is a privacy-conscious language copilot');
+    expect(html).toContain('Choose a KREN action');
     expect(html).not.toContain('안녕하세요');
     expect(html).toContain('id="result-screen" class="result-screen"');
   });
@@ -2526,5 +2529,26 @@ describe('the Edge Online Read Aloud controls', () => {
     });
     expect(custom).toContain('Custom voice ID');
     expect(custom).toContain('fr-CA-SylvieNeural');
+  });
+});
+
+describe('Office findings V1, V8 and V20 (2.0.2 plan, family F5)', () => {
+  it('V20: the Start page header keeps the KREN name only for screen readers, so it cannot overlap the header icons', () => {
+    const html = renderKrenResultViewHtml({ cspSource: 'vscode-webview://test', nonce: 'test-nonce', settings, proModels });
+    const $ = load(html);
+    const name = $('header.top .brand .brand-name').first();
+    expect(name.text()).toBe('KREN');
+    expect(name.hasClass('sr-only')).toBe(true);
+    expect(html).toMatch(/\.sr-only \{ position: absolute; width: 1px; height: 1px;[^}]*clip: rect\(0, 0, 0, 0\);[^}]*\}/u);
+  });
+
+  it('V8: the Dictionary settings name the full Merriam-Webster product titles', () => {
+    const html = renderKrenResultViewHtml({ cspSource: 'vscode-webview://test', nonce: 'test-nonce', settings, proModels, activeScreen: 'settings' });
+    expect(html).toContain("Merriam-Webster's Collegiate&reg; Dictionary, Merriam-Webster's Collegiate&reg; Thesaurus, and Merriam-Webster's Medical Dictionary are supported.");
+  });
+
+  it('V1: deleting one selected User Dictionary entry asks in the singular', () => {
+    const source = readFileSync('src/extension.ts', 'utf8');
+    expect(source).toContain("ids.length === 1 ? 'Delete the selected User Dictionary entry?' : `Delete the ${ids.length} selected User Dictionary entries?`");
   });
 });

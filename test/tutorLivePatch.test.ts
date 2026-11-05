@@ -1440,6 +1440,56 @@ return updateTutorConversationHint;`
     expect(control.disabled).toBe(false);
   });
 
+  it('V15 shows a prepared hint that arrives with no busy message, and still refuses an old turn', () => {
+    // Added 2026-11-04: with Prepare hints in advance on, pressing Hint posts the finished hint
+    // at once, so no busy message ever put this turn on the block. The webview must learn the
+    // current turn from the clear message that starts each turn, and from the full render.
+    const root = new FakeElement('div');
+    const block = root.appendChild(new FakeElement('div'));
+    block.setAttribute('data-tutor-hint', '');
+    block.hidden = true;
+    const explanation = block.appendChild(new FakeElement('p'));
+    explanation.setAttribute('data-tutor-hint-explanation', '');
+    const example = block.appendChild(new FakeElement('p'));
+    example.setAttribute('data-tutor-hint-example', '');
+    const exampleText = example.appendChild(new FakeElement('span'));
+    exampleText.setAttribute('data-tutor-hint-example-text', '');
+    const control = root.appendChild(new FakeElement('button'));
+    control.setAttribute('data-command', 'hintTutorConversation');
+    const document = { querySelector: (selector: string) => root.querySelector(selector) };
+    const updateHint = new Function(
+      'document', 'HTMLElement', 'HTMLParagraphElement', 'HTMLButtonElement',
+      `${panelFunction('updateTutorConversationHint')}\nreturn updateTutorConversationHint;`
+    )(document, FakeElement, FakeElement, FakeElement) as (message: Record<string, unknown>) => void;
+
+    updateHint({ clear: true, turnGeneration: 4 });
+    updateHint({
+      busy: false, turnGeneration: 3,
+      hint: { explanation: 'For the question before.', example: 'An old example.' }
+    });
+    expect(block.hidden, 'a hint for an earlier turn stays hidden').toBe(true);
+    expect(explanation.textContent ?? '').not.toContain('before');
+
+    updateHint({
+      busy: false, turnGeneration: 4,
+      hint: { explanation: 'Use a past-tense event.', example: 'I visited a museum yesterday.' }
+    });
+    expect(block.hidden, 'the prepared hint for this turn is drawn').toBe(false);
+    expect(explanation.textContent).toBe('Use a past-tense event.');
+    expect(exampleText.textContent).toBe('I visited a museum yesterday.');
+    expect(block.getAttribute('data-tutor-hint-turn')).toBe('4');
+
+    // A full render replaces the document, so the rendered block must carry the turn too.
+    const state = createTutorViewState();
+    Object.assign(state.conversation, { status: 'active', replies: 'standard', currentQuestion: 'What happened?' });
+    const rendered = renderKrenResultViewHtml({
+      cspSource: 'test', nonce: 'test', settings: PANEL_SETTINGS_FIXTURE,
+      activeScreen: 'tutor' as const, tutor: state, proModels: [],
+      tutorConversationHintTurnGeneration: 9
+    } as Parameters<typeof renderKrenResultViewHtml>[0]);
+    expect(rendered.match(/<div data-tutor-hint[^>]*>/u)?.[0] ?? '').toContain('data-tutor-hint-current="9"');
+  });
+
   it('V131 disables stopped Live Replay when the host reports its stored audio was cleared', () => {
     const replay = new FakeElement('button');
     replay.setAttribute('data-command', 'replayTutorQuestion');

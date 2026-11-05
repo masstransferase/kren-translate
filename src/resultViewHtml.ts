@@ -31,7 +31,15 @@ import {
 } from './languageModelRouting.js';
 import type { KrenPanelCommand } from './panelCommands.js';
 import { isEnglishLanguageCode } from '@kren/core/languages';
-import { iconSvgMarkup, type IconName } from '@kren/core/icons';
+import {
+  PANEL_ICON_INFORMATION_DOT,
+  PANEL_ICON_PATHS,
+  PANEL_ICON_STROKE_WIDTH,
+  iconSvgMarkup,
+  isPanelIconName,
+  type IconName,
+  type PanelIconName
+} from '@kren/core/icons';
 import { PANEL_THEME_CSS, effectivePanelTheme, type PanelTheme, type PanelThemeKind } from './panelThemes.js';
 import {
   applyGrammarChoices as coreApplyGrammarChoices,
@@ -39,6 +47,7 @@ import {
 } from '@kren/core/grammar';
 import { isAllowedPronunciationUrl } from './pronunciation.js';
 import { PANEL_TEXT_MAX_LENGTH } from './grammarIssueId.js';
+import { GRAMMAR_HARPER_SKIPPED_NOTICE, grammarNothingChecked } from '@kren/core/grammar-input-language';
 import {
   KNOWN_TUTOR_LIVE_MODEL_IDS,
   CLOUDFLARE_IMAGE_MODEL_DEFAULT,
@@ -575,7 +584,10 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     : renderEmptyView(options.settings, options.brandImageUri, hasHeldResult,
       options.activeScreen !== 'start' ? 'empty'
         : !hasHeldResult && !options.busyNotice && !Object.values(options.settings.credentialPresence ?? {}).some(Boolean)
-          ? 'firstRun' : 'default', options.systemUpdatesAvailable === true);
+          ? 'firstRun' : 'default', options.systemUpdatesAvailable === true,
+    // First run means no provider key is saved and no result is held. Once either is true the
+    // description is no longer needed and the page leads with the action buttons.
+    !hasHeldResult && !Object.values(options.settings.credentialPresence ?? {}).some(Boolean));
   const settingsView = renderSettings(
     options.settings,
     proModels,
@@ -708,6 +720,7 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .intro-header .brand { gap: 15px; font-size: clamp(2.2rem, 9vw, 4.2rem); color: var(--vscode-descriptionForeground); letter-spacing: -.03em; }
     /* 2026-10-20 (owner, canvas): the Start page's KREN name is 30px. */
     .intro-header .brand-name { font-size: 30px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     .intro-header .brand-logo { width: clamp(68px, 18vw, 104px); height: clamp(68px, 18vw, 104px); border-radius: 13px; }
     .menu-wrap { position: relative; }
     .menu-button { font-size: 1.35rem; line-height: 1; }
@@ -893,6 +906,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .conditional-group.hidden { display: none; }
     .welcome { padding: clamp(16px, 4vw, 28px); text-align: left; }
     .welcome-lead { margin: 0 0 24px; font-size: 14px; line-height: 1.5; }
+    .welcome-heading { margin: 0 0 14px; font-size: 18px; line-height: 1.3; }
+    .welcome-stack { display: grid; gap: 24px; }
     .welcome-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(170px, .8fr); gap: clamp(18px, 5vw, 42px); align-items: start; }
     .welcome-flow { display: grid; gap: 14px; }
     .welcome-step { padding: 16px 18px; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); border-radius: 22px; background: var(--vscode-textBlockQuote-background, var(--vscode-editor-background)); }
@@ -944,6 +959,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .tutor-heading-actions > button, .tutor-conversation-front-actions > button { box-sizing: border-box; width: 60px; padding-left: 6px; padding-right: 6px; }
     .tutor-action-status-region { margin: 0 0 10px; }
     [data-tutor-shared-action] { box-sizing: border-box; inline-size: var(--tutor-shared-action-width, max-content); }
+    /* 10 px under Practice now and Practice again (V23, 2026-11-04). */
+    button.tutor-generate-practice { margin-bottom: 10px; }
     .tutor-action-status { margin: 7px 0 0; color: var(--vscode-descriptionForeground); }
     .tutor-action-status-region > p.tutor-action-status { margin-top: 15px; margin-bottom: 30px; }
     .tutor-map-search-row { display: grid; grid-template-columns: minmax(0, 1fr) ${renderTutorMapSearchControls(tutorState).map(() => 'max-content').join(' ')}; gap: 6px; margin-bottom: 8px; }
@@ -976,6 +993,9 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .tutor-tray-actions { display: flex; justify-content: flex-end; }
     .tutor-tray-actions { flex: 1 1 auto; flex-wrap: nowrap; align-items: flex-start; gap: 6px; }
     .tutor-tray-actions > span { display: flex; flex-direction: column; align-items: flex-end; }
+    /* F9 (V10): a Primary or Support button hidden by a limit leaves its reason, on its own line under the buttons. */
+    .tutor-tray-actions:has(> .tutor-action-reason) { flex-wrap: wrap; }
+    .tutor-tray-actions > span.tutor-action-reason { order: 2; flex: 1 1 100%; align-items: flex-end; text-align: right; font-size: .85em; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
     .tutor-message, .tutor-failure, .tutor-warning { margin: 7px 0; padding: 7px 9px; border-left: 3px solid var(--vscode-editorWarning-foreground); background: var(--vscode-textBlockQuote-background); }
     .tutor-screen-reader-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
     .tutor-selection-footnote { margin: 7px 0; padding: 0; font-size: 0.9em; color: var(--vscode-descriptionForeground); border: none; background: none; }
@@ -1126,6 +1146,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .tutor-conversation-composer { min-width: 0; overflow-wrap: anywhere; }
     .tutor-composer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 15px; margin-bottom: 10px; }
     .tutor-composer-actions, .tutor-composer-audio { display: flex; align-items: center; gap: 5px; }
+    /* The 18 px icon is wider than the 14 px left inside a 32 px button with 8 px padding, so it overflowed to the right; centering its track splits the overflow evenly. */
+    .tutor-composer-actions .icon-button { justify-content: center; }
     .tutor-composer-audio { margin-left: auto; }
     .tutor-conversation-start > .tutor-conversation-invitation { margin-top: -20px; margin-left: 0; }
     .tutor-conversation-start > .tutor-conversation-actions { margin-top: 10px; margin-bottom: 10px; }
@@ -1231,10 +1253,13 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .icon-button[data-tutor-chat-stop] { width: 32px; height: 32px; min-width: 32px; padding: 0; border-radius: 50%; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
     .tutor-tray-row .icon-button { background-color: transparent; border-color: transparent; color: var(--vscode-foreground); }
     .tutor-content .tutor-tray-row .icon-button:hover:where(:not(:disabled):not([aria-disabled="true"])) { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
-    .tutor-drawer-input { padding-top: 4px; position: relative; top: 12px; }
-    .tutor-drawer > .tutor-item-actions { padding-top: 16px; padding-bottom: 16px; }
+    .tutor-drawer-input { padding-top: 4px; display: block; margin: 12px 0; }
+    .tutor-drawer > section { margin: 12px 0; }
+    .tutor-drawer > .tutor-item-actions { margin: 12px 0; }
+    .tutor-drawer .tutor-dictionary-actions { align-items: flex-start; }
+    .tutor-drawer .tutor-dictionary-actions > button { height: 33px; margin: 0; }
     .tutor-ask-answer ul { padding-left: 16px; }
-    .tutor-tool-output-language { position: relative; left: 0; top: 12px; }
+    .tutor-tool-output-language { margin: 12px 0; }
     .tutor-output-language-note { font-weight: normal; }
     .tutor-tray-actions [data-tutor-no-target][data-tutor-role="primary"] { padding-top: 6px; }
     [data-draft-capture-mode] { position: relative; top: 8px; }
@@ -1247,6 +1272,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
     .dictionary-filter-empty-note { position: relative; }
     @media (max-width: 520px) { body { padding: 10px; } .intro-header { align-items: center; } .provider { text-align: left; } .welcome-layout, .dictionary-layout { grid-template-columns: 1fr; } .capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 380px) { .capability-grid { grid-template-columns: 1fr; } }
+    /* F9 (V11): at 360 px and narrower each learning-map dropdown sits under its label, so a long option name shows whole. */
+    @media (max-width: 360px) { .tutor-map-level { grid-template-columns: minmax(0, 1fr); gap: 5px; } }
   </style>
 </head>
 <body data-active-screen="${escapeHtml(options.activeScreen ?? 'result')}"${busyNotice ? ' data-busy' : ''}${options.focusSettingsSection ? ` data-focus-section="${escapeHtml(options.focusSettingsSection)}"` : ''}${options.focusTutorTargetId ? ` data-focus-tutor-target="${escapeHtml(options.focusTutorTargetId)}"` : ''}${options.focusTutorResult ? ` data-focus-tutor-result="${escapeHtml(options.focusTutorResult)}"` : ''}${options.focusTutorConversation ? ' data-focus-tutor-conversation="true"' : ''}${options.tutorResetDisclosures ? ' data-tutor-reset-disclosures="true"' : ''}${options.tutorAnnouncement ? ` data-tutor-announcement="${escapeHtml(options.tutorAnnouncement)}"` : ''}>
@@ -1933,6 +1960,8 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       if (message?.clear === true) {
         block.hidden = true;
         block.removeAttribute('data-tutor-hint-turn');
+        // Every new turn starts with a clear, so it also tells this page which turn is current.
+        if (Number.isInteger(message?.turnGeneration)) block.setAttribute('data-tutor-hint-current', String(message.turnGeneration));
         block.setAttribute('role', 'group');
         explanation.textContent = '';
         explanation.classList.remove('tutor-failure');
@@ -1944,9 +1973,14 @@ export function renderKrenResultViewHtml(options: ResultViewHtmlOptions): string
       const busy = message?.busy === true;
       const turnGeneration = Number.isInteger(message?.turnGeneration)
         ? String(message.turnGeneration) : '';
-      if (!busy && turnGeneration && block.getAttribute('data-tutor-hint-turn') !== turnGeneration) return;
+      // A finished hint is shown for the turn that asked for it: the one a busy message marked, or,
+      // for a prepared hint that arrives with no busy message, the turn the page knows is current.
+      if (!busy && turnGeneration && (block.getAttribute('data-tutor-hint-turn') ?? block.getAttribute('data-tutor-hint-current')) !== turnGeneration) return;
       if (control instanceof HTMLButtonElement) control.disabled = busy;
-      if (busy && turnGeneration) block.setAttribute('data-tutor-hint-turn', turnGeneration);
+      if (turnGeneration) {
+        block.setAttribute('data-tutor-hint-turn', turnGeneration);
+        block.setAttribute('data-tutor-hint-current', turnGeneration);
+      }
       block.hidden = false;
       block.setAttribute('role', busy ? 'status' : 'group');
       explanation.classList.toggle('tutor-failure', !busy && typeof message?.failure === 'string');
@@ -4175,21 +4209,33 @@ function renderEmptyView(
   brandImageUri: string | undefined,
   hasHeldResult = false,
   statusLayout: 'empty' | 'firstRun' | 'default' = 'default',
-  updatesAvailable = false
+  updatesAvailable = false,
+  firstRunIntro = true
 ): string {
-  return `${renderHeader('', false, brandImageUri, true, hasHeldResult, updatesAvailable)}
-  <section class="card welcome${statusLayout === 'firstRun' ? ' welcome-first-run' : ''}">
-    <p class="welcome-lead"><strong>KREN is a privacy-conscious language copilot for dictionaries, smart grammar checking, translation, nuance, rewriting, and read-aloud, with multilingual and auto-detect support, plus an LLM-based AI English Tutor, inside VS Code.</strong></p>
-    <div class="welcome-layout">
-      <div class="welcome-flow">
+  const flow = `<div class="welcome-flow">
         <div class="welcome-step"><strong>1. Select or copy</strong><span>Select editor text, or copy text from chat, terminals, and other panels.</span></div>
         <div class="welcome-step"><strong>2. Choose an action</strong><span>${statusLayout === 'empty' ? '<span>Right-click the selection, or click</span>' : 'Right-click the selection, or click'} <span class="welcome-status-item" aria-label="KREN status bar item"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14H6c.818 0 1.544-.393 2-1c.456.607 1.182 1 2 1h3.5a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 13.5 2H10c-.818 0-1.544.393-2 1a2.5 2.5 0 0 0-2-1zm5 2.5v7A1.5 1.5 0 0 1 6 13H2.5a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5H6a1.5 1.5 0 0 1 1.5 1.5m1 7v-7A1.5 1.5 0 0 1 10 3h3.5a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5H10a1.5 1.5 0 0 1-1.5-1.5"/></svg>${statusLayout === 'firstRun' ? '<span>KREN</span>' : 'KREN'}</span> ${statusLayout === 'empty' ? '<span>in the status bar for clipboard text.</span>' : 'in the status bar for clipboard text.'}</span></div>
         <div class="welcome-step"><strong>3. Use the result</strong><span>Read, compare, copy, replace eligible text, hear pronunciation, or open full details.</span></div>
-      </div>
-      <div class="capability-grid" aria-label="KREN capabilities">
+      </div>`;
+  const grid = `<div class="capability-grid" aria-label="KREN capabilities">
         ${capabilityAvailability(settings).map(capabilityButton).join('\n')}
-      </div>
-    </div>
+      </div>`;
+  // The first visit keeps the one-sentence description beside the steps. Every later visit
+  // opens on the heading and the action buttons, with the three steps below them.
+  const body = firstRunIntro
+    ? `<p class="welcome-lead"><strong>KREN is a privacy-conscious language copilot for dictionaries, smart grammar checking, translation, nuance, rewriting, and read-aloud, with multilingual and auto-detect support, plus an LLM-based AI English Tutor, inside VS Code.</strong></p>
+    <div class="welcome-layout">
+      ${flow}
+      ${grid}
+    </div>`
+    : `<h2 class="welcome-heading">Choose a KREN action</h2>
+    <div class="welcome-stack">
+      ${grid}
+      ${flow}
+    </div>`;
+  return `${renderHeader('', false, brandImageUri, true, hasHeldResult, updatesAvailable)}
+  <section class="card welcome${statusLayout === 'firstRun' ? ' welcome-first-run' : ''}">
+    ${body}
     <p class="privacy-note">KREN sends text only when you choose an action above. Nothing leaves this machine while you type, select, or hover.</p>
     <p class="credits">${krenCreditLine(settings.extensionVersion)}</p>
   </section>`;
@@ -4245,7 +4291,7 @@ function renderHeader(
     : '';
   return `<header class="top${prominent ? ' intro-header' : ''}">
     <div class="top-main">
-      <div class="brand">${logo}<span class="brand-name">KREN</span></div>
+      <div class="brand">${logo}<span class="brand-name sr-only">KREN</span></div>
       ${provider}
     </div>
     <div class="top-actions">
@@ -4427,6 +4473,9 @@ function renderGrammar(
   choices: ReadonlyArray<{ issueId: string; suggestionIndex: number }> | undefined,
   allowReplace: boolean
 ): string {
+  if (grammarNothingChecked(result)) {
+    return `<p><strong>${escapeHtml(GRAMMAR_HARPER_SKIPPED_NOTICE)}</strong></p>`;
+  }
   if (!result.issues.length) {
     return '<p><strong>No spelling or grammar issues found.</strong></p><p class="muted">Harper is a local rule-based checker; a clean result is not a guarantee that every possible issue was detected.</p>';
   }
@@ -4928,7 +4977,7 @@ function renderSettings(
     </details>
     <details class="settings-group" data-settings-section="dictionary" data-persist-id="settings-dictionary" open>
       <summary><h3>Dictionary</h3></summary>
-      <p class="settings-intro"><strong>Merriam-Webster keys:</strong> Collegiate Dictionary, Collegiate Thesaurus, and Medical Dictionary are supported. Each account gets two keys; remove one to choose another. No shared keys; provider terms apply.</p>
+      <p class="settings-intro"><strong>Merriam-Webster keys:</strong> Merriam-Webster's Collegiate&reg; Dictionary, Merriam-Webster's Collegiate&reg; Thesaurus, and Merriam-Webster's Medical Dictionary are supported. Each account gets two keys; remove one to choose another. No shared keys; provider terms apply.</p>
       ${toggleSetting('Translate unmatched phrases', 'If Merriam-Webster has no multi-word entry, use Google Cloud Translation.', 'dictionary.multiWordTranslationFallback', settings.multiWordTranslationFallback)}
       ${toggleSetting('Windows background pronunciation', 'On local Windows, plays Merriam-Webster audio in the background; falls back to the KREN player.', 'pronunciation.windowsNativePlayback', settings.windowsNativePronunciation)}
     </details>
@@ -5590,8 +5639,13 @@ function renderTutorActions(
     state.exerciseBusy
       ? '<p id="tutor-action-exercise-busy" class="tutor-action-status">Preparing practice.</p>'
       : '',
-    state.lessonFailure ? `<p class="tutor-failure">${escapeHtml(state.lessonFailure)}</p>` : '',
-    state.exerciseFailure ? `<p class="tutor-failure">${escapeHtml(state.exerciseFailure)}</p>` : ''
+    // The reasons sit in a native details element, collapsed, so keyboard and screen readers need no script.
+    state.lessonFailure && state.lessonFailureReasons
+      ? `<div class="tutor-failure" data-tutor-lesson-failure><p>${escapeHtml(state.lessonFailure)}</p><details data-tutor-lesson-failure-reasons><summary>Show reasons</summary><p>${escapeHtml(state.lessonFailureReasons)}</p></details></div>`
+      : state.lessonFailure ? `<p class="tutor-failure">${escapeHtml(state.lessonFailure)}</p>` : '',
+    state.exerciseFailure && state.exerciseFailureReasons
+      ? `<div class="tutor-failure" data-tutor-practice-failure><p>${escapeHtml(state.exerciseFailure)}</p><details data-tutor-practice-failure-reasons><summary>Show reasons</summary><p>${escapeHtml(state.exerciseFailureReasons)}</p></details></div>`
+      : state.exerciseFailure ? `<p class="tutor-failure">${escapeHtml(state.exerciseFailure)}</p>` : ''
   ].join('');
   return {
     // Changed 2026-09-30: drafting actions follow Lesson settings; practice precedes Common errors.
@@ -5813,7 +5867,8 @@ function tutorTargetActionButton(
   role: 'primary' | 'support',
   reason: string | undefined
 ): string {
-  if (reason) return '';
+  // F9 (V10): a limit that hides the button leaves its reason in its place, as the sibling host does.
+  if (reason) return `<span class="tutor-action-reason" data-tutor-action-reason="${role}">${escapeHtml(label)}: ${escapeHtml(reason)}</span>`;
   const noTarget = !nodeId;
   return `<span><button type="button" class="tutor-map-action" data-tutor-shared-action data-command="updateTutorTarget" data-tutor-target="${escapeHtml(nodeId ?? '')}" data-tutor-role="${role}" title="${escapeHtml(title)}"${noTarget ? ' data-tutor-no-target aria-disabled="true" aria-description="Choose a learning-map option to make this action available."' : ''}>${escapeHtml(label)}</button></span>`;
 }
@@ -6563,8 +6618,11 @@ export function renderTutorConversation(
     ? bubble(conversation.currentQuestion, conversation.currentQuestionTargetMarks) : '';
   const hintTurn = conversation.hintBusy && Number.isInteger(tutorConversationHintTurnGeneration)
     ? ` data-tutor-hint-turn="${tutorConversationHintTurnGeneration}"` : '';
+  // The current turn is always carried, so a prepared hint can still land after a full render.
+  const hintCurrent = Number.isInteger(tutorConversationHintTurnGeneration)
+    ? ` data-tutor-hint-current="${tutorConversationHintTurnGeneration}"` : '';
   const hintMarkup = active && !coach
-    ? `<div data-tutor-hint${hintTurn}${conversation.hint || conversation.hintBusy || conversation.hintFailure ? '' : ' hidden'}${conversation.hintBusy ? ' role="status"' : ' role="group"'}><p${!conversation.hintBusy && !conversation.hint && conversation.hintFailure ? ' class="tutor-failure"' : ''} data-tutor-hint-explanation>${conversation.hintBusy
+    ? `<div data-tutor-hint${hintTurn}${hintCurrent}${conversation.hint || conversation.hintBusy || conversation.hintFailure ? '' : ' hidden'}${conversation.hintBusy ? ' role="status"' : ' role="group"'}><p${!conversation.hintBusy && !conversation.hint && conversation.hintFailure ? ' class="tutor-failure"' : ''} data-tutor-hint-explanation>${conversation.hintBusy
         ? 'Writing a hint. Please wait.'
         : escapeHtml(conversation.hint?.explanation ?? conversation.hintFailure ?? '')}</p><p data-tutor-hint-example${conversation.hint ? '' : ' hidden'}><strong>Example:</strong> <span data-tutor-hint-example-text>${escapeHtml(conversation.hint?.example ?? '')}</span></p></div>`
     : '';
@@ -6765,9 +6823,9 @@ function renderTutorToolDrawer(state: TutorViewState, configuredTargetLanguage: 
         : 'Ask about this practice item';
   const action = drawer.tool === 'dictionary' ? 'Look up' : drawer.tool === 'translate' ? 'Translate' : 'Ask';
   const restoreSentence = drawer.tool === 'dictionary' && drawer.context !== undefined
-    ? '<button type="button" class="secondary" data-command="restoreTutorDictionaryContext">Restore sentence</button>'
+    ? '<button type="button" class="secondary" data-command="restoreTutorDictionaryContext">Restore</button>'
     : '';
-  return `<aside class="tutor-drawer" role="dialog" aria-modal="true" aria-label="Learning Tools"><button type="button" class="secondary" data-command="closeTutorTool">Back to lesson</button><h2>${heading}</h2>${drawerContext}<label><strong>${inputLabel}</strong><textarea class="tutor-answer tutor-drawer-input" data-tutor-tool-input>${escapeHtml(drawer.input)}</textarea></label>${outputLanguage}<div class="tutor-item-actions"><button type="button" data-command="submitTutorTool"${drawer.status === 'loading' || !drawer.input.trim() ? ' disabled' : ''}>${action}</button>${restoreSentence}</div><div class="tutor-drawer-result">${content}</div></aside>`;
+  return `<aside class="tutor-drawer" role="dialog" aria-modal="true" aria-label="Learning Tools"><button type="button" class="secondary" data-command="closeTutorTool">Back to lesson</button><h2>${heading}</h2>${drawerContext}<label><strong>${inputLabel}</strong><textarea class="tutor-answer tutor-drawer-input" data-tutor-tool-input>${escapeHtml(drawer.input)}</textarea></label>${outputLanguage}<div class="tutor-item-actions${drawer.tool === 'dictionary' ? ' tutor-dictionary-actions' : ''}"><button type="button" data-command="submitTutorTool"${drawer.status === 'loading' || !drawer.input.trim() ? ' disabled' : ''}>${action}</button>${restoreSentence}</div><div class="tutor-drawer-result">${content}</div></aside>`;
 }
 
 function renderTutorAskAnswer(answer: TutorAskAnswer, sentenceContext: boolean): string {
@@ -6928,7 +6986,7 @@ function renderUserDictionary(
   const selectedCount = selectedIds.size;
   const previews = `${state.importPreview ? renderUserDictionaryImportPreview(state.importPreview) : ''}${state.purgePreview ? renderUserDictionaryPurgePreview(state.purgePreview) : ''}`;
   const deleteSelectedLabel = `Delete selected (${selectedCount}) User Dictionary entr${selectedCount === 1 ? 'y' : 'ies'}`;
-  return `${header}<h2>User Dictionary</h2><p class="settings-intro">${state.entries.length} entr${state.entries.length === 1 ? 'y' : 'ies'}, alphabetized case-insensitively by display term. ${visible.length} shown.</p><div class="settings-buttons">${iconButton('runCommand', 'data-action="kren.addToUserDictionary"', 'Add to User Dictionary', 'Add to User Dictionary', 'add')}${deleteIconButton('deleteSelectedUserDictionaryEntries', '', deleteSelectedLabel, selectedCount === 0)}<button class="secondary" data-command="exportUserDictionary" data-export-format="json" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export selected JSON</button><button class="secondary" data-command="exportUserDictionary" data-export-format="markdown" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export selected Markdown</button><button class="secondary" data-command="previewUserDictionaryImport">Import</button></div><p class="model-note${state.entries.length > 0 && visible.length === 0 ? ' dictionary-filter-empty-note' : ''}">JSON is lossless backup and restore. Markdown is human-readable and lossy by design.</p>${filters}${state.entries.length > 0 ? renderUserDictionaryPurgeControl() : ''}${previews}<div class="dictionary-layout"><section class="card dictionary-list"><h3 class="card-title">Entries</h3><div class="card-body">${list}</div></section><section class="card dictionary-detail"><h3 class="card-title">Details</h3><div class="card-body">${details}</div></section></div>`;
+  return `${header}<h2>User Dictionary</h2><p class="settings-intro">${state.entries.length} entr${state.entries.length === 1 ? 'y' : 'ies'}, alphabetized case-insensitively by display term. ${visible.length} shown.</p><div class="settings-buttons">${iconButton('runCommand', 'data-action="kren.addToUserDictionary"', 'Add to User Dictionary', 'Add to User Dictionary', 'add')}${deleteIconButton('deleteSelectedUserDictionaryEntries', '', deleteSelectedLabel, selectedCount === 0)}<button class="secondary" data-command="exportUserDictionary" data-export-format="json" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export JSON</button><button class="secondary" data-command="exportUserDictionary" data-export-format="markdown" data-selected-only="true"${selectedCount === 0 ? ' disabled' : ''}>Export Markdown</button><button class="secondary" data-command="previewUserDictionaryImport">Import</button></div><p class="model-note${state.entries.length > 0 && visible.length === 0 ? ' dictionary-filter-empty-note' : ''}">JSON is lossless backup and restore. Markdown is human-readable and lossy by design.</p>${filters}${state.entries.length > 0 ? renderUserDictionaryPurgeControl() : ''}${previews}<div class="dictionary-layout"><section class="card dictionary-list"><h3 class="card-title">Entries</h3><div class="card-body">${list}</div></section><section class="card dictionary-detail"><h3 class="card-title">Details</h3><div class="card-body">${details}</div></section></div>`;
 }
 
 function renderUserDictionaryPurgeControl(): string {
@@ -6998,6 +7056,11 @@ function renderCapturedContext(entry: UserDictionaryEntryV1): string {
   return `<div class="captured-context"><h3>In the captured text</h3>${partOfSpeech ? `<p class="captured-part-of-speech">${escapeHtml(partOfSpeech)}</p>` : ''}<p>${escapeHtml(matched.definition)}</p>${matched.usageNote ? `<p class="muted">${escapeHtml(matched.usageNote)}</p>` : ''}${matched.synonyms.length > 0 ? `<p><strong>Synonyms:</strong> ${escapeHtml(matched.synonyms.join(', '))}</p>` : ''}${sentence}</div>`;
 }
 
+/** The details line shows the date alone ("2026-10-25"), never the raw ISO timestamp. */
+export function userDictionaryUpdatedDate(updatedAt: string): string {
+  return updatedAt.slice(0, 10);
+}
+
 function renderUserDictionaryDetails(entry: UserDictionaryEntryV1): string {
   // The part of speech is repeated on a sense only when the senses disagree about it. Three
   // senses all reading "adjective" under an entry whose filing line already says adjective
@@ -7009,7 +7072,7 @@ function renderUserDictionaryDetails(entry: UserDictionaryEntryV1): string {
   const entryAttribute = `data-entry-id="${escapeHtml(entry.id)}"`;
   const entryLabel = `User Dictionary entry ${entry.term}`;
   const actions = `<div class="settings-buttons entry-actions">${readAloudIconButton('readUserDictionaryEntry', entryAttribute, entry.term)}${stopSpeechIconButton()}${editIconButton('editUserDictionaryEntry', entryAttribute, `Edit ${entryLabel}`)}${deleteIconButton('deleteUserDictionaryEntry', entryAttribute, `Delete ${entryLabel}`)}</div>`;
-  return `<h2>${escapeHtml(entry.term)}</h2>${actions}<p class="dictionary-meta">${escapeHtml(entry.entryType)} | ${escapeHtml(entry.language)} | ${escapeHtml(entry.collection)}</p>${entry.pronunciation?.display ? `<p><strong>Pronunciation:</strong> ${escapeHtml(entry.pronunciation.display)}</p>` : ''}${renderCapturedContext(entry)}<h3>${entry.capturedContext ? 'All meanings' : 'Meanings'}</h3>${senses}<p class="dictionary-meta">${escapeHtml(userDictionarySourceLine(entry))} Updated ${escapeHtml(entry.updatedAt)}.</p>`;
+  return `<h2>${escapeHtml(entry.term)}</h2>${actions}<p class="dictionary-meta">${escapeHtml(entry.entryType)} | ${escapeHtml(entry.language)} | ${escapeHtml(entry.collection)}</p>${entry.pronunciation?.display ? `<p><strong>Pronunciation:</strong> ${escapeHtml(entry.pronunciation.display)}</p>` : ''}${renderCapturedContext(entry)}<h3>${entry.capturedContext ? 'All meanings' : 'Meanings'}</h3>${senses}<p class="dictionary-meta">${escapeHtml(userDictionarySourceLine(entry))} Updated ${escapeHtml(userDictionaryUpdatedDate(entry.updatedAt))}.</p>`;
 }
 
 
@@ -7304,11 +7367,24 @@ function panelIconSvgMarkup(icon: IconName | 'add' | 'pause' | 'key' | 'tutor'):
   // the plain sparkles stay the tutor's Ask mark.
   if (icon === 'tutor') return svg('<path d="M4 5.5h16v10.5H10l-4.5 3.5V16H4z"/><path d="M12 7.6l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8z" fill="currentColor" stroke-width="1.2"/>');
   if (icon === 'key') return svg('<circle cx="7.5" cy="12" r="3.5"/><path d="M11 12h9.5M17 12v3M20 12v4"/>');
-  if (icon === 'reset') return svg('<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9"/><path d="M4.5 4.5V9H9"/>');
-  if (icon === 'information') return svg('<circle cx="14.2" cy="5.2" r="1.8" fill="currentColor" stroke="none"/><path d="M9.6 10.4l3.6-.6-2.3 8.6c-.35 1.3.75 1.8 1.65 1l1.25-1.1" stroke-width="2.4"/>');
-  if (icon === 'support') return svg('<g stroke-width="3.4"><path d="M15.5 7.4A4 4 0 0 0 12 5.5h-.6A3.4 3.4 0 0 0 8 8.9c0 1.7 1.2 2.6 2.8 3l2.4.6c1.7.4 2.9 1.4 2.9 3.1a3.4 3.4 0 0 1-3.5 2.9h-.8a4 4 0 0 1-3.6-2"/></g>');
-  if (icon === 'primary') return iconSvgMarkup(icon).replace('<path ', '<g stroke-width="3.4"><path ').replace('</svg>', '</g></svg>');
+  if (isPanelIconName(icon)) return panelGlyphMarkup(icon);
   return iconSvgMarkup(icon);
+}
+
+// The four tutor-panel glyphs are drawn from core's table, so the paths, stroke widths and the
+// information dot are written once. This function only turns that data into markup.
+function panelGlyphMarkup(name: PanelIconName): string {
+  const open = '<svg aria-hidden="true" viewBox="0 0 24 24">';
+  const path = (definition: string, width?: string) =>
+    `<path d="${definition}"${width ? ` stroke-width="${width}"` : ''}/>`;
+  if (name === 'information') {
+    const dot = PANEL_ICON_INFORMATION_DOT;
+    const body = PANEL_ICON_PATHS.information.map((definition) => path(definition, PANEL_ICON_STROKE_WIDTH.information)).join('');
+    return `${open}<circle cx="${dot.cx}" cy="${dot.cy}" r="${dot.r}" fill="currentColor" stroke="none"/>${body}</svg>`;
+  }
+  const paths = PANEL_ICON_PATHS[name].map((definition) => path(definition)).join('');
+  if (name === 'reset') return `${open}${paths}</svg>`;
+  return `${open}<g stroke-width="${PANEL_ICON_STROKE_WIDTH[name]}">${paths}</g></svg>`;
 }
 
 function iconButton(
