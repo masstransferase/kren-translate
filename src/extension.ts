@@ -62,6 +62,7 @@ import {
 import { krenConfigurationKeys, krenResetPlan } from './resetKren.js';
 import { resultDetails, resultText } from './render.js';
 import {
+  clipboardCopyNotice,
   describeClipboardDecision,
   rewriteClipboardText,
   shouldCopyRewriteToClipboard
@@ -2387,7 +2388,8 @@ async function executeLookup(
          * the reader out of whatever they were working in. Silently updated, never surfaced.
          */
         resultsView.setResult(result, snapshot.selectedText, true, operation);
-        notify('information', `KREN: ${REPLAY_SUBJECTS[operation]} copied. Paste with Ctrl+V.`);
+        const copiedNotice = clipboardCopyNotice(REPLAY_SUBJECTS[operation], resultsView.panelVisible);
+        if (copiedNotice) notify('information', copiedNotice);
         return;
       }
     }
@@ -2977,7 +2979,8 @@ async function executeClipboardLookup(context: vscode.ExtensionContext): Promise
         await copyTextResult(clipboardText);
         // setResult renders without revealing, so the panel is current and stays where it is.
         resultsView.setResult(result, rawText, false, selectedOperation);
-        notify('information', `KREN: ${REPLAY_SUBJECTS[selectedOperation]} copied. Paste with Ctrl+V.`);
+        const copiedNotice = clipboardCopyNotice(REPLAY_SUBJECTS[selectedOperation], resultsView.panelVisible);
+        if (copiedNotice) notify('information', copiedNotice);
         return;
       }
     }

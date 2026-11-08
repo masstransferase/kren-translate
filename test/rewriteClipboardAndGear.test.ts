@@ -185,7 +185,8 @@ describe('a single-variant rewrite can go straight to the clipboard', () => {
    * copied, and that the route returns before both setResult and showResult.
    */
   it('names which rewrite it copied, from the one label map rather than a second copy', () => {
-    expect(source).toContain('${REPLAY_SUBJECTS[operation]} copied.');
+    // Changed 2026-11-08: the sentence moved into clipboardCopyNotice (src/rewriteClipboard.ts).
+    expect(source).toContain('clipboardCopyNotice(REPLAY_SUBJECTS[operation], resultsView.panelVisible)');
     expect(REPLAY_SUBJECTS.rewriteMinimal).toBe('Minimal Rewrite');
     expect(REPLAY_SUBJECTS.rewriteFull).toBe('Full Rewrite');
   });

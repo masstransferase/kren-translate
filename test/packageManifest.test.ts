@@ -103,8 +103,8 @@ describe('VS Code menu contributions', () => {
     expect(manifest.activationEvents).toEqual(['onStartupFinished']);
     /*
      * On since 1.7.9, when the owner asked for their current settings to become KREN's
-     * declared defaults. It is a checkpoint rather than a preference: `STARTUP_SIDEBAR_TEST_1.0.4.md`
-     * records a Windows boot problem investigated against this preference on 2026-07-31 and
+     * declared defaults. It is a checkpoint rather than a preference: the startup-safety lesson in section 8 of
+     * `KREN_VSCODE_CONTEXT.md` (from the retired `STARTUP_SIDEBAR_TEST_1.0.4.md`) records a Windows boot problem investigated against this preference on 2026-07-31 and
      * concludes that it "may be enabled or disabled according to user preference while Fast
      * Startup remains disabled". The finding was that Windows Fast Startup decided the
      * problem and this setting did not, and the recorded faulting module was the Intel

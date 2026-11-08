@@ -1,6 +1,6 @@
 # KREN User Guide
 
-This guide applies to KREN 2.0.3.
+This guide applies to KREN 2.0.4.
 
 API means application programming interface; LLM means large language model. Bold names in the steps are control labels or Command Palette commands; speaker, pencil, and trash icons are identified by their position when their accessible labels include the current term.
 
@@ -100,7 +100,7 @@ Correct wording or apply your chosen writing style.
 
 1. Open **Settings**, **Rewrite Text**. Choose its provider in **LLM ROUTING**. For a styled rewrite, set **Output language**, **Domain**, **Formality**, **Voice**, **Stance**, **Length**, **Perspective**, and **Rhetorical mode** in their groups.
 2. Select or copy text. Run **KREN: Rewrite Text: Minimal Rewrite** for source-language corrections, **KREN: Rewrite Text: Full Rewrite** for your style choices, or **KREN: Rewrite Text: Both Variants** to compare.
-3. For a single result in the panel, turn **Copy result to clipboard** off before running. With it on, a single variant goes directly to the clipboard.
+3. For a single result in the panel, turn **Copy result to clipboard** off before running. With it on, a single variant goes directly to the clipboard and also appears in the panel; KREN confirms the copy with a popup only while the panel is hidden. Dictated text is fine: Rewrite removes fillers, repeated words and abandoned attempts.
 4. Read the variant, then copy it or replace the eligible selection. Use its speaker and stop icons when **Show Read Aloud controls** is on.
 
 Both Variants always opens the comparison panel. Minimal Rewrite keeps the source language; Full Rewrite can use your chosen output language.

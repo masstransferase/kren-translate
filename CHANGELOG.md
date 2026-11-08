@@ -4,6 +4,13 @@ This changelog describes KREN for Visual Studio Code.
 
 ## Unreleased
 
+## 2.0.4
+
+### Fixed in 2.0.4
+
+- Rewrite Text no longer shows the "copied" popup while the KREN panel is open, since the result is already on screen. With the panel hidden, the popup still appears.
+- Rewrite Text handles dictated text better: Minimal Rewrite keeps the words and tense left after removing fillers and repeats, and Full Rewrite no longer adds intensity or formality on its own.
+
 ## 2.0.3
 
 Fixes from testing 2.0.2.

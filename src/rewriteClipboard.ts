@@ -29,6 +29,16 @@ export function shouldCopyRewriteToClipboard(
 }
 
 /**
+ * The popup that confirms a copy, or nothing. Since 2026-11-08: while the KREN panel is
+ * visible the notice must not appear, because setResult has already put the result on the
+ * panel in front of the reader; while the panel is hidden the centered dialog is right.
+ * `subject` is REPLAY_SUBJECTS[operation], passed in so this module stays free of operations.ts.
+ */
+export function clipboardCopyNotice(subject: string, panelVisible: boolean): string | undefined {
+  return panelVisible ? undefined : `KREN: ${subject} copied. Paste with Ctrl+V.`;
+}
+
+/**
  * The text to copy: the variant this operation asked for, found by the same operation-to-variant
  * mapping the provider uses to build the request.
  *

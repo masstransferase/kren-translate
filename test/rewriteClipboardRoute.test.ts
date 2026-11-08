@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  clipboardCopyNotice,
   CLIPBOARD_REWRITE_OPERATIONS,
   rewriteClipboardText,
   shouldCopyRewriteToClipboard
@@ -197,5 +198,25 @@ describe('the clipboard route updates the panel without surfacing it', () => {
     // Changed 2026-10-23 (V301, verification R28): D20 routes copy confirmations to a popup with OK.
     expect(branch.slice(0, 900)).toContain("notify('information'");
     expect(branch.slice(0, 900)).not.toContain('setStatusBarMessage');
+  });
+
+  // Since 2026-11-08: no copy popup while the panel is visible, in both entry points.
+  it('asks the panel visibility before every copy popup', () => {
+    for (const branch of clipboardBranches()) {
+      expect(branch).toMatch(/clipboardCopyNotice\(REPLAY_SUBJECTS\[\w+\], resultsView\.panelVisible\)/u);
+      expect(branch).not.toContain('copied. Paste');
+    }
+  });
+});
+
+describe('the copy popup appears only while the panel is hidden', () => {
+  it('says nothing while the KREN panel is visible, since the result is in front of the reader', () => {
+    expect(clipboardCopyNotice('Minimal Rewrite', true)).toBeUndefined();
+    expect(clipboardCopyNotice('Full Rewrite', true)).toBeUndefined();
+  });
+
+  it('names the copied rewrite while the panel is hidden', () => {
+    expect(clipboardCopyNotice('Minimal Rewrite', false)).toBe('KREN: Minimal Rewrite copied. Paste with Ctrl+V.');
+    expect(clipboardCopyNotice('Full Rewrite', false)).toBe('KREN: Full Rewrite copied. Paste with Ctrl+V.');
   });
 });

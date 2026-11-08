@@ -142,7 +142,8 @@ it.each(['opening', 'reply'])('V230 mounted %s keeps ordering and voice reveal a
   expect(h.edge.speak).not.toHaveBeenCalled(); expect(h.documents()).toBe(1);
   expect(h.messages.filter(m => m.command === 'playGeneratedAudio')).toHaveLength(4);
   h.chirp.stop();
-});
+// Changed 2026-11-08: 6 to 15 s locally and 14 s on CI, so 30 s timed out on a busy runner (run 42304828097).
+}, 60_000);
 it('V230 defers another screen and renders it only when the whole Chirp utterance ends', async () => {
   const h = harness(); const pending = h.speak(first + ' ' + second); await flush(); const panel = h.panel();
   h.internals.activeScreen = 'settings'; h.view.render(); expect(h.panel()).toBe(panel);
