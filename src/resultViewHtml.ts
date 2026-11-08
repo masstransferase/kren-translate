@@ -4937,7 +4937,7 @@ function renderSettings(
         ${toggleSetting('Show Read Aloud controls', 'Use the shared Read Aloud source, voice, speed, and volume configured below for every rewrite variant.', 'rewrite.tts.enabled', settings.ttsEnabled)}`,
         activeRewriteSettingsGroup
       )}
-      ${toggleSetting('Copy result to clipboard', 'Minimal or Full Rewrite only: copies the result to the clipboard and leaves this panel as is.', 'rewrite.copyToClipboard', settings.rewriteCopyToClipboard)}
+      ${toggleSetting('Copy result to clipboard', 'Minimal or Full Rewrite only: copies the result to the clipboard and also shows it in this panel.', 'rewrite.copyToClipboard', settings.rewriteCopyToClipboard)}
     </details>
     <details class="settings-group" data-settings-section="readAloud" data-persist-id="settings-readAloud" open>
       <summary><h3>Read Aloud</h3></summary>
